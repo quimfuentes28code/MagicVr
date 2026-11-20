@@ -1,5 +1,5 @@
 // Service worker mínimo: guarda la app para abrirla rápido (y sin red).
-const CACHE = 'mtgvr-v1';
+const CACHE = 'mtgvr-v2';
 self.addEventListener('install', (e) => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {

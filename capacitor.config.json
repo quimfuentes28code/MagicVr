@@ -1,0 +1,6 @@
+{
+  "appId": "com.magicvr.mesa",
+  "appName": "MagicVR",
+  "webDir": "dist",
+  "android": { "backgroundColor": "#07060c" }
+}

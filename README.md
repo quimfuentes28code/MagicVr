@@ -2,17 +2,22 @@
 
 Web app para móvil: abres la app, eliges modo (tutorial, 1 contra 1 o Commander) y a través de la cámara ves tu mesa con un **tapete virtual** encima. Juegas con tus **cartas físicas**: cada vez que bajas una carta la escaneas (o la buscas por nombre) y aparece en el tapete con su animación. La app lleva las vidas, las fases del turno y resuelve los combates, y te explica en cada momento qué puedes hacer.
 
-## Qué incluye esta primera versión
+## Cómo se juega
 
-- **Menú** con Tutorial, 1 contra 1, Commander y Reglas básicas.
-- **Mesa aumentada**: cámara trasera de fondo + tapete en perspectiva (inclinación y tamaño ajustables en ☰). Si no hay cámara, se ve un tapete virtual.
-- **Registrar cartas**: escáner OCR del nombre (Tesseract.js), búsqueda por nombre en español o inglés (API de Scryfall) y atajos para las tierras básicas. Las imágenes salen de Scryfall (en español si existen).
-- **Motor de reglas simplificado**: una tierra por turno, pago de maná por colores (gira tus tierras solo), mareo de invocación, fases, ataques/bloqueos, daño de combate con vuela, alcance, prisa, vigilancia, arrollar, toque mortal y vínculo vital. Si haces algo ilegal te explica por qué (y te deja hacerlo igualmente si lo necesitas).
-- **Tutorial interactivo** de 17 pasos sobre una partida real contra un bot, con botones de "carta de ejemplo" por si no tienes cartas a mano.
-- **Bots**: 4 mazos de práctica (verde, rojo, blanco y negro) que juegan tierras, lanzan criaturas, atacan y bloquean con cabeza. 1 contra bot o Commander contra 1–3 bots.
-- **Commander**: 40 vidas, zona de mando, impuesto de comandante, daño de comandante (21) y veneno.
-- **Online con amigos**: uno crea una sala, los demás se unen con un código de 5 letras (WebRTC con PeerJS, sin servidor propio). Se pueden rellenar asientos con bots. 2 jugadores en 1 contra 1, hasta 4 en Commander.
-- Animaciones de entrada de cartas, partículas por color, muertes, daño, banners de turno y ataque. Funciona como PWA (se puede "instalar" en la pantalla de inicio).
+1. Abre la app (APK de Android o la web instalada) y **gira el móvil en horizontal**: se pone en pantalla completa.
+2. Elige modo: **Aprendiz** (tutorial), **Duelo** (1 contra 1) o **Commander**, contra golems (bots) o con amigos.
+3. Apunta la cámara a tu mesa. A la derecha está el **círculo de invocación**: pon una carta dentro y la cámara **la lee sola** (sin pulsar nada). Aparece en el tablero holográfico con su animación. Si se equivoca, pulsa **Deshacer**.
+4. El pergamino con el ojo te dice en cada momento qué puedes hacer. Toca cualquier carta del tablero para ver qué es y aplicarle efectos.
+
+## Qué incluye
+
+- **Aspecto de app/juego**: horizontal, pantalla completa, tema de fantasía (pergamino, oro, runas), menú con cartas de tarot, cajones de pergamino en vez de ventanas.
+- **Cámara como interfaz**: reconocimiento continuo (OCR con Tesseract, incluido en la app, sin depender de internet) del nombre de la carta dentro del círculo; empareja con tolerancia a errores contra cartas conocidas (inglés o español) y, si no la conoce, la busca en Scryfall. No repite una carta mientras siga en el círculo.
+- **Grimorio**: búsqueda manual como plan B.
+- **Motor de reglas simplificado**: una tierra por turno, maná por colores (gira tus tierras solo), mareo de invocación, fases, ataques/bloqueos, daño de combate con vuela, alcance, prisa, vigilancia, arrollar, toque mortal y vínculo vital. Si haces algo ilegal te explica por qué.
+- **Tutorial** de 17 lecciones sobre una partida real.
+- **Golems (bots)** con 4 mazos; **Commander** con zona de mando, impuesto y daño de comandante; **partidas online** con código de 5 letras (WebRTC/PeerJS).
+- **APK de Android** (Capacitor): pantalla completa inmersiva, horizontal, pantalla siempre encendida.
 
 ## Probarlo
 
@@ -25,7 +30,13 @@ npm run build    # genera dist/
 
 En el móvil, conectado a la misma wifi, abre la URL "Network" que muestra `npm run dev` y acepta el aviso del certificado.
 
-### Publicarlo para tus amigos (GitHub Pages)
+### APK de Android
+
+Cada push compila un APK en GitHub Actions (workflow «APK de Android»). Descárgalo en la pestaña **Actions → última ejecución → Artifacts → MagicVR-apk**, pásalo al móvil e instálalo (hay que permitir «instalar apps de origen desconocido»).
+
+Para compilarlo en tu ordenador (con Android Studio instalado): `npm run build && npx cap sync android && npx cap open android`.
+
+### Publicarlo como web (GitHub Pages)
 
 El workflow `.github/workflows/pages.yml` publica la app cada vez que se hace push a `main`. Hay que activarlo una vez en **Settings → Pages → Source: GitHub Actions**. La URL quedará como `https://<usuario>.github.io/MagicVr/`.
 
@@ -45,14 +56,16 @@ src/ui/       mesa (table.js), selector/escáner (picker.js), tutorial, textos d
 src/session.js  partida local / anfitrión / cliente
 src/net.js      salas online con PeerJS
 src/scryfall.js búsqueda de cartas con caché
-src/scanner.js  OCR del nombre de la carta
+src/vision.js   reconocimiento continuo de cartas con la cámara (OCR)
+src/native.js   pantalla completa, orientación, vibración
+android/        proyecto Android (Capacitor)
 ```
 
 ## Limitaciones conocidas / siguientes pasos
 
 - No es "AR" con detección de superficies: el tapete se superpone a la cámara y se ajusta a mano. Siguiente paso: WebXR (Android) o app nativa (ARKit/ARCore) para anclar el tapete a la mesa real.
 - Las habilidades de las cartas no se automatizan: el efecto de hechizos y habilidades se aplica a mano (tocar la criatura → daño, +X/+X, destruir, vidas…). El combate sí es automático. *Dañar primero* se simplifica.
-- El escáner lee el nombre; funciona mejor con buena luz y la carta cerca. Mejora futura: reconocimiento por imagen de la ilustración.
+- El reconocimiento lee el nombre: necesita buena luz y que la carta ocupe bien el círculo. Mejora futura: reconocer por la ilustración.
 - Online: el anfitrión guarda la partida; si se cierra su app, la partida termina.
 
 Proyecto de fans no oficial, sin relación con Wizards of the Coast. Imágenes y datos de cartas cortesía de [Scryfall](https://scryfall.com).

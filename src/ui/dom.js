@@ -33,13 +33,15 @@ export function clear(el) {
   return { el, append: (...kids) => (append(el, kids), el) };
 }
 
-/** Ventana modal tipo "hoja" que sube desde abajo. Devuelve close(). */
+/** Cajón lateral de pergamino (en horizontal se abre desde la derecha). Devuelve close(). */
 export function sheet(content, { onClose, className = '' } = {}) {
-  const backdrop = h('div', { class: 'sheet-backdrop' });
-  const panel = h('div', { class: 'sheet ' + className }, h('div', { class: 'sheet-grip' }), content);
+  const backdrop = h('div', { class: 'drawer-backdrop' });
+  let close;
+  const panel = h('div', { class: 'drawer parchment ' + className },
+    h('button', { class: 'drawer-x', 'aria-label': 'Cerrar', onClick: () => close() }, '✕'), content);
   backdrop.append(panel);
   let closed = false;
-  const close = () => {
+  close = () => {
     if (closed) return;
     closed = true;
     backdrop.classList.add('closing');
@@ -54,7 +56,7 @@ export function sheet(content, { onClose, className = '' } = {}) {
 export function toast(text, kind = 'info', ms = 2600) {
   let box = document.querySelector('.toasts');
   if (!box) document.body.append((box = h('div', { class: 'toasts' })));
-  const t = h('div', { class: 'toast ' + kind }, text);
+  const t = h('div', { class: 'toast parchment ' + kind }, text);
   box.append(t);
   setTimeout(() => t.classList.add('out'), ms);
   setTimeout(() => t.remove(), ms + 400);

@@ -88,3 +88,8 @@ export async function findCard(name, { spanish = true } = {}) {
   }
   return card;
 }
+
+/** Cartas ya encontradas antes (para reconocerlas al instante con la cámara). */
+export function knownCards() {
+  return [...new Set(mem.values())].filter(Boolean);
+}

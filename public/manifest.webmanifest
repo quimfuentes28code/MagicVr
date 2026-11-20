@@ -1,0 +1,12 @@
+{
+  "name": "MagicVR – Mesa aumentada",
+  "short_name": "MagicVR",
+  "description": "Aprende y juega a Magic con tus cartas físicas y la cámara del móvil.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#120f1c",
+  "theme_color": "#120f1c",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

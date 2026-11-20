@@ -1,0 +1,33 @@
+{
+  "name": "magicvr",
+  "version": "1.0.0",
+  "description": "Mesa de Magic con realidad aumentada en el móvil: aprende a jugar con tus cartas físicas.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "test": "node --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quimfuentes28code/MagicVr.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/quimfuentes28code/MagicVr/issues"
+  },
+  "homepage": "https://github.com/quimfuentes28code/MagicVr#readme",
+  "dependencies": {
+    "peerjs": "^1.5.5",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "peer": "^1.0.2",
+    "vite": "^8.3.8"
+  },
+  "type": "module",
+  "private": true
+}

@@ -19,6 +19,8 @@ jobs:
           java-version: 21
       - run: npm ci
       - run: npm test
+      - name: Base de datos de todas las cartas (Scryfall)
+        run: node scripts/build-carddb.mjs --force
       - run: npm run build
       - run: npx cap sync android
       - name: Compilar APK

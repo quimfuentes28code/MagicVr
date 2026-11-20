@@ -15,6 +15,7 @@ import { sheet } from './ui/dom.js';
 import { hostRoom, joinRoom } from './net.js';
 import { goNative } from './native.js';
 import { preloadVision } from './vision.js';
+import { loadCardDb, cardDbCount, cardDbReady, searchNames, cardByName } from './carddb.js';
 import { manaColor } from './ui/dom.js';
 
 const app = document.getElementById('app');
@@ -63,12 +64,27 @@ const SIGIL = `<svg viewBox="0 0 100 100" fill="none" stroke="#f7dc8f" stroke-wi
   <circle cx="50" cy="50" r="7" fill="#f7dc8f"/></svg>`;
 
 // ---------------------------------------------------------- portada
+// La base de datos de todas las cartas se carga en segundo plano desde el inicio.
+let dbStatus = 'Abriendo el gran grimorio…';
+const dbListeners = new Set();
+const setDb = (t) => { dbStatus = t; dbListeners.forEach((f) => f(t)); };
+loadCardDb((p) => setDb(`Abriendo el gran grimorio… ${Math.round(p * 100)}%`))
+  .then(() => setDb(`${cardDbCount().toLocaleString('es-ES')} cartas de Magic listas para reconocer`))
+  .catch(() => setDb('Sin base de datos local: se buscarán las cartas por internet'));
+function dbLine() {
+  const el = h('div', { class: 'db-status' + (cardDbReady() ? ' ok' : '') }, dbStatus);
+  const f = (t) => { el.textContent = t; el.classList.toggle('ok', cardDbReady()); if (!el.isConnected) dbListeners.delete(f); };
+  dbListeners.add(f);
+  return el;
+}
+
 function splash() {
   clear(app).append(screenEl('splash', h('div', { class: 'content', onClick: enter },
     h('div', { class: 'sigil', html: SIGIL }),
     h('div', { class: 'logo-title' }, 'MagicVR'),
     h('div', { class: 'logo-sub' }, 'La mesa arcana · aprende a jugar con tus cartas'),
     h('div', { class: 'tap-start' }, 'TOCA PARA EMPEZAR'),
+    dbLine(),
   )));
   async function enter() {
     await goNative();
@@ -85,6 +101,7 @@ function menu() {
       h('div', { class: 'logo-title' }, 'MagicVR'),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
       h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), nameInput),
+      dbLine(),
     ),
     h('div', { class: 'menu-right' },
       tarot('hat', 'Aprendiz', 'Tutorial guiado contra un golem', '#2e9a5b', startTutorialGame),
@@ -255,6 +272,7 @@ function share(code) {
 function rulesScreen(tab = 'rules') {
   const tabs = h('div', { class: 'book-tabs' },
     h('button', { class: 'sigil-opt' + (tab === 'rules' ? ' on' : ''), onClick: () => rulesScreen('rules') }, 'Reglas'),
+    h('button', { class: 'sigil-opt' + (tab === 'all' ? ' on' : ''), onClick: () => rulesScreen('all') }, icon('cards'), 'Todas las cartas'),
     COLORS.map((c) => h('button', { class: 'sigil-opt' + (tab === c ? ' on' : ''), onClick: () => rulesScreen(c) },
       h('span', { class: 'pip', style: { background: manaColor(c), fontSize: '16px' } }), BOT_DECKS[c].label)));
   let body;
@@ -263,10 +281,28 @@ function rulesScreen(tab = 'rules') {
       RULES.map(([t, d]) => [h('h3', {}, t.replace(/^\S+\s/, '')), h('p', {}, d)]),
       h('h3', {}, 'Palabras clave'),
       h('dl', {}, Object.values(KEYWORDS).map(([n, d]) => [h('dt', {}, n), h('dd', {}, d)])));
+  } else if (tab === 'all') {
+    const list = h('div', { class: 'deck-grid' });
+    const info = h('p', { class: 'muted' }, cardDbReady()
+      ? `Busca cualquiera de las ${cardDbCount().toLocaleString('es-ES')} cartas de Magic, en español o en inglés.`
+      : 'El gran grimorio aún se está abriendo…');
+    let timer;
+    const input = h('input', { class: 'field-input', type: 'search', placeholder: 'Nombre de la carta…', onInput: () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const names = searchNames(input.value, 24);
+        clear(list).append(...names.map((n) => {
+          const card = cardByName(n);
+          return card ? h('button', { class: 'deck-card', onClick: () => sheet(cardInfo(card)) }, cardFace(card, { big: true })) : null;
+        }).filter(Boolean));
+      }, 200);
+    } });
+    body = h('div', { class: 'deck-view parchment' }, info, input, h('div', { style: { height: '10px' } }), list);
+    setTimeout(() => input.focus(), 100);
   } else {
     const deck = BOT_DECKS[tab];
     body = h('div', { class: 'deck-view parchment' },
-      h('p', {}, h('b', {}, deck.label + ': '), deck.blurb, ' Comandante: ', displayName(CARD_DATA[deck.commander]), '.'),
+      h('p', {}, h('b', {}, deck.label + ': '), deck.blurb, ' Comandante: ', displayName(CARD_DATA[deck.commander]), '. Es el mazo con el que juega el golem.'),
       h('div', { class: 'deck-grid' }, deck.list.map(([name, n]) => {
         const card = CARD_DATA[name];
         return h('button', { class: 'deck-card', onClick: () => sheet(cardInfo(card)) }, cardFace(card, { big: true }), h('span', { class: 'qty' }, '×' + n));

@@ -13,7 +13,8 @@ Web app para móvil: abres la app, eliges modo (tutorial, 1 contra 1 o Commander
 
 - **Aspecto de app/juego**: horizontal, pantalla completa, tema de fantasía (pergamino, oro, runas), menú con cartas de tarot, cajones de pergamino en vez de ventanas.
 - **Cámara como interfaz**: reconocimiento continuo (OCR con Tesseract, incluido en la app, sin depender de internet) del nombre de la carta dentro del círculo; empareja con tolerancia a errores contra cartas conocidas (inglés o español) y, si no la conoce, la busca en Scryfall. No repite una carta mientras siga en el círculo.
-- **5 mazos con cartas oficiales** (300 cartas, 60 por mazo) descargadas de Scryfall con su imagen oficial en español, texto y datos: Furia del Bosque (verde), Horda Ardiente (rojo), Alas del Alba (blanco), Cripta Nocturna (negro) y Mareas Arcanas (azul). Se ven en **Grimorio → pestaña de cada mazo**. Los golems juegan con ellos.
+- **Todas las cartas de Magic dentro de la app**: unas 35.000 cartas distintas (30.000+ con nombre, tipo y texto en español), generadas de los datos oficiales de Scryfall en `public/carddb.json` (~22 MB, se genera en cada compilación). La cámara reconoce cualquiera de ellas sin internet; las imágenes se descargan la primera vez y quedan guardadas. En **Grimorio → Todas las cartas** se puede buscar cualquier carta.
+- **5 mazos con cartas oficiales para los golems** (300 cartas, 60 por mazo) descargadas de Scryfall con su imagen oficial en español, texto y datos: Furia del Bosque (verde), Horda Ardiente (rojo), Alas del Alba (blanco), Cripta Nocturna (negro) y Mareas Arcanas (azul). Se ven en **Grimorio → pestaña de cada mazo**. Los golems juegan con ellos.
 - **Habilidades automáticas**: la app lee el texto oficial de cada carta y aplica sola daño («hace 3 de daño a cualquier objetivo»), destruir, +X/+X y −X/−X, devolver a la mano, robar, ganar/perder vidas, drenar, fichas de criatura, contadores +1/+1 y recuperar del cementerio. Si la carta pide un objetivo, te pide que toques la criatura o elijas el jugador. Lo que no reconoce se aplica a mano.
 - **Grimorio**: búsqueda manual como plan B.
 - **Motor de reglas simplificado**: una tierra por turno, maná por colores (gira tus tierras solo), mareo de invocación, fases, ataques/bloqueos, daño de combate con vuela, alcance, prisa, vigilancia, arrollar, toque mortal y vínculo vital. Si haces algo ilegal te explica por qué.
@@ -26,7 +27,8 @@ Web app para móvil: abres la app, eliges modo (tutorial, 1 contra 1 o Commander
 ```bash
 npm install
 npm run dev      # https://<tu-ip>:5173 (HTTPS para que el móvil deje usar la cámara)
-npm test         # tests del motor de reglas y de los bots
+npm test         # tests del motor de reglas, bots y reconocimiento
+npm run carddb   # descarga la base de datos de todas las cartas (necesario una vez)
 npm run build    # genera dist/
 ```
 

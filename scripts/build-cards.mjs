@@ -60,7 +60,10 @@ async function fetchCard(name) {
   let noSpanish = false;
   try {
     const r = await get(`/cards/search?q=${encodeURIComponent(`!"${en.name}" lang:es`)}&unique=prints&order=released&dir=desc`);
-    es = r.data.find((c) => img(c) && /scan/.test(c.image_status)) || r.data[0];
+    // Sólo impresiones de ESTA carta (no de cartas dobles con una cara del mismo nombre).
+    const same = r.data.filter((c) => c.oracle_id === en.oracle_id);
+    es = same.find((c) => img(c) && /scan/.test(c.image_status)) || same[0] || null;
+    if (!same.length) noSpanish = true;
   } catch (e) {
     if (/^404/.test(e.message)) noSpanish = true; // de verdad no existe en español
   }

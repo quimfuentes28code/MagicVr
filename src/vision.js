@@ -5,6 +5,7 @@
 import { grabFrame, titleBar } from './camera.js';
 import { LOCAL_CARDS, localCard } from './engine/cards.js';
 import { findCard, knownCards } from './scryfall.js';
+import { cardDbReady, candidates, recordToCard } from './carddb.js';
 
 let workerPromise = null;
 
@@ -82,15 +83,23 @@ function nameIndex() {
   return map;
 }
 
-/** Busca en un texto OCR la carta conocida que mejor encaje. */
-export function matchKnown(text, index = nameIndex()) {
+/**
+ * Busca en un texto OCR la carta que mejor encaje. Con la base de datos
+ * completa cargada busca entre todas las cartas de Magic (vía trigramas);
+ * si no, entre las cartas locales.
+ */
+export function matchKnown(text, index = null) {
   const lines = text.split('\n').map(norm).filter((l) => l.replace(/ /g, '').length >= 3);
+  const useDb = !index && cardDbReady();
+  if (!index && !useDb) index = nameIndex();
   let best = null;
   lines.forEach((line, li) => {
-    for (const [key, card] of index) {
+    const pool = useDb ? candidates(line).map(([k, r]) => [k, r]) : index;
+    for (const [key, entry] of pool) {
+      const card = useDb ? null : entry;
       const s = bestIn(line, key) - li * 0.01; // preferimos las primeras líneas (el título)
       const need = key.length >= 7 ? 0.78 : key.length >= 5 ? 0.84 : 0.99;
-      if (s >= need && (!best || s > best.score)) best = { card, score: s, line };
+      if (s >= need && (!best || s > best.score)) best = { card: card || recordToCard(entry), score: s, line };
     }
   });
   return { best, lines };

@@ -395,21 +395,21 @@
   },
   "Lightning Bolt": {
    "name": "Lightning Bolt",
-   "printedName": null,
-   "image": "https://cards.scryfall.io/normal/front/c/8/c8a06545-bc69-4e1b-a539-7027398b64f2.jpg?1788983409",
+   "printedName": "Relámpago",
+   "image": "https://cards.scryfall.io/normal/front/0/5/05aa8d78-789f-440a-b1fc-6daea5982b9a.jpg?1782763912",
    "imageEn": "https://cards.scryfall.io/normal/front/7/6/7673784e-db4b-43a1-8d55-1bb9fc1e284f.jpg?1783903008",
    "manaCost": "{R}",
    "cmc": 1,
    "typeLine": "Instant",
    "oracle": "Lightning Bolt deals 3 damage to any target.",
-   "printedText": null,
+   "printedText": "El Relámpago hace 3 puntos de daño a cualquier objetivo.",
    "power": null,
    "toughness": null,
    "colors": [
     "R"
    ],
    "keywords": [],
-   "set": "Secrets of Strixhaven",
+   "set": "Avatar: The Last Airbender Eternal",
    "noSpanish": false
   },
   "Volcanic Hammer": {
@@ -911,21 +911,21 @@
   },
   "Sign in Blood": {
    "name": "Sign in Blood",
-   "printedName": null,
-   "image": "https://cards.scryfall.io/normal/front/5/f/5ff2925f-0a41-4f8f-a4f5-087a6deceb2e.jpg?1788983320",
+   "printedName": "Firmar con sangre",
+   "image": "https://cards.scryfall.io/normal/front/b/8/b89d9372-8682-4a61-a003-8bccfbb6cbb4.jpg?1783909613",
    "imageEn": "https://cards.scryfall.io/normal/front/b/8/b89d9372-8682-4a61-a003-8bccfbb6cbb4.jpg?1783909613",
    "manaCost": "{B}{B}",
    "cmc": 2,
    "typeLine": "Sorcery",
    "oracle": "Target player draws two cards and loses 2 life.",
-   "printedText": null,
+   "printedText": "El jugador objetivo roba dos cartas y pierde 2 vidas.",
    "power": null,
    "toughness": null,
    "colors": [
     "B"
    ],
    "keywords": [],
-   "set": "Secrets of Strixhaven",
+   "set": "Duskmourn: House of Horror Commander",
    "noSpanish": false
   },
   "Swamp": {

@@ -7,8 +7,9 @@
     "build": "vite build",
     "preview": "vite preview --host",
     "test": "node --test test/*.test.js",
-    "predev": "node scripts/copy-ocr.mjs",
-    "prebuild": "node scripts/copy-ocr.mjs"
+    "predev": "node scripts/copy-ocr.mjs && node scripts/build-carddb.mjs",
+    "prebuild": "node scripts/copy-ocr.mjs && node scripts/build-carddb.mjs",
+    "carddb": "node scripts/build-carddb.mjs"
   },
   "repository": {
     "type": "git",

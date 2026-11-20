@@ -471,3 +471,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .tb-hint { font-style: italic; font-size: 14px; }
 .target-bar .row-btns { margin-top: 6px; }
 .perm.targetable .card { box-shadow: 0 0 0 2px #ff5e4d, 0 0 18px rgba(255, 80, 60, 0.95); animation: glow 0.9s ease-in-out infinite; }
+
+.db-status { margin-top: 10px; font-style: italic; font-size: 14px; color: var(--muted); }
+.db-status.ok { color: #9dffc6; }
+.db-status.ok::before { content: '✦ '; color: var(--gold-hi); }

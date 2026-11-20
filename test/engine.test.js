@@ -63,3 +63,43 @@ test('pagar maná prefiere tierras antes que criaturas', () => {
   assert.equal(elf.tapped, false);
   assert.equal(forest.tapped, true);
 });
+
+test('habilidades automáticas: Rayo, Asesinato, Dar la alarma, Desfigurar, Adivinación', () => {
+  let s = createGame({ mode: '1v1', seed: 3, players: [{ id: 'h', name: 'Yo' }, { id: 'b', name: 'Bot', isBot: true, deck: buildBotDeck('G') }] });
+  const bot = () => s.players[1];
+  // ponemos unas criaturas al bot
+  s = apply(s, { t: 'play', by: 'b', card: localCard('Grizzly Bears'), force: true });
+  s = apply(s, { t: 'play', by: 'b', card: localCard('Rumbling Baloth'), force: true });
+  const [bears, baloth] = bot().battlefield;
+  s = apply(s, { t: 'play', by: 'h', card: localCard('Lightning Bolt'), targets: [{ uid: bears.uid }], force: true });
+  assert.equal(bot().battlefield.length, 1, 'Rayo mata a los Osos');
+  s = apply(s, { t: 'play', by: 'h', card: localCard('Lightning Bolt'), targets: [{ player: 'b' }], force: true });
+  assert.equal(bot().life, 17);
+  s = apply(s, { t: 'play', by: 'h', card: localCard('Murder'), targets: [{ uid: baloth.uid }], force: true });
+  assert.equal(bot().battlefield.length, 0, 'Asesinato destruye');
+  s = apply(s, { t: 'play', by: 'h', card: localCard('Raise the Alarm'), force: true });
+  assert.equal(s.players[0].battlefield.filter((p) => p.card.isToken).length, 2, 'dos fichas');
+  const tok = s.players[0].battlefield[0];
+  s = apply(s, { t: 'play', by: 'h', card: localCard('Disfigure'), targets: [{ uid: tok.uid }], force: true });
+  assert.equal(s.players[0].battlefield.length, 1, 'Desfigurar mata la ficha y no va al cementerio');
+  assert.equal(s.players[0].graveyard.some((c) => c.isToken), false);
+  const hand = bot().hand.length;
+  s = apply(s, { t: 'play', by: 'b', card: localCard('Divination'), force: true });
+  assert.equal(bot().hand.length, hand + 2, 'el bot roba 2');
+  s = apply(s, { t: 'play', by: 'h', card: localCard('Angel\'s Mercy'), force: true });
+  assert.equal(s.players[0].life, 27);
+});
+
+test('torneo: todos los mazos oficiales se enfrentan entre sí', () => {
+  const cols = Object.keys(BOT_DECKS);
+  const wins = Object.fromEntries(cols.map((c) => [c, 0]));
+  for (const a of cols) for (const b of cols) {
+    if (a === b) continue;
+    let s = createGame({ mode: '1v1', seed: a.charCodeAt(0) * 7 + b.charCodeAt(0), players: [
+      { id: a, name: a, isBot: true, deck: buildBotDeck(a) }, { id: b + '2', name: b, isBot: true, deck: buildBotDeck(b) }] });
+    s = runBots(s, 8000);
+    assert.ok(s.winner, `${a} contra ${b} termina`);
+    wins[s.winner[0]]++;
+  }
+  console.log('victorias', JSON.stringify(wins));
+});

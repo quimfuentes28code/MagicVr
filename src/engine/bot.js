@@ -2,6 +2,7 @@
 // debería hacer algún bot (o null). El controlador la ejecuta con un pequeño
 // retardo para que se vea lo que pasa en la mesa.
 
+import { targetsFor } from './effects.js';
 import {
   activePlayer, canAttack, canBlock, findPerm, has, opponents, pendingDefenders,
   planPayment, player, power, toughness,
@@ -34,16 +35,21 @@ export function nextBotAction(s) {
         const land = me.hand.find((c) => c.isLand);
         if (land) return { t: 'play', by: me.id, handUid: land.uid };
       }
-      if (s.step === 'main1' || true) {
-        const options = me.hand
-          .filter((c) => !c.isLand && c.isPermanent && planPayment(me, c.manaCost))
-          .sort((a, b) => b.cmc - a.cmc);
-        const cmdCost = me.commander && me.commanderInZone && planPayment(me, me.commander.manaCost, me.commanderTax);
-        if (cmdCost && (!options[0] || me.commander.cmc + me.commanderTax >= options[0].cmc)) {
-          return { t: 'castCommander', by: me.id };
-        }
-        if (options[0]) return { t: 'play', by: me.id, handUid: options[0].uid };
+      // Hechizos útiles (eliminar, quemar, robar...) y criaturas, de mayor a menor coste.
+      const options = [];
+      for (const c of me.hand) {
+        if (c.isLand || !planPayment(me, c.manaCost)) continue;
+        const wanted = targetsFor(c);
+        const targets = chooseTargets(s, me, wanted);
+        if (!c.isPermanent && (!usefulSpell(c) || targets.includes(null))) continue;
+        options.push({ c, targets: targets.filter(Boolean), score: c.cmc + (c.isPermanent ? 0 : 3) });
       }
+      options.sort((a, b) => b.score - a.score);
+      const cmdCost = me.commander && me.commanderInZone && planPayment(me, me.commander.manaCost, me.commanderTax);
+      if (cmdCost && (!options[0] || me.commander.cmc + me.commanderTax >= options[0].c.cmc)) {
+        return { t: 'castCommander', by: me.id };
+      }
+      if (options[0]) return { t: 'play', by: me.id, handUid: options[0].c.uid, targets: options[0].targets };
       return { t: 'next', by: me.id };
     }
     case 'attack': {
@@ -125,4 +131,43 @@ function chooseBlocks(s, me) {
     }
   }
   return out;
+}
+
+// ------------------------------------------------------------ objetivos
+
+/** ¿Merece la pena lanzar este hechizo ahora? (los trucos de combate se guardan) */
+function usefulSpell(card) {
+  const fx = card.effects?.spell || [];
+  return fx.length > 0 && !fx.some((e) => e.kind === 'pump' && e.t >= 0);
+}
+
+/** Elige objetivos para cada efecto que lo pide; null si no hay uno bueno. */
+export function chooseTargets(s, me, wanted) {
+  const opps = opponents(s, me.id);
+  const foeCreatures = opps.flatMap((o) => o.battlefield.filter((p) => p.card.isCreature));
+  const weakest = [...opps].sort((a, b) => a.life - b.life)[0];
+  const value = (p) => power(p) * 2 + toughness(p) + p.card.cmc + (p.isCommander ? 5 : 0);
+  return wanted.map((e) => {
+    if (e.kind === 'damage') {
+      const killable = foeCreatures.filter((p) => toughness(p) - p.damage <= e.amount && !p.card.keywords.includes('indestructible'));
+      const best = killable.sort((a, b) => value(b) - value(a))[0];
+      if (e.target === 'player') return weakest ? { player: weakest.id } : null;
+      if (best && (e.target === 'creature' || value(best) >= 6 || (weakest && weakest.life > e.amount))) return { uid: best.uid };
+      if (e.target === 'any' && weakest) return { player: weakest.id };
+      return null;
+    }
+    if (e.kind === 'destroy' || e.kind === 'bounce') {
+      const best = [...foeCreatures].sort((a, b) => value(b) - value(a))[0];
+      return best ? { uid: best.uid } : null;
+    }
+    if (e.kind === 'pump' && e.t < 0) {
+      const killable = foeCreatures.filter((p) => toughness(p) + e.t <= p.damage).sort((a, b) => value(b) - value(a));
+      return killable[0] ? { uid: killable[0].uid } : null;
+    }
+    if (e.kind === 'counter') {
+      const mine = me.battlefield.filter((p) => p.card.isCreature).sort((a, b) => power(b) - power(a))[0];
+      return mine ? { uid: mine.uid } : null;
+    }
+    return null;
+  });
 }

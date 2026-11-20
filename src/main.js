@@ -8,7 +8,10 @@ import { startTutorial } from './ui/tutorial.js';
 import { RULES, KEYWORDS } from './ui/learn.js';
 import { Session } from './session.js';
 import { createGame } from './engine/game.js';
-import { BOT_DECKS, buildBotDeck, localCard } from './engine/cards.js';
+import { BOT_DECKS, buildBotDeck, localCard, CARD_DATA } from './engine/cards.js';
+import { displayName } from './engine/game.js';
+import { cardFace, cardInfo } from './ui/cardview.js';
+import { sheet } from './ui/dom.js';
 import { hostRoom, joinRoom } from './net.js';
 import { goNative } from './native.js';
 import { preloadVision } from './vision.js';
@@ -16,7 +19,7 @@ import { manaColor } from './ui/dom.js';
 
 const app = document.getElementById('app');
 const COLORS = Object.keys(BOT_DECKS);
-const BOT_NAMES = ['Kaia la Druida', 'Teo el Goblin', 'Nyx la Sombra', 'Brum el Paladín'];
+const BOT_NAMES = { G: 'Kaia la Druida', R: 'Teo el Trasgo', W: 'Brum el Paladín', B: 'Nyx la Sombra', U: 'Ilse la Maga' };
 
 const NAME_KEY = 'mtgvr-name';
 const getName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } };
@@ -26,10 +29,10 @@ const myName = () => getName() || 'Planeswalker';
 function botPlayer(i, color, mode) {
   return {
     id: 'bot' + i,
-    name: BOT_NAMES[COLORS.indexOf(color) % BOT_NAMES.length],
+    name: BOT_NAMES[color],
     isBot: true,
     deckLabel: BOT_DECKS[color].label,
-    deck: buildBotDeck(color, mode === 'commander' ? 99 : 40),
+    deck: buildBotDeck(color, mode === 'commander' ? 99 : 60),
     commander: mode === 'commander' ? localCard(BOT_DECKS[color].commander) : null,
   };
 }
@@ -87,7 +90,7 @@ function menu() {
       tarot('hat', 'Aprendiz', 'Tutorial guiado contra un golem', '#2e9a5b', startTutorialGame),
       tarot('swords', 'Duelo', '1 contra 1 · 20 vidas', '#b3262f', () => modeMenu('1v1')),
       tarot('crown', 'Commander', 'Multijugador · 40 vidas', '#7b3fc4', () => modeMenu('commander')),
-      tarot('book', 'Grimorio', 'Reglas y palabras clave', '#2a5fb8', rulesScreen),
+      tarot('book', 'Grimorio', 'Reglas, palabras clave y mazos', '#2a5fb8', () => rulesScreen()),
     ),
   )));
 }
@@ -115,6 +118,7 @@ function botSetup(mode) {
           h('button', { class: 'sigil-opt' + (color === 'random' ? ' on' : ''), onClick: () => { color = 'random'; render(); } }, '✦ Al azar'),
           COLORS.map((c) => h('button', { class: 'sigil-opt' + (color === c ? ' on' : ''), onClick: () => { color = c; render(); } },
             h('span', { class: 'pip', style: { background: manaColor(c), fontSize: '18px' } }), BOT_DECKS[c].label))),
+        color !== 'random' ? h('p', { class: 'muted' }, BOT_DECKS[color].blurb) : null,
         h('p', { class: 'muted' }, mode === 'commander'
           ? 'Prepara tu mazo de Commander. Al empezar, toca tu zona de Mando y pon tu comandante en el círculo.'
           : 'Baraja tu mazo, roba 7 cartas y apunta la cámara a tu mesa.'),
@@ -162,8 +166,8 @@ async function hostLobby(mode) {
         p.kind === 'bot' ? h('button', { class: 'x', onClick: () => { seats.splice(i, 1); render(); } }, icon('close')) : null))),
       h('div', { class: 'row-btns' },
         seats.length < max ? h('button', { class: 'gem bronze', onClick: () => {
-          const c = COLORS[seats.length % 4];
-          seats.push({ id: 'bot' + seats.length, name: BOT_NAMES[COLORS.indexOf(c)], kind: 'bot', color: c });
+          const c = COLORS[(seats.length - 1) % COLORS.length];
+          seats.push({ id: 'bot' + seats.length, name: BOT_NAMES[c], kind: 'bot', color: c });
           render();
         } }, icon('golem'), 'Añadir golem') : null,
         h('button', { class: 'gem', disabled: seats.length < 2, onClick: start }, 'Empezar'),
@@ -248,13 +252,27 @@ function share(code) {
 }
 
 // -------------------------------------------------------------- reglas
-function rulesScreen() {
-  clear(app).append(subScreen('Grimorio de reglas', menu,
-    h('div', { class: 'rules-book parchment' },
+function rulesScreen(tab = 'rules') {
+  const tabs = h('div', { class: 'book-tabs' },
+    h('button', { class: 'sigil-opt' + (tab === 'rules' ? ' on' : ''), onClick: () => rulesScreen('rules') }, 'Reglas'),
+    COLORS.map((c) => h('button', { class: 'sigil-opt' + (tab === c ? ' on' : ''), onClick: () => rulesScreen(c) },
+      h('span', { class: 'pip', style: { background: manaColor(c), fontSize: '16px' } }), BOT_DECKS[c].label)));
+  let body;
+  if (tab === 'rules') {
+    body = h('div', { class: 'rules-book parchment' },
       RULES.map(([t, d]) => [h('h3', {}, t.replace(/^\S+\s/, '')), h('p', {}, d)]),
       h('h3', {}, 'Palabras clave'),
-      h('dl', {}, Object.values(KEYWORDS).map(([n, d]) => [h('dt', {}, n), h('dd', {}, d)])),
-    )));
+      h('dl', {}, Object.values(KEYWORDS).map(([n, d]) => [h('dt', {}, n), h('dd', {}, d)])));
+  } else {
+    const deck = BOT_DECKS[tab];
+    body = h('div', { class: 'deck-view parchment' },
+      h('p', {}, h('b', {}, deck.label + ': '), deck.blurb, ' Comandante: ', displayName(CARD_DATA[deck.commander]), '.'),
+      h('div', { class: 'deck-grid' }, deck.list.map(([name, n]) => {
+        const card = CARD_DATA[name];
+        return h('button', { class: 'deck-card', onClick: () => sheet(cardInfo(card)) }, cardFace(card, { big: true }), h('span', { class: 'qty' }, '×' + n));
+      })));
+  }
+  clear(app).append(subScreen('Grimorio', menu, h('div', { class: 'book' }, tabs, body)));
 }
 
 splash();

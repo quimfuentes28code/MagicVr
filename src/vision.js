@@ -2,7 +2,7 @@
 // Lee sin parar el nombre de la carta que hay dentro del círculo de invocación
 // y avisa cuando reconoce una carta con seguridad. Sin botones.
 
-import { grabFrame } from './camera.js';
+import { grabFrame, titleBar } from './camera.js';
 import { LOCAL_CARDS, localCard } from './engine/cards.js';
 import { findCard, knownCards } from './scryfall.js';
 
@@ -59,8 +59,8 @@ export function similarity(a, b) {
 
 /** Mejor coincidencia de un nombre dentro de una línea (tolera basura alrededor). */
 function bestIn(line, name) {
-  let best = similarity(line, name);
-  if (line.length > name.length + 2) {
+  let best = Math.max(similarity(line, name), similarity(line.replace(/ /g, ''), name.replace(/ /g, '')));
+  if (line.length > name.length) {
     for (let i = 0; i + name.length <= line.length; i++) {
       if (i > 0 && line[i - 1] !== ' ') continue;
       for (const d of [-1, 0, 1]) {
@@ -148,14 +148,32 @@ export class CardWatcher {
   forget() { this.accepted = null; this.last = null; }
 
   async tick(worker) {
-    // El nombre está arriba: leemos la mitad superior del círculo (más rápido).
+    // 1º la franja del nombre (una línea, rápido y fiable); 2º la mitad superior.
     const r = this.getRegion();
-    const canvas = grabFrame(this.video, { x: r.x, y: r.y, w: r.w, h: r.h * 0.55 });
-    if (!canvas) return;
-    const { data } = await worker.recognize(canvas);
-    const text = data.text || '';
-    const { best, lines } = matchKnown(text);
-    if (window.__visionDebug) window.__visionDebug({ canvas: canvas.toDataURL(), text, best });
+    let text = '';
+    let best = null;
+    let lines = [];
+    let canvas = null;
+    // Pasadas: la barra del título detectada; la franja del nombre; la mitad superior.
+    const PASSES = [
+      { x: 0, w: 1, y: 0, h: 0.3, psm: '7', bar: true },
+      { x: 0.07, w: 0.8, y: 0.02, h: 0.2, psm: '6' },
+      { x: 0, w: 1, y: 0, h: 0.55, psm: '3' },
+    ];
+    for (const pass of PASSES) {
+      canvas = grabFrame(this.video, { x: r.x + r.w * pass.x, y: r.y + r.h * pass.y, w: r.w * pass.w, h: r.h * pass.h });
+      if (!canvas) return;
+      if (pass.bar) {
+        canvas = titleBar(canvas);
+        if (!canvas) continue;
+      }
+      if (this.psm !== pass.psm) { await worker.setParameters({ tessedit_pageseg_mode: pass.psm }); this.psm = pass.psm; }
+      const { data } = await worker.recognize(canvas);
+      text = data.text || '';
+      ({ best, lines } = matchKnown(text));
+      if (window.__visionDebug) window.__visionDebug({ canvas: canvas.toDataURL(), text, best, pass: PASSES.indexOf(pass) });
+      if (best) break;
+    }
 
     // ¿La carta aceptada sigue en el círculo?
     if (this.accepted) {

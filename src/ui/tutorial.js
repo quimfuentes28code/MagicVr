@@ -96,8 +96,14 @@ function steps(me) {
     },
     {
       title: 'Instantáneos',
-      text: 'Los instantáneos se lanzan en cualquier momento. Por ejemplo, Crecimiento gigante da +3/+3 a una criatura hasta el final del turno. Tras lanzarlo, toca la criatura y elige "+3/+3".',
-      example: { label: 'Lanzar Crecimiento gigante', actions: [{ t: 'play', card: localCard('Giant Growth'), force: true }] },
+      text: 'Los instantáneos se lanzan en cualquier momento. Por ejemplo, Crecimiento gigante da +3/+3 a una criatura hasta el final del turno. Al lanzarlo, la app te pedirá que toques la criatura objetivo y aplicará el efecto sola.',
+      example: {
+        label: 'Lanzar Crecimiento gigante',
+        actions: (s) => {
+          const c = player(s, me).battlefield.find((p) => p.card.isCreature);
+          return [{ t: 'play', card: localCard('Giant Growth'), force: true, targets: c ? [{ uid: c.uid }] : [] }];
+        },
+      },
     },
     {
       title: '¡Ya sabes lo básico!',
@@ -124,7 +130,7 @@ export function startTutorial(table) {
       h('p', {}, st.text),
       h('div', { class: 'row-btns' },
         st.example && (waiting || !st.until)
-          ? h('button', { class: 'act', onClick: () => st.example.actions.forEach((a) => table.session.dispatch(a)) }, st.example.label)
+          ? h('button', { class: 'act', onClick: () => (typeof st.example.actions === 'function' ? st.example.actions(table.session.state) : st.example.actions).forEach((a) => table.session.dispatch(a)) }, st.example.label)
           : null,
         waiting ? h('span', { class: 'coach-wait' }, 'Esperando a que lo hagas…') : h('button', { class: 'act primary', onClick: st.last ? finish : nextStep }, st.last ? '¡A jugar!' : 'Siguiente →'),
       ),

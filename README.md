@@ -13,6 +13,8 @@ Web app para móvil: abres la app, eliges modo (tutorial, 1 contra 1 o Commander
 
 - **Aspecto de app/juego**: horizontal, pantalla completa, tema de fantasía (pergamino, oro, runas), menú con cartas de tarot, cajones de pergamino en vez de ventanas.
 - **Cámara como interfaz**: reconocimiento continuo (OCR con Tesseract, incluido en la app, sin depender de internet) del nombre de la carta dentro del círculo; empareja con tolerancia a errores contra cartas conocidas (inglés o español) y, si no la conoce, la busca en Scryfall. No repite una carta mientras siga en el círculo.
+- **5 mazos con cartas oficiales** (300 cartas, 60 por mazo) descargadas de Scryfall con su imagen oficial en español, texto y datos: Furia del Bosque (verde), Horda Ardiente (rojo), Alas del Alba (blanco), Cripta Nocturna (negro) y Mareas Arcanas (azul). Se ven en **Grimorio → pestaña de cada mazo**. Los golems juegan con ellos.
+- **Habilidades automáticas**: la app lee el texto oficial de cada carta y aplica sola daño («hace 3 de daño a cualquier objetivo»), destruir, +X/+X y −X/−X, devolver a la mano, robar, ganar/perder vidas, drenar, fichas de criatura, contadores +1/+1 y recuperar del cementerio. Si la carta pide un objetivo, te pide que toques la criatura o elijas el jugador. Lo que no reconoce se aplica a mano.
 - **Grimorio**: búsqueda manual como plan B.
 - **Motor de reglas simplificado**: una tierra por turno, maná por colores (gira tus tierras solo), mareo de invocación, fases, ataques/bloqueos, daño de combate con vuela, alcance, prisa, vigilancia, arrollar, toque mortal y vínculo vital. Si haces algo ilegal te explica por qué.
 - **Tutorial** de 17 lecciones sobre una partida real.
@@ -36,6 +38,10 @@ Cada push compila un APK en GitHub Actions (workflow «APK de Android»). Descá
 
 Para compilarlo en tu ordenador (con Android Studio instalado): `npm run build && npx cap sync android && npx cap open android`.
 
+### iPhone / iOS
+
+El APK es solo para Android. En iPhone se usa la versión web instalada: abre la web en **Safari → Compartir → Añadir a pantalla de inicio**. Se abre a pantalla completa y con cámara, como una app. (Una app nativa de iOS necesita un Mac con Xcode y una cuenta de desarrollador de Apple.)
+
 ### Publicarlo como web (GitHub Pages)
 
 El workflow `.github/workflows/pages.yml` publica la app cada vez que se hace push a `main`. Hay que activarlo una vez en **Settings → Pages → Source: GitHub Actions**. La URL quedará como `https://<usuario>.github.io/MagicVr/`.
@@ -51,7 +57,8 @@ VITE_PEER_HOST=mi-servidor.com VITE_PEER_PORT=443 VITE_PEER_PATH=/ npm run build
 ## Estructura
 
 ```
-src/engine/   motor de reglas puro (game.js), IA de bots (bot.js), cartas y mazos (cards.js)
+src/engine/   motor de reglas (game.js), habilidades (effects.js), IA de bots (bot.js), cartas y mazos (cards.js)
+src/data/cards.json  cartas oficiales de los 5 mazos (se regenera con `NODE_USE_ENV_PROXY=1 node scripts/build-cards.mjs`)
 src/ui/       mesa (table.js), selector/escáner (picker.js), tutorial, textos didácticos
 src/session.js  partida local / anfitrión / cliente
 src/net.js      salas online con PeerJS
@@ -64,7 +71,7 @@ android/        proyecto Android (Capacitor)
 ## Limitaciones conocidas / siguientes pasos
 
 - No es "AR" con detección de superficies: el tapete se superpone a la cámara y se ajusta a mano. Siguiente paso: WebXR (Android) o app nativa (ARKit/ARCore) para anclar el tapete a la mesa real.
-- Las habilidades de las cartas no se automatizan: el efecto de hechizos y habilidades se aplica a mano (tocar la criatura → daño, +X/+X, destruir, vidas…). El combate sí es automático. *Dañar primero* se simplifica.
+- Se automatizan las habilidades más comunes (ver arriba); las más complejas (auras, habilidades activadas, contrahechizos…) se aplican a mano. *Dañar primero* se simplifica.
 - El reconocimiento lee el nombre: necesita buena luz y que la carta ocupe bien el círculo. Mejora futura: reconocer por la ilustración.
 - Online: el anfitrión guarda la partida; si se cierra su app, la partida termina.
 

@@ -7,10 +7,11 @@ import { icon } from './icons.js';
 import { openPicker } from './picker.js';
 import { startCamera, stopCamera, cameraSupported } from '../camera.js';
 import { CardWatcher } from '../vision.js';
+import { targetsFor, describeEffect } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
 import {
   STEPS, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
-  power, toughness, displayName, canAttack, manaSources,
+  power, toughness, displayName, canAttack, manaSources, planPayment,
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
@@ -49,6 +50,7 @@ export function mountTable(root, session, { onExit } = {}) {
     lastEvent: session.state.eventSeq,
     hooks: new Set(),
     awaitingCommander: false,
+    targeting: null, // { card, wanted, picked, done }
   };
   const me = () => session.me;
   const S = () => session.state;
@@ -66,20 +68,20 @@ export function mountTable(root, session, { onExit } = {}) {
   const summonWrap = h('div', { class: 'summon-wrap' },
     h('div', { class: 'summon-ring', html: RUNE_RING }),
     h('div', { class: 'summon-ring r2', html: RUNE_RING }),
-    h('div', { class: 'summon-frame' }, h('div', { class: 'band' })),
+    h('div', { class: 'summon-frame' }, h('div', { class: 'band' }), h('div', { class: 'summon-title' }, 'Nombre aquí')),
   );
   const summon = h('aside', { class: 'summon', 'data-phase': 'loading' },
-    h('div', { class: 'summon-title' }, 'Círculo de invocación'),
     summonWrap,
-    summonStatus,
     h('div', { class: 'summon-tools' },
+      summonStatus,
       h('button', { class: 'rune-btn', title: 'Grimorio (buscar a mano)', 'data-action': 'play', onClick: () => playCard() }, icon('grimoire')),
     ),
   );
   const hud = h('footer', { class: 'hud' });
   const fx = h('div', { class: 'fx-layer' });
   const banner = h('div', { class: 'banner' });
-  const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, board, summon, hud, banner, fx);
+  const targetBar = h('div', { class: 'target-bar parchment', hidden: true });
+  const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, board, summon, hud, banner, targetBar, fx);
   clear(root).append(screen);
 
   // --------------------------------------------------------- cámara + ojo
@@ -135,9 +137,28 @@ export function mountTable(root, session, { onExit } = {}) {
     playRecognized(card);
   }
 
+  /** ¿Se puede jugar ya (turno, fase y maná)? Si no, el motor explicará por qué. */
+  function canPlayNow(card) {
+    const s = S();
+    const myTurn = activePlayer(s).id === me();
+    const main = s.step === 'main1' || s.step === 'main2';
+    const fast = card.isInstant || card.keywords.includes('flash');
+    if (!fast && !(myTurn && main)) return false;
+    return card.isLand || !!planPayment(player(s, me()), card.manaCost);
+  }
+
   function playRecognized(card) {
+    const wanted = targetsFor(card);
+    if (wanted.length && canPlayNow(card)) {
+      startTargeting(card, wanted, (targets) => dispatchPlay(card, targets));
+      return;
+    }
+    dispatchPlay(card, []);
+  }
+
+  function dispatchPlay(card, targets) {
     const before = S().eventSeq;
-    session.dispatch({ t: 'play', card });
+    session.dispatch({ t: 'play', card, targets });
     // Aviso con opción de deshacer por si la cámara leyó mal.
     setTimeout(() => {
       const ev = S().events.filter((e) => e.id > before);
@@ -149,8 +170,56 @@ export function mountTable(root, session, { onExit } = {}) {
       screen.append(box);
       setTimeout(() => box.classList.add('out'), 4200);
       setTimeout(() => box.remove(), 4700);
-      if (!card.isPermanent) toast('Aplica su efecto: toca la criatura objetivo (daño, +X/+X, destruir…) o ajusta las vidas.', 'info', 5000);
+      const fx = card.isPermanent ? card.effects?.etb : card.effects?.spell;
+      if (!card.isPermanent && !fx?.length) toast('Esta carta no se aplica sola: toca la criatura objetivo (daño, +X/+X, destruir…) o ajusta las vidas.', 'info', 5000);
     }, 60);
+  }
+
+  // ------------------------------------------------------- objetivos
+  function startTargeting(card, wanted, done) {
+    ui.targeting = { card, wanted, picked: [], done };
+    watcher.pause(true);
+    drawTargetBar();
+    render(S());
+  }
+
+  function currentWant() {
+    const t = ui.targeting;
+    return t && t.wanted[t.picked.length];
+  }
+
+  function pickTarget(ref) {
+    const t = ui.targeting;
+    if (!t) return;
+    buzz(20);
+    t.picked.push(ref);
+    if (t.picked.length >= t.wanted.length) finishTargeting(t.picked);
+    else { drawTargetBar(); render(S()); }
+  }
+
+  function finishTargeting(targets) {
+    const t = ui.targeting;
+    ui.targeting = null;
+    targetBar.hidden = true;
+    watcher.pause(false);
+    render(S());
+    if (t) t.done(targets);
+  }
+
+  function drawTargetBar() {
+    const t = ui.targeting;
+    const want = currentWant();
+    const s = S();
+    const players = want.target === 'creature' ? [] : s.players.filter((p) => !p.eliminated);
+    targetBar.hidden = false;
+    clear(targetBar).append(
+      h('div', { class: 'tb-title' }, displayName(t.card), ': ', describeEffect(want)),
+      h('div', { class: 'tb-hint' }, want.target === 'creature' ? 'Toca la criatura objetivo en el tablero.' : want.target === 'player' ? 'Elige el jugador objetivo.' : 'Toca una criatura o elige un jugador.'),
+      h('div', { class: 'row-btns' },
+        players.map((p) => h('button', { class: 'act' + (p.id === me() ? '' : ' primary'), onClick: () => pickTarget({ player: p.id }) }, p.id === me() ? 'A mí' : p.name)),
+        h('button', { class: 'act', onClick: () => finishTargeting(t.picked) }, 'Sin objetivo (a mano)'),
+      ),
+    );
   }
 
   function summonGhost(card) {
@@ -261,6 +330,7 @@ export function mountTable(root, session, { onExit } = {}) {
     el.classList.toggle('sick', perm.card.isCreature && perm.sick && isActive);
     el.classList.toggle('can-attack', s.step === 'attack' && owner.id === me() && isActive && canAttack(s, perm) && !attacking);
     el.classList.toggle('commander', perm.isCommander);
+    el.classList.toggle('targetable', !!currentWant() && perm.card.isCreature);
     const b = el.querySelector('.badges');
     clear(b);
     if (perm.card.isCreature) {
@@ -371,6 +441,8 @@ export function mountTable(root, session, { onExit } = {}) {
       } else if (e.kind === 'out' || e.kind === 'win') {
         showBanner(e.kind === 'win' ? (e.player === me() ? '¡Victoria!' : 'Derrota') : 'Eliminado');
         toast(e.text, 'warn', 4000);
+      } else if ((e.kind === 'manual' || e.kind === 'draw' || e.kind === 'info') && e.to === me()) {
+        toast(e.text, 'info', 4500);
       } else if (e.kind === 'pump' || e.kind === 'hit') {
         const el = ui.els.get(e.uid);
         if (el) burst(el, e.kind === 'pump' ? 'G' : 'R', 12);
@@ -399,6 +471,12 @@ export function mountTable(root, session, { onExit } = {}) {
     const f = findPerm(s, uid);
     if (!f) return;
     const { perm, owner } = f;
+    const want = currentWant();
+    if (want) {
+      if (perm.card.isCreature) pickTarget({ uid });
+      else toast('Ese objetivo no vale: tiene que ser una criatura.', 'warn');
+      return;
+    }
     if (s.step === 'attack' && activePlayer(s).id === me() && owner.id === me() && perm.card.isCreature) {
       buzz(15);
       session.dispatch({ t: 'attack', uid, target: ui.viewOpp });

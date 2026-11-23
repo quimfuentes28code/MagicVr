@@ -5,7 +5,7 @@ import { h, clear, append, sheet, toast, burst, floatText } from './dom.js';
 import { cardFace, cardInfo } from './cardview.js';
 import { icon } from './icons.js';
 import { openPicker } from './picker.js';
-import { startCamera, stopCamera, cameraSupported } from '../camera.js';
+import { startCamera, stopCamera, cameraSupported, cameraErrorText } from '../camera.js';
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
@@ -106,10 +106,11 @@ export function mountTable(root, session, { onExit } = {}) {
     if (useCam) {
       startCamera(video)
         .then(() => { watcher.pause(false); watcher.start(); })
-        .catch(() => {
+        .catch((e) => {
           screen.classList.add('no-cam');
           summon.dataset.phase = 'error';
-          summonStatus.textContent = 'Sin cámara: usa el grimorio';
+          summonStatus.textContent = 'Sin cámara';
+          cameraHelp(e);
         });
     } else {
       watcher.pause(true);
@@ -118,6 +119,20 @@ export function mountTable(root, session, { onExit } = {}) {
       summonStatus.textContent = 'Cámara apagada: usa el grimorio';
     }
   };
+  /** Explica por qué falla la cámara y ofrece reintentar (un toque del usuario ayuda a algunos navegadores). */
+  function cameraHelp(e) {
+    let close;
+    close = sheet(h('div', {},
+      h('h3', {}, 'La cámara no se ha podido abrir'),
+      h('p', {}, cameraErrorText(e)),
+      h('p', { class: 'muted' }, 'En Brave: además del permiso, desactiva los «Escudos» de Brave para esta web (icono del león) y recarga. Mientras tanto puedes jugar usando el grimorio para buscar las cartas.'),
+      h('div', { class: 'row-btns' },
+        h('button', { class: 'act primary', onClick: () => { close(); applySettings(); } }, 'Reintentar'),
+        h('button', { class: 'act', onClick: () => close() }, 'Jugar sin cámara'),
+      ),
+    ));
+  }
+
   applySettings();
   keepAwake();
 
@@ -290,13 +305,15 @@ export function mountTable(root, session, { onExit } = {}) {
     const lands = support.filter((x) => x.card.isLand);
     const others = support.filter((x) => !x.card.isLand);
 
-    const zone = (cls, label, content, onClick) => h('button', { class: 'zone ' + cls, 'data-zone': cls, onClick }, h('span', { class: 'zl' }, label), content);
+    const zone = (cls, label, content, count, onClick) => h('button', { class: 'zone ' + cls, 'data-zone': cls, onClick },
+      content, h('span', { class: 'zl' }, label), count != null ? h('span', { class: 'n' }, count) : null);
     const topGrave = p.graveyard[p.graveyard.length - 1];
-    const zones = h('div', { class: 'zones' },
-      zone('library', 'Mazo', h('span', { class: 'n' }, p.isBot ? p.library.length : '∞'), () => toast('Biblioteca: el mazo, boca abajo. Se roba de aquí.')),
-      zone('graveyard', 'Cement.', [topGrave ? cardFace(topGrave) : null, h('span', { class: 'n' }, p.graveyard.length)], () => showZone(p, 'graveyard')),
-      zone('exile', 'Exilio', h('span', { class: 'n' }, p.exile.length), () => showZone(p, 'exile')),
-      s.mode === 'commander' ? zone('command', 'Mando', commandZone(p), () => commandAction(p)) : null,
+    const topExile = p.exile[p.exile.length - 1];
+    const zones = h('div', { class: 'zones' + (s.mode === 'commander' ? ' four' : '') },
+      zone('library', 'Mazo', h('div', { class: 'card-back' }), p.isBot ? p.library.length : null, () => toast('Biblioteca: el mazo, boca abajo. Se roba de aquí.')),
+      zone('graveyard', 'Cementerio', topGrave ? cardFace(topGrave) : null, p.graveyard.length, () => showZone(p, 'graveyard')),
+      zone('exile', 'Exilio', topExile ? cardFace(topExile) : null, p.exile.length || null, () => showZone(p, 'exile')),
+      s.mode === 'commander' ? zone('command', 'Mando', commandZone(p), null, () => commandAction(p)) : null,
     );
 
     const rowC = h('div', { class: 'row creatures', 'data-zone': 'battlefield' }, creatures.map((x) => permEl(s, x, p)));
@@ -304,20 +321,25 @@ export function mountTable(root, session, { onExit } = {}) {
     if (!creatures.length) rowC.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus criaturas' : 'Criaturas rivales'));
     if (!support.length) rowL.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus tierras' : 'Tierras rivales'));
     const battle = h('div', { class: 'battle' }, ...(side === 'opp' ? [rowL, rowC] : [rowC, rowL]));
-    el.append(zones, battle);
+    // Como en un tapete real: tu mazo a tu derecha; el del rival, enfrente (a tu izquierda).
+    if (side === 'me') el.append(battle, zones);
+    else el.append(zones, battle);
     el.classList.toggle('eliminated', p.eliminated);
   }
 
   function commandZone(p) {
-    if (!p.commander) return h('span', { class: 'n' }, p.id === me() ? '+' : '—');
-    if (!p.commanderInZone) return h('span', { class: 'n' }, '⚔');
-    return [cardFace(p.commander), p.commanderTax ? h('span', { class: 'n' }, '+' + p.commanderTax) : null];
+    if (!p.commander) return h('span', { class: 'big' }, p.id === me() ? '+' : '—');
+    if (!p.commanderInZone) return h('span', { class: 'big' }, '⚔');
+    return [cardFace(p.commander), p.commanderTax ? h('span', { class: 'tax' }, '+' + p.commanderTax) : null];
   }
 
   function permEl(s, perm, owner) {
     let el = ui.els.get(perm.uid);
     if (!el) {
       el = h('div', { class: 'perm', 'data-uid': perm.uid }, cardFace(perm.card), h('div', { class: 'badges' }));
+      // La animación de entrada se reproduce una sola vez: al acabar se quita,
+      // para que no se repita cuando el tablero recoloca las cartas.
+      el.addEventListener('animationend', (ev) => { if (ev.animationName === 'summonIn') el.classList.remove('enter'); });
       el.addEventListener('click', (e) => { e.stopPropagation(); onPermTap(perm.uid); });
       ui.els.set(perm.uid, el);
     }

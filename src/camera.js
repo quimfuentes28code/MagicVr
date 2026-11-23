@@ -7,13 +7,45 @@ export function cameraSupported() {
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
-export async function startCamera(video) {
-  if (!cameraSupported()) throw new Error('Este navegador no permite usar la cámara (¿estás en HTTPS?).');
-  if (!stream) {
-    starting ||= navigator.mediaDevices.getUserMedia({
+async function openStream() {
+  // 1º la cámara trasera a la máxima resolución; si el navegador o la webcam
+  // no aceptan esas condiciones, cualquier cámara.
+  try {
+    return await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
     });
+  } catch (e) {
+    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) throw e;
+    return navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+  }
+}
+
+/** Explicación en español de por qué no se pudo abrir la cámara. */
+export function cameraErrorText(e) {
+  switch (e && e.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'El navegador ha bloqueado la cámara. Pulsa el candado (o el icono de cámara) junto a la dirección, permite la cámara y vuelve a intentarlo.';
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'No se ha encontrado ninguna cámara conectada.';
+    case 'NotReadableError':
+    case 'AbortError':
+      return 'La cámara está ocupada por otra aplicación (Zoom, Teams, Discord…). Ciérrala y vuelve a intentarlo.';
+    default:
+      return 'No se pudo abrir la cámara' + (e && e.message ? ` (${e.message})` : '') + '.';
+  }
+}
+
+export async function startCamera(video) {
+  if (!cameraSupported()) {
+    const err = new Error('Este navegador no permite usar la cámara (hace falta HTTPS).');
+    err.name = 'Unsupported';
+    throw err;
+  }
+  if (!stream) {
+    starting ||= openStream();
     try {
       stream = await starting;
     } finally {

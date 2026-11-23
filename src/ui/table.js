@@ -363,7 +363,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     let status;
     if (myResponse) {
       // Ventana de respuesta: como en los juegos digitales, se pasa sola si no haces nada.
-      const secs = top.card.isCreature || top.card.isLand ? 4 : 7;
+      const secs = 10; // tiempo para decidir si respondes
       if (ui.waitingFor !== top.id) { ui.waitingFor = top.id; ui.passAt = Date.now() + secs * 1000; ui.hold = false; sfx('warn'); }
       const left = Math.max(0, Math.ceil((ui.passAt - Date.now()) / 1000));
       status = h('div', { class: 'stack-ask' },
@@ -458,11 +458,19 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const box = h('div', { class: 'intro' },
       h('div', { class: 'intro-card parchment' },
         h('h3', {}, 'Quién empieza'),
+        ev?.rolls ? h('p', { class: 'intro-sub' }, 'Cada jugador tira un dado de 20 caras: quien saca el número más alto empieza.') : null,
         ev?.rolls ? h('div', { class: 'dice-row' }, s.players.map((p, i) => h('div', { class: 'die' + (p.id === first.id ? ' win' : '') }, h('b', {}, ev.rolls[i]), h('span', {}, p.id === me() ? 'Tú' : p.name)))) : null,
-        h('p', { class: 'intro-first' }, first.id === me() ? '¡Empiezas tú! (no robas en tu primer turno)' : `Empieza ${first.name}.`),
-        h('p', {}, 'Baraja tu mazo y roba 7 cartas. Si tu mano no te gusta (muy pocas o demasiadas tierras), puedes hacer ', h('b', {}, 'mulligan'), ': barajas y robas 7 otra vez, y pones 1 carta debajo del mazo por cada mulligan.'),
+        h('p', { class: 'intro-first' }, first.id === me() ? '¡Empiezas tú! (quien empieza no roba carta en su primer turno)' : `Empieza ${first.name}.`),
+        h('div', { class: 'intro-steps' },
+          h('b', {}, 'Con tus cartas de verdad:'),
+          h('ol', {},
+            h('li', {}, 'Coge tu mazo físico y barájalo.'),
+            h('li', {}, 'Roba 7 cartas: esa es tu mano. Tenla en la mano, sin enseñarla (la app no ve tu mano, sólo las cartas que pones en el círculo para jugarlas).'),
+            h('li', {}, '¿No te gusta la mano (muy pocas o demasiadas tierras)? Haz ', h('b', {}, 'mulligan'), ': vuelve a barajar todo y roba 7; luego pon 1 carta debajo del mazo por cada mulligan que hayas hecho.'),
+          ),
+        ),
         h('div', { class: 'row-btns' },
-          h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; toast(`Mulligan ${ui.mulligans}: baraja, roba 7 y pon ${ui.mulligans} carta${ui.mulligans > 1 ? 's' : ''} debajo del mazo.`, 'info', 6000); } }, 'Hago mulligan'),
+          h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; toast(`Mulligan ${ui.mulligans}: baraja tu mazo, roba 7 cartas y pon ${ui.mulligans} carta${ui.mulligans > 1 ? 's' : ''} de tu mano debajo del mazo.`, 'info', 7000); } }, 'Hago mulligan'),
           h('button', { class: 'act primary', onClick: () => { box.remove(); if (!screen.classList.contains('calibrating')) session.pauseBots(false); } }, 'Me quedo la mano'),
         ),
       ));
@@ -543,6 +551,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
     const rowC = h('div', { class: 'row creatures', 'data-zone': 'battlefield' }, creatures.map((x) => permEl(s, x, p)));
     const rowL = h('div', { class: 'row lands', 'data-zone': 'lands' }, others.map((x) => permEl(s, x, p)), lands.map((x) => permEl(s, x, p)));
+    rowC.style.setProperty('--n', Math.max(1, creatures.length));
+    rowL.style.setProperty('--n', Math.max(1, support.length));
     if (!creatures.length) rowC.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus criaturas' : 'Criaturas rivales'));
     if (!support.length) rowL.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus tierras' : 'Tierras rivales'));
     const battle = h('div', { class: 'battle' }, ...(side === 'opp' ? [rowL, rowC] : [rowC, rowL]));
@@ -659,12 +669,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const m = manaAvailable(p);
     const orbs = ['W', 'U', 'B', 'R', 'G', 'C'].filter((c) => m[c]).map((c) => h('span', { class: 'orb orb-' + c }, m[c]));
     if (m.any) orbs.push(h('span', { class: 'orb orb-any' }, m.any));
-    return h('div', { class: 'mana-orbs', title: 'Maná disponible (tierras enderezadas)' }, orbs.length ? orbs : h('span', { class: 'orb orb-none' }, '0'));
+    return h('div', { class: 'mana-orbs', title: 'Maná disponible: tierras sin girar + maná en tu reserva' },
+      orbs.length ? orbs : h('span', { class: 'orb orb-none' }, '0'),
+      m.pool ? h('span', { class: 'pool-tag' }, `${m.pool} en reserva`) : null);
   }
 
   function manaHint(p) {
-    const n = manaSources(p).length;
-    return `Tienes ${n} maná disponible.` + (p.landsPlayed ? ' Ya jugaste tierra este turno.' : ' Aún puedes jugar una tierra.');
+    const m = manaAvailable(p);
+    return `Tienes ${m.total} maná disponible${m.pool ? ` (${m.pool} ya en tu reserva)` : ''}: la app gira tus tierras al pagar, o tócalas para girarlas tú.` + (p.landsPlayed ? ' Ya jugaste tierra este turno.' : ' Aún puedes jugar una tierra.');
   }
 
   // ------------------------------------------------------------ eventos
@@ -692,6 +704,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         toast(e.text, 'warn', 4000);
       } else if (e.kind === 'start') {
         // (la tirada se muestra al montar la mesa)
+      } else if (e.kind === 'mana') {
+        const el = ui.els.get(e.uid);
+        if (el) floatText(el, '+1 maná', 'gain');
       } else if (e.kind === 'emote') {
         showEmote(e);
       } else if (e.kind === 'death' && e.uid) {
@@ -770,6 +785,13 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     }
     if (s.step === 'block' && owner.id === me() && perm.card.isCreature && pendingDefenders(s).includes(me())) {
       blockSheet(perm);
+      return;
+    }
+    // Un toque en una tierra tuya la gira (su maná va a tu reserva) o la endereza.
+    if (owner.id === me() && perm.card.isLand) {
+      buzz(15);
+      sfx('click');
+      session.dispatch({ t: 'tap', uid });
       return;
     }
     permSheet(perm, owner);

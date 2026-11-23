@@ -5,7 +5,8 @@
 import { h } from './dom.js';
 import { icon } from './icons.js';
 
-export const LAYOUT_DEFAULTS = { bl: 0, br: 66, sx: 80, sy: 48, sh: 74, tilt: 18 };
+// Por defecto: vista cenital (cámara en el techo mirando a la mesa), sin inclinación.
+export const LAYOUT_DEFAULTS = { bl: 0, br: 58, sx: 84, sy: 50, sh: 70, zx: 65.5, zy: 70, zh: 56, tilt: 0 };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -16,13 +17,16 @@ export function applyLayout(mid, L) {
   mid.style.setProperty('--sx', L.sx + '%');
   mid.style.setProperty('--sy', L.sy + '%');
   mid.style.setProperty('--sh', L.sh + '%');
+  mid.style.setProperty('--zx', L.zx + '%');
+  mid.style.setProperty('--zy', L.zy + '%');
+  mid.style.setProperty('--zh', L.zh + '%');
 }
 
 /**
  * Abre el editor sobre la mesa. elements: { screen, mid, board, summon, mat }.
  * onChange(layout) en cada cambio; onDone(layout) al pulsar «Listo».
  */
-export function openCalibrator({ screen, mid, board, summon, mat }, layout, { onChange, onDone, firstTime = false, extra = null }) {
+export function openCalibrator({ screen, mid, board, summon, mat, zones }, layout, { onChange, onDone, firstTime = false, extra = null }) {
   const L = { ...LAYOUT_DEFAULTS, ...layout };
   const update = () => {
     applyLayout(mid, L);
@@ -33,11 +37,7 @@ export function openCalibrator({ screen, mid, board, summon, mat }, layout, { on
   // Asas para arrastrar
   const leftHandle = h('div', { class: 'cal-handle cal-v cal-left', title: 'Borde izquierdo del tablero' }, h('span', {}, '⇔'));
   const rightHandle = h('div', { class: 'cal-handle cal-v cal-right', title: 'Borde derecho del tablero' }, h('span', {}, '⇔'));
-  const sizeHandle = h('div', { class: 'cal-handle cal-size', title: 'Tamaño del círculo' }, '⤡');
-  const moveHint = h('div', { class: 'cal-move' }, icon('portal'), 'Arrastra para mover');
   board.append(leftHandle, rightHandle);
-  summon.append(sizeHandle, moveHint);
-
   const midRect = () => mid.getBoundingClientRect();
   const drag = (el, onMove) => {
     el.addEventListener('pointerdown', (e) => {
@@ -53,36 +53,54 @@ export function openCalibrator({ screen, mid, board, summon, mat }, layout, { on
   };
   drag(leftHandle, (ev, r) => { L.bl = clamp(((ev.clientX - r.left) / r.width) * 100, 0, L.br - 25); });
   drag(rightHandle, (ev, r) => { L.br = clamp(((ev.clientX - r.left) / r.width) * 100, L.bl + 25, 100); });
-  drag(sizeHandle, (ev, r) => {
-    const cy = r.top + (L.sy / 100) * r.height;
-    L.sh = clamp(((ev.clientY - cy) * 2 / r.height) * 100, 35, 100);
-  });
-  let grab = null;
-  summon.addEventListener('pointerdown', onSummonDown);
-  function onSummonDown(e) {
-    if (e.target === sizeHandle) return;
-    e.preventDefault();
-    const r = midRect();
-    grab = { dx: e.clientX - (r.left + (L.sx / 100) * r.width), dy: e.clientY - (r.top + (L.sy / 100) * r.height) };
-    summon.setPointerCapture(e.pointerId);
+
+  // Elementos que se pueden mover (arrastrando) y redimensionar (esquina ⤡):
+  // el círculo de invocación y las casillas de mazo / cementerio / exilio.
+  const cleanups = [];
+  function movable(el, kx, ky, kh, label, minH = 25) {
+    if (!el) return;
+    const size = h('div', { class: 'cal-handle cal-size', title: 'Tamaño' }, '⤡');
+    const hint = h('div', { class: 'cal-move' }, icon('portal'), label);
+    el.append(size, hint);
+    drag(size, (ev, r) => {
+      const cy = r.top + (L[ky] / 100) * r.height;
+      L[kh] = clamp(((ev.clientY - cy) * 2 / r.height) * 100, minH, 100);
+    });
+    let grab = null;
+    const down = (e) => {
+      if (e.target === size) return;
+      e.preventDefault();
+      const r = midRect();
+      grab = { dx: e.clientX - (r.left + (L[kx] / 100) * r.width), dy: e.clientY - (r.top + (L[ky] / 100) * r.height) };
+      el.setPointerCapture(e.pointerId);
+    };
+    const move = (e) => {
+      if (!grab) return;
+      const r = midRect();
+      L[kx] = clamp(((e.clientX - grab.dx - r.left) / r.width) * 100, 5, 95);
+      L[ky] = clamp(((e.clientY - grab.dy - r.top) / r.height) * 100, 10, 90);
+      update();
+    };
+    const up = () => { grab = null; };
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.classList.add('cal-movable');
+    cleanups.push(() => {
+      size.remove(); hint.remove(); el.classList.remove('cal-movable');
+      el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+    });
   }
-  const onSummonMove = (e) => {
-    if (!grab) return;
-    const r = midRect();
-    L.sx = clamp(((e.clientX - grab.dx - r.left) / r.width) * 100, 8, 92);
-    L.sy = clamp(((e.clientY - grab.dy - r.top) / r.height) * 100, 15, 85);
-    update();
-  };
-  const onSummonUp = () => { grab = null; };
-  summon.addEventListener('pointermove', onSummonMove);
-  summon.addEventListener('pointerup', onSummonUp);
-  summon.addEventListener('pointercancel', onSummonUp);
+  movable(summon, 'sx', 'sy', 'sh', 'Círculo: arrastra para mover');
+  movable(zones, 'zx', 'zy', 'zh', 'Mazo · cementerio · exilio');
 
   const tilt = h('input', { type: 'range', min: 0, max: 45, step: 1, value: L.tilt, onInput: (e) => { L.tilt = +e.target.value; update(); } });
   const panel = h('div', { class: 'cal-panel parchment' },
     h('div', { class: 'cal-text' },
       h('h3', {}, firstTime ? 'Antes de empezar: ajusta tu mesa' : 'Ajustar la mesa'),
-      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. Con el ', h('b', {}, 'zoom'), ', haz que tu carta llene el círculo.'),
+      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' y las casillas de ', h('b', {}, 'mazo, cementerio y exilio'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. Con el ', h('b', {}, 'zoom'), ', haz que tus cartas encajen.'),
     ),
     extra,
     h('label', { class: 'slider' }, h('span', {}, 'Inclinación'), tilt),
@@ -99,12 +117,7 @@ export function openCalibrator({ screen, mid, board, summon, mat }, layout, { on
     panel.remove();
     leftHandle.remove();
     rightHandle.remove();
-    sizeHandle.remove();
-    moveHint.remove();
-    summon.removeEventListener('pointerdown', onSummonDown);
-    summon.removeEventListener('pointermove', onSummonMove);
-    summon.removeEventListener('pointerup', onSummonUp);
-    summon.removeEventListener('pointercancel', onSummonUp);
+    cleanups.forEach((f) => f());
     screen.classList.remove('calibrating');
     onDone && onDone({ ...L });
   }

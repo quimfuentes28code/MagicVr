@@ -219,7 +219,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
   display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas: 'top' 'mid' 'hud'; }
 /* Zona central con el tablero y el círculo colocados según «Ajustar mesa» */
-.table-mid { grid-area: mid; position: relative; min-height: 0; z-index: 2; --bl: 0%; --br: 66%; --sx: 80%; --sy: 48%; --sh: 74%; }
+.table-mid { grid-area: mid; position: relative; min-height: 0; z-index: 2; --bl: 0%; --br: 58%; --sx: 84%; --sy: 50%; --sh: 70%; --zx: 65.5%; --zy: 70%; --zh: 56%; }
 .cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
 .cam-shade { position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(120% 100% at 50% 50%, transparent 45%, rgba(5, 3, 10, 0.75) 100%), linear-gradient(180deg, rgba(5, 3, 10, 0.55), transparent 22%, transparent 75%, rgba(5, 3, 10, 0.8)); }
@@ -260,7 +260,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 
 /* tablero (holograma sobre la cámara) */
 .board { position: absolute; top: 0; bottom: 0; left: var(--bl); right: calc(100% - var(--br)); z-index: 2; min-height: 0; perspective: 900px; perspective-origin: 50% 0%; padding: 0 6px 0 max(10px, env(safe-area-inset-left)); }
-.mat { --tilt: 18deg; --zoom: 1; height: 100%; display: flex; flex-direction: column; gap: 3px; transform: rotateX(var(--tilt)) scale(var(--zoom)); transform-origin: 50% 100%; transition: transform 0.3s; }
+.mat { --tilt: 0deg; --zoom: 1; height: 100%; display: flex; flex-direction: column; gap: 3px; transform: rotateX(var(--tilt)) scale(var(--zoom)); transform-origin: 50% 100%; transition: transform 0.3s; }
 .side-row { flex: 1; min-height: 0; display: flex; gap: 6px; }
 .side-row.opp { flex: 1; }
 .side-row { --slot-gap: 4px; }
@@ -595,3 +595,25 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .intro-steps ol { margin: 2px 0 0; padding-left: 20px; }
 .intro-steps li { margin-bottom: 2px; }
 .pool-tag { font-size: 11px; font-style: italic; color: var(--gold-hi); margin-left: 3px; white-space: nowrap; }
+.zone-card { display: block; width: 100%; }
+.zone-card:active { transform: scale(0.97); }
+
+/* Tus casillas de mazo / cementerio / exilio, colocables como el círculo */
+.zones-free { position: absolute; left: var(--zx); top: var(--zy); height: var(--zh); translate: -50% -50%; z-index: 3; display: flex; touch-action: none; }
+.zones-free .zones { height: 100%; padding: 0; }
+.table-screen.calibrating .zones-free { outline: 2px dashed rgba(247, 220, 143, 0.8); outline-offset: 4px; border-radius: 8px; cursor: grab; }
+.zones-free .cal-move { font-size: 9px; }
+
+/* Ataque: embestida y explosión al impactar */
+.perm.lunge { animation: lunge 0.75s cubic-bezier(.3,1.4,.5,1); z-index: 5; }
+.side-row.opp .perm.lunge { animation-name: lungeDown; }
+@keyframes lunge { 0% { transform: none; } 35% { transform: translateY(-38%) scale(1.15); filter: brightness(1.5) drop-shadow(0 0 12px #ff5e4d); } 100% { transform: none; } }
+@keyframes lungeDown { 0% { transform: none; } 35% { transform: translateY(38%) scale(1.15); filter: brightness(1.5) drop-shadow(0 0 12px #ff5e4d); } 100% { transform: none; } }
+.boom { position: absolute; translate: -50% -50%; pointer-events: none; z-index: 40; }
+.boom .flash { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, #fff 0%, #ffd27a 25%, #ff6a2b 50%, rgba(255, 60, 20, 0) 72%); animation: boomFlash 0.6s ease-out forwards; }
+.boom .ring { position: absolute; inset: 0; border-radius: 50%; border: 4px solid rgba(255, 200, 120, 0.9); animation: boomRing 0.7s ease-out forwards; }
+@keyframes boomFlash { 0% { transform: scale(0.2); opacity: 1; } 40% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
+@keyframes boomRing { 0% { transform: scale(0.3); opacity: 1; } 100% { transform: scale(1.8); opacity: 0; border-width: 1px; } }
+.shake { animation: shake 0.45s; }
+@keyframes shake { 0%, 100% { translate: 0 0; } 20% { translate: -5px 2px; } 40% { translate: 5px -2px; } 60% { translate: -3px 1px; } 80% { translate: 3px -1px; } }
+.edition-toast { top: auto; bottom: max(64px, calc(env(safe-area-inset-bottom) + 60px)); }

@@ -40,11 +40,17 @@ async function get(path) {
   return res.json();
 }
 
-/** Ilustraciones distintas de una carta (y sus impresiones en español). */
-async function artworks(card, max = 175) {
+/** Ilustraciones distintas de una carta (hasta 3 páginas: las tierras básicas tienen cientos). */
+async function artworks(card, maxPages = 3) {
   const q = encodeURIComponent(`!"${card.name}"`);
-  const r = await get(`/cards/search?q=${q}&unique=art&order=released&dir=desc`);
-  return r.data.slice(0, max).filter((c) => imgOf(c, 'small'));
+  let url = `/cards/search?q=${q}&unique=art&order=released&dir=desc`;
+  const out = [];
+  for (let page = 0; page < maxPages && url; page++) {
+    const r = await get(url);
+    out.push(...r.data.filter((c) => imgOf(c, 'small')));
+    url = r.has_more && r.next_page ? r.next_page.replace(API, '') : null;
+  }
+  return out;
 }
 
 async function spanishOf(card, set) {
@@ -113,19 +119,26 @@ export async function autoMatchEdition(photo, card) {
   if (!photo || preferredEdition(card)) return null;
   const arts = await artworks(card);
   if (arts.length <= 1) return null;
-  const target = fingerprint(photo, photo.width, photo.height);
+  // La carta no siempre llena el círculo exactamente: probamos varios encuadres de la foto.
+  const targets = [];
+  for (const dx of [-0.04, 0, 0.04]) for (const dy of [-0.04, 0, 0.04]) for (const sc of [0.92, 1]) {
+    targets.push(fingerprint(photo, photo.width, photo.height, { x: ART.x + dx + (ART.w * (1 - sc)) / 2, y: ART.y + dy + (ART.h * (1 - sc)) / 2, w: ART.w * sc, h: ART.h * sc }));
+  }
   const scored = [];
-  for (let i = 0; i < arts.length; i += 8) {
-    const batch = arts.slice(i, i + 8);
+  for (let i = 0; i < arts.length; i += 12) {
+    const batch = arts.slice(i, i + 12);
     const imgs = await Promise.all(batch.map((c) => loadImage(imgOf(c, 'small')).catch(() => null)));
     imgs.forEach((img, k) => {
-      if (img) scored.push({ c: batch[k], d: distance(target, fingerprint(img, img.naturalWidth, img.naturalHeight)) });
+      if (!img) return;
+      const fp = fingerprint(img, img.naturalWidth, img.naturalHeight);
+      scored.push({ c: batch[k], d: Math.min(...targets.map((t) => distance(t, fp))) });
     });
   }
   scored.sort((a, b) => a.d - b.d);
   const [best, second] = scored;
-  // Sólo aceptamos una coincidencia clara (bastante parecida y mejor que la siguiente).
-  if (!best || best.d > 0.75 || (second && second.d - best.d < 0.05)) return null;
+  if (window.__editionDebug) window.__editionDebug(scored.slice(0, 5).map((x) => [x.c.set_name, x.d.toFixed(3)]));
+  // Aceptamos si es bastante parecida y se distingue de la siguiente.
+  if (!best || best.d > 0.9 || (second && second.d - best.d < 0.02)) return { unsure: true };
   const es = await spanishOf(card, best.c.set);
   return { image: es || imgOf(best.c), set: best.c.set, setName: best.c.set_name };
 }

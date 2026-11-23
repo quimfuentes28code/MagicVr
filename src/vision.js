@@ -2,7 +2,7 @@
 // Lee sin parar el nombre de la carta que hay dentro del círculo de invocación
 // y avisa cuando reconoce una carta con seguridad. Sin botones.
 
-import { grabFrame, titleBar } from './camera.js';
+import { grabFrame, titleBar, stretchContrast } from './camera.js';
 import { LOCAL_CARDS, localCard } from './engine/cards.js';
 import { findCard, knownCards } from './scryfall.js';
 import { cardDbReady, candidates, recordToCard } from './carddb.js';
@@ -167,14 +167,23 @@ export class CardWatcher {
     let lines = [];
     let canvas = null;
     // Pasadas: la barra del título detectada; la franja del nombre; la mitad superior.
+    // Con la carta quieta, cada intento usa un encuadre algo distinto (como si
+    // la movieras un poco): así no se queda atascado en un recorte que no lee.
+    const J = [[0, 0, 1], [0, 0.04, 1], [0.03, -0.02, 0.94], [-0.03, 0.02, 0.94], [0, 0.07, 0.9], [0.02, 0.01, 1.06]];
+    const [jx, jy, js] = J[(this.jitter = ((this.jitter || 0) + 1) % J.length)];
     const PASSES = [
       { x: 0, w: 1, y: 0, h: 0.3, psm: '7', bar: true },
       { x: 0.07, w: 0.8, y: 0.02, h: 0.2, psm: '6' },
       { x: 0, w: 1, y: 0, h: 0.55, psm: '3' },
     ];
     for (const pass of PASSES) {
-      canvas = grabFrame(this.video, { x: r.x + r.w * pass.x, y: r.y + r.h * pass.y, w: r.w * pass.w, h: r.h * pass.h });
+      const w = r.w * pass.w * js;
+      const hgt = r.h * pass.h * js;
+      const x = r.x + r.w * pass.x + r.w * jx + (r.w * pass.w - w) / 2;
+      const y = r.y + r.h * pass.y + r.h * jy;
+      canvas = grabFrame(this.video, { x, y, w, h: hgt });
       if (!canvas) return;
+      stretchContrast(canvas);
       if (pass.bar) {
         canvas = titleBar(canvas);
         if (!canvas) continue;
@@ -205,7 +214,9 @@ export class CardWatcher {
       this.last = { key, count };
       // La misma carta no se acepta otra vez hasta pasados unos segundos.
       const again = Date.now() - (this.recent.get(key) || 0) < 6000;
-      if (count >= 2 && !again) return this.accept(best.card);
+      // Lectura muy clara: se acepta a la primera; si hay dudas, se espera a una segunda igual.
+      const clear = best.score >= 0.94 && key.replace(/ /g, '').length >= 4;
+      if ((count >= 2 || clear) && !again) return this.accept(best.card);
       this.onState({ phase: 'reading', text: 'Leyendo… ' + (best.card.printedName || best.card.name) });
       return;
     }

@@ -4,7 +4,7 @@
 
 import { targetsFor } from './effects.js';
 import {
-  activePlayer, canAttack, canBlock, canTarget, combatReadyPending, findPerm, has, opponents,
+  activePlayer, canAttack, canBlock, canTarget, combatReadyPending, defenderOf, findPerm, has, opponents,
   pendingDefenders, planPayment, player, power, stackTop, toughness,
 } from './game.js';
 
@@ -124,7 +124,7 @@ function chooseAttackers(s, me) {
 
 function chooseBlocks(s, me) {
   const attackers = Object.entries(s.combat.attackers)
-    .filter(([, t]) => t === me.id)
+    .filter(([, t]) => defenderOf(s, t) === me.id)
     .map(([u]) => findPerm(s, +u)?.perm)
     .filter(Boolean)
     .sort((a, b) => power(b) - power(a));

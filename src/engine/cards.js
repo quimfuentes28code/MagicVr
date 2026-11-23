@@ -58,6 +58,7 @@ export function normalize(c) {
   card.isSorcery = /\bSorcery\b/.test(typeLine);
   card.isLegendary = /\bLegendary\b/.test(typeLine);
   card.isPermanent = !card.isInstant && !card.isSorcery;
+  card.loyalty = c.loyalty != null ? parseInt(c.loyalty, 10) || 0 : null;
   card.produces = manaProduced(card);
   card.effects = parseEffects(card);
   return card;

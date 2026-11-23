@@ -213,8 +213,10 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 
 /* ============================================================= MESA */
 .table-screen { position: absolute; inset: 0; overflow: hidden; background: #050409;
-  display: grid; grid-template-columns: minmax(0, 1fr) clamp(170px, 28vw, 280px); grid-template-rows: auto minmax(0, 1fr) auto;
-  grid-template-areas: 'top top' 'board summon' 'hud hud'; }
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'top' 'mid' 'hud'; }
+/* Zona central con el tablero y el círculo colocados según «Ajustar mesa» */
+.table-mid { grid-area: mid; position: relative; min-height: 0; z-index: 2; --bl: 0%; --br: 66%; --sx: 80%; --sy: 48%; --sh: 74%; }
 .cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
 .cam-shade { position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(120% 100% at 50% 50%, transparent 45%, rgba(5, 3, 10, 0.75) 100%), linear-gradient(180deg, rgba(5, 3, 10, 0.55), transparent 22%, transparent 75%, rgba(5, 3, 10, 0.8)); }
@@ -254,7 +256,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .top-actions .rune-btn { width: 36px; height: 36px; font-size: 17px; }
 
 /* tablero (holograma sobre la cámara) */
-.board { grid-area: board; position: relative; z-index: 2; min-height: 0; perspective: 900px; perspective-origin: 50% 0%; padding: 0 6px 0 max(10px, env(safe-area-inset-left)); }
+.board { position: absolute; top: 0; bottom: 0; left: var(--bl); right: calc(100% - var(--br)); z-index: 2; min-height: 0; perspective: 900px; perspective-origin: 50% 0%; padding: 0 6px 0 max(10px, env(safe-area-inset-left)); }
 .mat { --tilt: 18deg; --zoom: 1; height: 100%; display: flex; flex-direction: column; gap: 3px; transform: rotateX(var(--tilt)) scale(var(--zoom)); transform-origin: 50% 100%; transition: transform 0.3s; }
 .side-row { flex: 1; min-height: 0; display: flex; gap: 6px; }
 .side-row.opp { flex: 0.85; }
@@ -290,9 +292,9 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .side-row.eliminated { opacity: 0.3; filter: grayscale(1); }
 
 /* círculo de invocación */
-.summon { grid-area: summon; position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0 max(10px, env(safe-area-inset-right)) 0 4px; min-height: 0; }
+.summon { position: absolute; left: var(--sx); top: var(--sy); height: var(--sh); aspect-ratio: 63 / 88; translate: -50% -50%; z-index: 3; touch-action: none; }
 .summon-title { position: absolute; left: 0; right: 0; top: calc(4% - 13px); text-align: center; font-family: var(--title); font-size: 8px; letter-spacing: 0.2em; color: var(--gold-hi); text-transform: uppercase; text-shadow: 0 1px 3px #000; }
-.summon-wrap { position: relative; height: calc(100% - 46px); max-height: 330px; aspect-ratio: 63 / 88; flex: 0 1 auto; min-height: 120px; }
+.summon-wrap { position: absolute; inset: 0; }
 .summon-ring { position: absolute; left: 50%; top: 50%; width: 175%; aspect-ratio: 1; translate: -50% -50%; pointer-events: none; opacity: 0.85; animation: spin 24s linear infinite; filter: drop-shadow(0 0 6px rgba(247, 220, 143, 0.6)); }
 .summon-ring.r2 { width: 135%; animation-direction: reverse; animation-duration: 16s; opacity: 0.6; }
 .summon-frame { position: absolute; inset: 0; border-radius: 10px; box-shadow: 0 0 0 1.5px rgba(247, 220, 143, 0.9), 0 0 0 999px rgba(0, 0, 0, 0); }
@@ -301,7 +303,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .summon[data-phase='found'] .summon-frame { box-shadow: 0 0 0 2px #9dffc6, 0 0 30px #3fff9a; }
 .summon[data-phase='loading'] .summon-ring { opacity: 0.35; }
 .summon-status { font-style: italic; font-size: 14px; text-align: center; color: var(--text); text-shadow: 0 1px 3px #000, 0 0 8px #000; min-height: 1.3em; max-width: 100%; }
-.summon-tools { display: flex; gap: 8px; align-items: center; justify-content: center; max-width: 100%; }
+.summon-tools { position: absolute; top: 100%; left: 50%; translate: -50% 0; margin-top: 2px; display: flex; gap: 6px; align-items: center; justify-content: center; width: max-content; max-width: 46vw; }
 .summon-tools .rune-btn { width: 34px; height: 34px; font-size: 16px; }
 .summon-ghost { position: absolute; inset: 0; z-index: 3; animation: summonGhost 1.1s ease-out forwards; pointer-events: none; }
 .summon-ghost .card { width: 100%; height: 100%; --card-w: 100%; }
@@ -483,3 +485,26 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .db-status { margin-top: 10px; font-style: italic; font-size: 14px; color: var(--muted); }
 .db-status.ok { color: #9dffc6; }
 .db-status.ok::before { content: '✦ '; color: var(--gold-hi); }
+
+/* «Ajustar mesa» */
+.cal-panel { position: absolute; z-index: 45; left: 50%; translate: -50% 0; bottom: max(6px, env(safe-area-inset-bottom)); width: min(820px, calc(100% - 24px)); display: flex; align-items: center; gap: 12px; padding: 5px 12px; border-radius: 12px;
+  box-shadow: inset 0 0 0 1px #9a7a44, inset 0 0 0 3px #f0e0b8, inset 0 0 0 4px #8a6326, 0 10px 30px rgba(0, 0, 0, 0.75); animation: slideDown 0.3s; }
+.cal-text { flex: 1; min-width: 0; }
+.cal-panel h3 { color: #4a140e; font-size: 13px; margin: 0 0 1px; }
+.cal-panel p { margin: 0; font-size: 12px; line-height: 1.15; }
+.cal-panel .slider { margin: 0; width: 120px; flex: none; }
+.cal-btns { display: flex; gap: 6px; flex: none; }
+.cal-btns .act { padding: 6px 12px; }
+.table-screen.calibrating .hud { visibility: hidden; }
+.table-screen.calibrating .board { outline: 2px dashed rgba(247, 220, 143, 0.8); outline-offset: -2px; border-radius: 12px; background: rgba(247, 220, 143, 0.06); }
+.table-screen.calibrating .summon { cursor: grab; }
+.table-screen.calibrating .summon-frame { box-shadow: 0 0 0 2px var(--gold-hi), 0 0 24px rgba(247, 220, 143, 0.7); }
+.table-screen.calibrating .hud, .table-screen.calibrating .topbar { opacity: 0.35; pointer-events: none; }
+.cal-handle { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; color: #1c1003; font-weight: 700; touch-action: none;
+  background: radial-gradient(circle at 40% 35%, #fff2c0, var(--gold) 60%, #7a5a24); box-shadow: 0 0 0 2px #1a0f05, 0 0 14px rgba(247, 220, 143, 0.9); }
+.cal-v { top: 50%; width: 30px; height: 56px; border-radius: 15px; translate: -50% -50%; cursor: ew-resize; }
+.cal-left { left: 0; }
+.cal-right { left: 100%; }
+.cal-size { right: -14px; bottom: -14px; width: 32px; height: 32px; border-radius: 50%; cursor: nwse-resize; font-size: 16px; }
+.cal-move { position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 4px; font-family: var(--title); font-size: 11px; color: var(--gold-hi); text-shadow: 0 1px 3px #000; pointer-events: none; text-align: center; }
+.cal-move .ico { font-size: 28px; }

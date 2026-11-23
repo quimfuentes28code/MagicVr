@@ -98,7 +98,8 @@ export function matchKnown(text, index = null) {
     for (const [key, entry] of pool) {
       const card = useDb ? null : entry;
       const s = bestIn(line, key) - li * 0.01; // preferimos las primeras líneas (el título)
-      const need = key.length >= 7 ? 0.78 : key.length >= 5 ? 0.84 : 0.99;
+      // Con 35.000 cartas hay nombres muy parecidos: exigimos bastante parecido.
+      const need = key.length >= 9 ? 0.8 : key.length >= 6 ? 0.86 : 0.99;
       if (s >= need && (!best || s > best.score)) best = { card: card || recordToCard(entry), score: s, line };
     }
   });
@@ -120,6 +121,8 @@ export class CardWatcher {
     this.last = null; // { key, count }
     this.accepted = null; // nombre aceptado que sigue en el círculo
     this.missing = 0;
+    this.lastAccept = 0; // momento de la última carta aceptada
+    this.recent = new Map(); // nombre -> momento en que se aceptó
     this.misses = new Set(); // candidatos que Scryfall no conoce
   }
 
@@ -153,8 +156,8 @@ export class CardWatcher {
   stop() { this.running = false; }
   pause(v) { this.paused = v; }
 
-  /** Permite volver a reconocer la misma carta (p. ej. tras deshacer). */
-  forget() { this.accepted = null; this.last = null; }
+  /** Empieza de cero (p. ej. al pedir el comandante). La carta que siga en el círculo no se repite. */
+  forget() { this.last = null; }
 
   async tick(worker) {
     // 1º la franja del nombre (una línea, rápido y fiable); 2º la mitad superior.
@@ -184,19 +187,25 @@ export class CardWatcher {
       if (best) break;
     }
 
-    // ¿La carta aceptada sigue en el círculo?
+    // ¿La carta aceptada sigue en el círculo? Mientras siga, no se vuelve a jugar.
+    // Hace falta no verla en 3 lecturas seguidas para dar el círculo por vacío.
     if (this.accepted) {
-      const still = best ? norm(best.card.name) === this.accepted : lines.some((l) => bestIn(l, this.accepted) > 0.7);
-      if (still) return;
-      if (++this.missing < 2) return;
+      const still = best ? norm(best.card.name) === this.accepted : lines.some((l) => bestIn(l, this.accepted) > 0.6);
+      if (still) { this.missing = 0; return; }
+      if (++this.missing < 3) return;
       this.accepted = null;
+      this.onState({ phase: 'idle', text: 'Coloca una carta en el círculo' });
     }
+    // Pausa mínima entre dos cartas.
+    if (Date.now() - this.lastAccept < 2000) return;
 
     if (best) {
       const key = norm(best.card.name);
       const count = this.last && this.last.key === key ? this.last.count + 1 : 1;
       this.last = { key, count };
-      if (best.score >= 0.92 || count >= 2) return this.accept(best.card);
+      // La misma carta no se acepta otra vez hasta pasados unos segundos.
+      const again = Date.now() - (this.recent.get(key) || 0) < 6000;
+      if (count >= 2 && !again) return this.accept(best.card);
       this.onState({ phase: 'reading', text: 'Leyendo… ' + (best.card.printedName || best.card.name) });
       return;
     }
@@ -224,6 +233,8 @@ export class CardWatcher {
     this.accepted = norm(card.name);
     this.missing = 0;
     this.last = null;
+    this.lastAccept = Date.now();
+    this.recent.set(this.accepted, this.lastAccept);
     this.onState({ phase: 'found', text: card.printedName || card.name });
     this.onCard(card);
   }

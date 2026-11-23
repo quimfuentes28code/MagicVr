@@ -3,7 +3,7 @@
 import './styles.css';
 import { h, clear, toast } from './ui/dom.js';
 import { icon } from './ui/icons.js';
-import { mountTable, RUNE_RING } from './ui/table.js';
+import { mountTable, RUNE_RING, needsCalibration } from './ui/table.js';
 import { startTutorial } from './ui/tutorial.js';
 import { RULES, KEYWORDS } from './ui/learn.js';
 import { Session } from './session.js';
@@ -101,6 +101,7 @@ function menu() {
       h('div', { class: 'logo-title' }, 'MagicVR'),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
       h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), nameInput),
+      h('button', { class: 'gem small bronze', onClick: calibrateFromMenu }, icon('eye'), 'Ajustar mesa'),
       dbLine(),
     ),
     h('div', { class: 'menu-right' },
@@ -157,7 +158,18 @@ function startTutorialGame() {
   const state = createGame({ mode: '1v1', players: [{ id: 'me', name: myName() }, { ...botPlayer(0, 'W', '1v1'), name: 'Golem de entrenamiento' }] });
   const session = new Session({ role: 'local', state, me: 'me' });
   session.botDelay = 1100;
-  startTutorial(mountTable(app, session, { onExit: menu }));
+  // Si es la primera vez, el tutorial empieza después de ajustar la mesa.
+  const first = needsCalibration();
+  const table = mountTable(app, session, { onExit: menu, onCalibrated: () => first && startTutorial(table) });
+  if (!first) startTutorial(table);
+}
+
+/** «Ajustar mesa» desde el menú: la mesa con la cámara, sin partida en marcha. */
+function calibrateFromMenu() {
+  const state = createGame({ mode: '1v1', players: [{ id: 'me', name: myName() }, botPlayer(0, 'G', '1v1')] });
+  const session = new Session({ role: 'local', state, me: 'me' });
+  session.pauseBots(true);
+  const table = mountTable(app, session, { calibrate: true, onExit: menu, onCalibrated: () => table.exit() });
 }
 
 // ------------------------------------------------------------- online

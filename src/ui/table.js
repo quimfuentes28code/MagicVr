@@ -5,6 +5,7 @@ import { h, clear, append, sheet, toast, burst, floatText } from './dom.js';
 import { cardFace, cardInfo } from './cardview.js';
 import { icon } from './icons.js';
 import { openPicker } from './picker.js';
+import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
 import { startCamera, stopCamera, cameraSupported, cameraErrorText } from '../camera.js';
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect } from '../engine/effects.js';
@@ -15,9 +16,13 @@ import {
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
-const DEFAULTS = { tilt: 18, zoom: 1, camera: true };
+const DEFAULTS = { tilt: 18, zoom: 1, camera: true, layout: null };
 function loadSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { ...DEFAULTS }; }
+}
+/** ¿Falta ajustar la mesa? (la primera vez que se juega en este dispositivo) */
+export function needsCalibration() {
+  return !loadSettings().layout;
 }
 function saveSettings(s) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* */ }
@@ -42,7 +47,7 @@ export const RUNE_RING = `<svg viewBox="0 0 200 200" fill="none" stroke="#f7dc8f
     }).join('')}
   </g></svg>`;
 
-export function mountTable(root, session, { onExit } = {}) {
+export function mountTable(root, session, { onExit, calibrate = false, onCalibrated } = {}) {
   const ui = {
     settings: loadSettings(),
     viewOpp: null,
@@ -81,7 +86,11 @@ export function mountTable(root, session, { onExit } = {}) {
   const fx = h('div', { class: 'fx-layer' });
   const banner = h('div', { class: 'banner' });
   const targetBar = h('div', { class: 'target-bar parchment', hidden: true });
-  const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, board, summon, hud, banner, targetBar, fx);
+  // Zona central: tablero y círculo se colocan donde el jugador los ajustó.
+  const mid = h('div', { class: 'table-mid' }, board, summon);
+  const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, banner, targetBar, fx);
+  const layout = () => ({ ...LAYOUT_DEFAULTS, tilt: ui.settings.tilt, ...(ui.settings.layout || {}) });
+  applyLayout(mid, layout());
   clear(root).append(screen);
 
   // --------------------------------------------------------- cámara + ojo
@@ -133,8 +142,25 @@ export function mountTable(root, session, { onExit } = {}) {
     ));
   }
 
+  /** Abre «Ajustar mesa» sobre la partida. */
+  function calibrateTable(firstTime = false) {
+    watcher.pause(true);
+    openCalibrator({ screen, mid, board, summon, mat }, layout(), {
+      firstTime,
+      onDone: (L) => {
+        ui.settings.layout = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh };
+        ui.settings.tilt = L.tilt;
+        saveSettings(ui.settings);
+        watcher.pause(false);
+        onCalibrated && onCalibrated();
+      },
+    });
+  }
+
   applySettings();
   keepAwake();
+  // La primera vez (o si se pide), ajustar la mesa antes de empezar.
+  if (calibrate || !ui.settings.layout) setTimeout(() => calibrateTable(!calibrate), 300);
 
   function onCardSeen(card) {
     buzz(40);
@@ -180,7 +206,7 @@ export function mountTable(root, session, { onExit } = {}) {
       if (!ev.length || ev.some((e) => e.kind === 'illegal')) return;
       const box = h('div', { class: 'summon-toast' },
         h('span', {}, 'Invocado: ', h('b', {}, displayName(card))),
-        h('button', { class: 'gem small bronze', onClick: () => { session.dispatch({ t: 'undo' }); watcher.forget(); box.remove(); } }, icon('undo'), 'Deshacer'),
+        h('button', { class: 'gem small bronze', onClick: () => { session.dispatch({ t: 'undo' }); box.remove(); toast('Deshecho. Saca la carta del círculo y vuelve a ponerla (o usa el grimorio).'); } }, icon('undo'), 'Deshacer'),
       );
       screen.append(box);
       setTimeout(() => box.classList.add('out'), 4200);
@@ -459,7 +485,6 @@ export function mountTable(root, session, { onExit } = {}) {
         buzz(60);
       } else if (e.kind === 'illegal' && e.to === me()) {
         illegalSheet(e);
-        watcher.forget();
       } else if (e.kind === 'out' || e.kind === 'win') {
         showBanner(e.kind === 'win' ? (e.player === me() ? '¡Victoria!' : 'Derrota') : 'Eliminado');
         toast(e.text, 'warn', 4000);
@@ -607,6 +632,8 @@ export function mountTable(root, session, { onExit } = {}) {
   }
 
   function illegalSheet(e) {
+    if (ui.illegalOpen) return; // nunca más de un aviso a la vez
+    ui.illegalOpen = true;
     let close;
     close = sheet(h('div', { class: 'illegal' },
       h('h3', {}, 'Un momento, aprendiz…'),
@@ -615,7 +642,7 @@ export function mountTable(root, session, { onExit } = {}) {
         h('button', { class: 'act primary', onClick: () => close() }, 'Entendido'),
         e.action ? h('button', { class: 'act', onClick: () => { close(); session.dispatch({ ...e.action, force: true }); } }, 'Hacerlo igualmente') : null,
       ),
-    ));
+    ), { onClose: () => { ui.illegalOpen = false; } });
   }
 
   function playCard() {
@@ -630,7 +657,7 @@ export function mountTable(root, session, { onExit } = {}) {
       h('input', { type: 'range', min, max, step, value: st[key], onInput: (e) => { st[key] = +e.target.value; saveSettings(st); mat.style.setProperty('--tilt', st.tilt + 'deg'); mat.style.setProperty('--zoom', st.zoom); } }));
     close = sheet(h('div', {},
       h('h3', {}, 'Ajustes de la mesa'),
-      h('p', { class: 'muted' }, 'Inclina el tablero holográfico para que encaje con tu mesa.'),
+      h('button', { class: 'act primary', onClick: () => { close(); calibrateTable(); } }, 'Ajustar áreas de la mesa (con la cámara)'),
       slider('Inclinación', 'tilt', 0, 45, 1),
       slider('Tamaño', 'zoom', 0.7, 1.15, 0.05),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: st.camera, onChange: (e) => { st.camera = e.target.checked; saveSettings(st); applySettings(); } }), 'Usar la cámara'),

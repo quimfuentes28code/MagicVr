@@ -543,6 +543,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
     const rowC = h('div', { class: 'row creatures', 'data-zone': 'battlefield' }, creatures.map((x) => permEl(s, x, p)));
     const rowL = h('div', { class: 'row lands', 'data-zone': 'lands' }, others.map((x) => permEl(s, x, p)), lands.map((x) => permEl(s, x, p)));
+    rowC.style.setProperty('--n', Math.max(1, creatures.length));
+    rowL.style.setProperty('--n', Math.max(1, support.length));
     if (!creatures.length) rowC.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus criaturas' : 'Criaturas rivales'));
     if (!support.length) rowL.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus tierras' : 'Tierras rivales'));
     const battle = h('div', { class: 'battle' }, ...(side === 'opp' ? [rowL, rowC] : [rowC, rowL]));

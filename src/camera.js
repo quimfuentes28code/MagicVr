@@ -211,3 +211,25 @@ export async function setCameraZoom(video, z, origin = { x: 50, y: 50 }) {
   video.style.transform = z > 1 ? `scale(${z})` : '';
   return 'css';
 }
+
+/** Estira el contraste (percentiles 2-98 %) para que el texto destaque con poca luz. */
+export function stretchContrast(src) {
+  const ctx = src.getContext('2d');
+  const img = ctx.getImageData(0, 0, src.width, src.height);
+  const d = img.data;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4) hist[d[i]]++;
+  const total = d.length / 4;
+  let lo = 0, hi = 255, acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > total * 0.02) { lo = v; break; } }
+  acc = 0;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > total * 0.02) { hi = v; break; } }
+  if (hi - lo < 20) return src;
+  const k = 255 / (hi - lo);
+  for (let i = 0; i < d.length; i += 4) {
+    const v = Math.max(0, Math.min(255, (d[i] - lo) * k));
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(img, 0, 0);
+  return src;
+}

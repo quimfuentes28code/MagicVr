@@ -19,9 +19,17 @@ import {
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
-const DEFAULTS = { tilt: 18, zoom: 1, camera: true, layout: null, camZoom: 1 };
+const DEFAULTS = { tilt: 0, zoom: 1, camera: true, layout: null, camZoom: 1 };
 function loadSettings() {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { ...DEFAULTS }; }
+  let st;
+  try { st = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { st = { ...DEFAULTS }; }
+  // v3: vista cenital (sin inclinación) y casillas de mazo/cementerio/exilio movibles.
+  if ((st.v || 0) < 3) {
+    st.tilt = 0;
+    if (st.layout) st.layout = { ...st.layout, br: Math.min(st.layout.br ?? 58, 58), zx: 65.5, zy: 70, zh: 56 };
+    st.v = 3;
+  }
+  return st;
 }
 /** ¿Falta ajustar la mesa? (la primera vez que se juega en este dispositivo) */
 export function needsCalibration() {
@@ -90,7 +98,10 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const arrows = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   arrows.setAttribute('class', 'arrows');
   // Zona central: tablero y círculo se colocan donde el jugador los ajustó.
-  const mid = h('div', { class: 'table-mid' }, board, summon);
+  // Tus casillas de mazo, cementerio y exilio: se colocan donde las ajustes,
+  // del tamaño de tus cartas de verdad.
+  const myZones = h('div', { class: 'zones-free' });
+  const mid = h('div', { class: 'table-mid' }, board, myZones, summon);
   const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, stackPanel, banner, targetBar, arrows, fx);
   const layout = () => ({ ...LAYOUT_DEFAULTS, tilt: ui.settings.tilt, ...(ui.settings.layout || {}) });
   applyLayout(mid, layout());
@@ -118,7 +129,12 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     screen.classList.toggle('no-cam', !useCam);
     if (useCam) {
       startCamera(video)
-        .then(() => { watcher.pause(false); watcher.start(); applyZoom(); })
+        .then(() => {
+          // El lector sólo trabaja si no hay una ventana inicial ni un ajuste de mesa abiertos.
+          watcher.pause(!!ui.holdVision || screen.classList.contains('calibrating'));
+          watcher.start();
+          applyZoom();
+        })
         .catch((e) => {
           screen.classList.add('no-cam');
           summon.dataset.phase = 'error';
@@ -174,15 +190,15 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     session.pauseBots(true);
     const zoomSlider = h('label', { class: 'slider' }, h('span', {}, 'Zoom cámara ', zoomLabel),
       h('input', { type: 'range', min: 1, max: 4, step: 0.25, value: ui.settings.camZoom || 1, onInput: (e) => { ui.settings.camZoom = +e.target.value; saveSettings(ui.settings); applyZoom(); } }));
-    openCalibrator({ screen, mid, board, summon, mat }, layout(), {
+    openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
       firstTime,
       extra: zoomSlider,
       onChange: () => applyZoom(),
       onDone: (L) => {
-        ui.settings.layout = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh };
+        ui.settings.layout = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };
         ui.settings.tilt = L.tilt;
         saveSettings(ui.settings);
-        watcher.pause(false);
+        watcher.pause(!!ui.holdVision);
         if (!screen.querySelector('.intro')) session.pauseBots(false);
         onCalibrated && onCalibrated();
       },
@@ -257,14 +273,30 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const photo = ui.lastPhoto && ui.lastPhoto.name === card.name ? ui.lastPhoto.canvas : null;
     ui.lastPhoto = null;
     if (!photo || !card.isPermanent || card.edition) return;
+    const myPerm = () => { const mine = player(S(), me()).battlefield.filter((p) => p.card.name === card.name); return mine[mine.length - 1]; };
     autoMatchEdition(photo, card).then((ed) => {
       if (!ed) return;
+      if (ed.unsure) {
+        // No está segura: ofrece elegirla a mano.
+        const perm = myPerm();
+        if (!perm) return;
+        editionPrompt(`¿Es tu edición de ${displayName(card)}?`, () => openEditionPicker(perm.card, (e2) => { const p2 = myPerm(); if (p2) session.dispatch({ t: 'setImage', uid: p2.uid, image: e2.image }); }));
+        return;
+      }
       rememberEdition(card, ed);
-      const mine = player(S(), me()).battlefield.filter((p) => p.card.name === card.name);
-      const perm = mine[mine.length - 1];
+      const perm = myPerm();
       if (perm) session.dispatch({ t: 'setImage', uid: perm.uid, image: ed.image });
-      toast(`Edición detectada: ${ed.setName}.`);
+      editionPrompt(`Edición detectada: ${ed.setName}`, () => openEditionPicker(card, (e2) => { const p2 = myPerm(); if (p2) session.dispatch({ t: 'setImage', uid: p2.uid, image: e2.image }); }));
     }).catch(() => {});
+  }
+
+  /** Aviso con botón para elegir la edición a mano. */
+  function editionPrompt(text, onChange) {
+    const box = h('div', { class: 'summon-toast edition-toast' }, h('span', {}, text),
+      h('button', { class: 'gem small bronze', onClick: () => { box.remove(); onChange(); } }, 'Elegir otra'));
+    screen.append(box);
+    setTimeout(() => box.classList.add('out'), 6000);
+    setTimeout(() => box.remove(), 6500);
   }
 
   // ------------------------------------------------------- objetivos
@@ -406,12 +438,6 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const playerEl = (id) => (typeof id === 'string' && id.startsWith('pw:') ? ui.els.get(+id.slice(3))
       : id === me() ? hud.querySelector('[data-life]') : topbar.querySelector(`[data-player="${id}"]`));
     const lines = [];
-    for (const [uid, target] of Object.entries(s.combat.attackers || {})) {
-      lines.push([center(ui.els.get(+uid)), center(playerEl(target)), 'atk']);
-    }
-    for (const [att, list] of Object.entries(s.combat.blocks || {})) {
-      for (const b of list) lines.push([center(ui.els.get(b)), center(ui.els.get(+att)), 'blk']);
-    }
     for (const it of s.stack) {
       const from = center(stackPanel.querySelector(`[data-stack="${it.id}"]`));
       for (const t of it.targets || []) {
@@ -453,6 +479,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   // ------------------------------------------------- inicio de partida
   function intro(s) {
     session.pauseBots(true); // los bots esperan a que mires la tirada
+    ui.holdVision = true; // y la cámara no lee cartas hasta que empieces
+    watcher.pause(true);
     const ev = s.events.find((e) => e.kind === 'start');
     const first = player(s, ev?.player || activePlayer(s).id);
     sfx('dice');
@@ -475,7 +503,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         ),
         h('div', { class: 'row-btns' },
           h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; const bottom = ui.mulligans - (S().players.length > 2 ? 1 : 0); toast(bottom > 0 ? `Mulligan ${ui.mulligans}: baraja tu mazo, roba 7 cartas y pon ${bottom} carta${bottom > 1 ? 's' : ''} de tu mano debajo del mazo.` : 'Mulligan gratis: baraja tu mazo y roba 7 cartas (no pones ninguna debajo).', 'info', 7000); } }, 'Hago mulligan'),
-          h('button', { class: 'act primary', onClick: () => { box.remove(); if (!screen.classList.contains('calibrating')) session.pauseBots(false); } }, 'Me quedo la mano'),
+          h('button', { class: 'act primary', onClick: () => { box.remove(); ui.holdVision = false; if (!screen.classList.contains('calibrating')) { session.pauseBots(false); watcher.pause(false); } } }, 'Me quedo la mano'),
         ),
       ));
     screen.append(box);
@@ -561,8 +589,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         hintL: h('div', { class: 'hint' }, side === 'me' ? 'Tus tierras' : 'Tierras rivales'),
       };
       parts.battle = h('div', { class: 'battle' }, ...(side === 'opp' ? [parts.rowL, parts.rowC] : [parts.rowC, parts.rowL]));
-      // Como en un tapete real: tu mazo a tu derecha; el del rival, enfrente (a tu izquierda).
-      if (side === 'me') el.append(parts.battle, parts.zones);
+      // Tus casillas van aparte (movibles); las del rival, enfrente (a tu izquierda).
+      if (side === 'me') { el.append(parts.battle); myZones.replaceChildren(parts.zones); }
       else el.append(parts.zones, parts.battle);
       el.__parts = parts;
     }
@@ -758,6 +786,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         }
       } else if (e.kind === 'life') {
         floatText(document.querySelector(`[data-life="${e.target}"]`), (e.delta > 0 ? '+' : '') + e.delta, e.delta > 0 ? 'gain' : 'loss');
+        if (e.delta < 0 && e.uid) explode(document.querySelector(`[data-life="${e.target}"]`), true);
         sfx(e.delta > 0 ? 'gain' : 'loss');
         if (e.delta < 0 && e.target === me()) { screen.classList.add('hurt'); buzz(120); setTimeout(() => screen.classList.remove('hurt'), 500); }
       } else if (e.kind === 'turn') {
@@ -767,6 +796,19 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         showBanner('¡Al ataque!');
         sfx('attack');
         buzz(60);
+        for (const u of e.uids || []) {
+          const el = ui.els.get(u);
+          if (!el) continue;
+          el.classList.remove('lunge');
+          void el.offsetWidth;
+          el.classList.add('lunge');
+          setTimeout(() => el.classList.remove('lunge'), 800);
+        }
+      } else if (e.kind === 'combat') {
+        // Impacto: explosión en cada criatura que combate y donde recibe el golpe el jugador.
+        sfx('explosion');
+        buzz(150);
+        for (const u of e.uids || []) explode(ui.els.get(u));
       } else if (e.kind === 'illegal' && e.to === me()) {
         illegalSheet(e);
       } else if (e.kind === 'out' || e.kind === 'win') {
@@ -781,6 +823,23 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       }
     }
     for (const [uid, el] of ui.els) if (!findPerm(s, uid)) { el.remove(); ui.els.delete(uid); }
+  }
+
+  /** Explosión de impacto (destello, onda expansiva y chispas). */
+  function explode(target, big = false) {
+    if (!target || !target.isConnected) return;
+    const r = target.getBoundingClientRect();
+    const sr = screen.getBoundingClientRect();
+    const size = Math.max(r.width, r.height) * (big ? 1.6 : 1.3);
+    const boom = h('div', { class: 'boom', style: { left: r.left - sr.left + r.width / 2 + 'px', top: r.top - sr.top + r.height / 2 + 'px', width: size + 'px', height: size + 'px' } },
+      h('i', { class: 'flash' }), h('i', { class: 'ring' }));
+    fx.append(boom);
+    burst(target, 'R', big ? 30 : 20);
+    setTimeout(() => burst(target, 'C', 12), 80);
+    target.classList.remove('shake');
+    void target.offsetWidth;
+    target.classList.add('shake');
+    setTimeout(() => { boom.remove(); target.classList.remove('shake'); }, 900);
   }
 
   function showBanner(text) {
@@ -904,7 +963,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const cards = p[zone];
     sheet(h('div', {},
       h('h3', {}, `${zone === 'graveyard' ? 'Cementerio' : 'Exilio'} de ${p.name} (${cards.length})`),
-      cards.length ? h('div', { class: 'zone-grid' }, [...cards].reverse().map((c) => cardFace(c, { big: true })))
+      cards.length ? h('p', { class: 'muted' }, 'Toca una carta para leer su descripción.') : null,
+      cards.length ? h('div', { class: 'zone-grid' }, [...cards].reverse().map((c) => h('button', { class: 'zone-card', onClick: () => sheet(cardInfo(c)) }, cardFace(c, { big: true }))))
         : h('p', { class: 'muted' }, zone === 'graveyard' ? 'Aquí van las criaturas que mueren y los hechizos ya usados.' : 'Aquí van las cartas exiliadas: quedan fuera de la partida.'),
     ));
   }
@@ -946,7 +1006,6 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('p', {}, e.text),
       h('div', { class: 'row-btns' },
         h('button', { class: 'act primary', onClick: () => close() }, 'Entendido'),
-        e.action ? h('button', { class: 'act', onClick: () => { close(); session.dispatch({ ...e.action, force: true }); } }, 'Hacerlo igualmente') : null,
       ),
     ), { onClose: () => { ui.illegalOpen = false; } });
   }
@@ -992,7 +1051,11 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const unsub = session.subscribe(render);
   render(S());
   // Al empezar la partida: quién empieza (tirada de dado) y ayuda para el mulligan.
-  if (showIntro && S().turn === 1 && !S().log.some((l) => l.startsWith('Turno 2'))) setTimeout(() => intro(S()), 500);
+  if (showIntro && S().turn === 1 && !S().log.some((l) => l.startsWith('Turno 2'))) {
+    ui.holdVision = true;
+    watcher.pause(true);
+    setTimeout(() => intro(S()), 500);
+  }
   session.scheduleBots();
 
   return {

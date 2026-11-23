@@ -58,6 +58,31 @@ function noise({ t = 0, dur = 0.3, vol = 0.12, from = 400, to = 2400 } = {}) {
   src.start(start);
 }
 
+/** Explosión: estallido de ruido grave + golpe sub-grave. */
+function boom() {
+  const a = ac();
+  if (!a) return;
+  const dur = 1.1;
+  const len = Math.floor(a.sampleRate * dur);
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+  const src = a.createBufferSource();
+  src.buffer = buf;
+  const f = a.createBiquadFilter();
+  f.type = 'lowpass';
+  const t0 = a.currentTime;
+  f.frequency.setValueAtTime(2400, t0);
+  f.frequency.exponentialRampToValueAtTime(120, t0 + dur);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.5, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f).connect(g).connect(a.destination);
+  src.start(t0);
+  tone(65, { dur: 0.6, type: 'sine', vol: 0.35, slide: 0.4 });
+  tone(130, { dur: 0.25, type: 'triangle', vol: 0.15, slide: 0.3 });
+}
+
 const SOUNDS = {
   play: () => { tone(523, { dur: 0.25 }); tone(784, { t: 0.08, dur: 0.3 }); tone(1046, { t: 0.16, dur: 0.4, vol: 0.1 }); },
   land: () => { tone(196, { dur: 0.25, type: 'triangle', vol: 0.18 }); tone(294, { t: 0.05, dur: 0.3, type: 'triangle', vol: 0.1 }); },
@@ -67,7 +92,8 @@ const SOUNDS = {
   death: () => { tone(330, { dur: 0.5, type: 'sawtooth', vol: 0.06, slide: 0.3 }); noise({ dur: 0.5, vol: 0.06, from: 1200, to: 200 }); },
   gain: () => { tone(660, { dur: 0.2, vol: 0.1 }); tone(990, { t: 0.1, dur: 0.3, vol: 0.08 }); },
   loss: () => tone(160, { dur: 0.35, type: 'square', vol: 0.1, slide: 0.6 }),
-  attack: () => { [0, 0.12, 0.24].forEach((t) => tone(90, { t, dur: 0.15, type: 'square', vol: 0.15, slide: 0.6 })); },
+  attack: () => { noise({ dur: 0.5, vol: 0.12, from: 200, to: 1800 }); tone(70, { dur: 0.45, type: 'sawtooth', vol: 0.08, slide: 1.8 }); },
+  explosion: () => { boom(); },
   turn: () => { tone(740, { dur: 0.6, type: 'triangle', vol: 0.09 }); tone(1110, { t: 0.02, dur: 0.7, vol: 0.05 }); },
   click: () => tone(1200, { dur: 0.05, type: 'square', vol: 0.04 }),
   warn: () => { tone(300, { dur: 0.15, type: 'square', vol: 0.08 }); tone(240, { t: 0.15, dur: 0.2, type: 'square', vol: 0.08 }); },

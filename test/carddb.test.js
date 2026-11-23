@@ -16,6 +16,8 @@ test('base de datos completa: busca cualquier carta y empareja lecturas de la c√
   assert.equal(carddb.cardByName('relampago').name, 'Lightning Bolt');
   assert.equal(carddb.cardByName('Anillo solar').name, 'Sol Ring');
   assert.ok(carddb.searchNames('contrahe').includes('Contrahechizo'));
+  assert.equal(carddb.searchNames('Choque')[0], 'Choque', 'el nombre exacto sale el primero');
+  assert.equal(carddb.searchNames('shock')[0], 'Shock');
 
   const cases = [
     ['| Relampago 3 :', 'Lightning Bolt'],

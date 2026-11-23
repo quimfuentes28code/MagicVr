@@ -134,6 +134,8 @@ export function searchNames(q, limit = 12) {
   if (!k) return [];
   const starts = [];
   const contains = [];
+  // El nombre exacto siempre primero (escribir «Choque» no debe dar «Choque de realidades»).
+  if (db.byKey.has(k)) starts.push(db.byKey.get(k));
   for (const [key, i] of db.keys) {
     if (key.startsWith(k)) starts.push(i);
     else if (contains.length < limit && key.includes(k)) contains.push(i);
@@ -145,7 +147,7 @@ export function searchNames(q, limit = 12) {
     if (seen.has(i)) continue;
     seen.add(i);
     const r = db.records[i];
-    out.push(r.en && norm(r.en).includes(k) ? r.en : r.n);
+    out.push(r.en && norm(r.en).startsWith(k) ? r.en : r.en && norm(r.en).includes(k) && !norm(r.n).includes(k) ? r.en : r.n);
     if (out.length >= limit) break;
   }
   return out;

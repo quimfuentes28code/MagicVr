@@ -915,7 +915,7 @@ function resolveCombat(s, phase) {
   }
   if (phase === 'first') s.combat.firstDone = true;
   s.combat.result = results;
-  if (dealt.length || toPlayer.length) pushEvent(s, 'combat', (phase === 'first' ? 'Dañar primero: ' : '') + results.join(' '));
+  if (dealt.length || toPlayer.length) pushEvent(s, 'combat', (phase === 'first' ? 'Dañar primero: ' : '') + results.join(' '), { uids: Object.keys(s.combat.attackers).map(Number) });
   stateBased(s);
 }
 

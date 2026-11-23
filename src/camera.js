@@ -69,7 +69,7 @@ export function cameraActive() {
 }
 
 /** Captura un recorte del vídeo (coordenadas relativas 0..1 sobre lo que se ve en pantalla). */
-export function grabFrame(video, rect) {
+export function grabFrame(video, rect, { color = false } = {}) {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   if (!vw) return null;
@@ -90,7 +90,7 @@ export function grabFrame(video, rect) {
   canvas.width = Math.round(sw * up);
   canvas.height = Math.round(sh * up);
   const ctx = canvas.getContext('2d');
-  ctx.filter = 'grayscale(1)';
+  ctx.filter = color ? 'none' : 'grayscale(1)';
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   return canvas;
@@ -188,4 +188,26 @@ export function titleBar(src) {
   out.height = y1 - y0;
   out.getContext('2d').drawImage(src, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
   return out;
+}
+
+/**
+ * Zoom de la cámara (1 = sin zoom). Usa el zoom real de la cámara si lo tiene
+ * (sin perder calidad); si no, amplía la imagen hacia `origin` (% en pantalla).
+ * Devuelve 'hw' (zoom real) o 'css' (digital).
+ */
+export async function setCameraZoom(video, z, origin = { x: 50, y: 50 }) {
+  const track = stream && stream.getVideoTracks()[0];
+  const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+  if (caps && caps.zoom && caps.zoom.max > caps.zoom.min) {
+    const { min, max } = caps.zoom;
+    const value = Math.min(max, Math.max(min, min * z));
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: value }] });
+      video.style.transform = '';
+      return 'hw';
+    } catch { /* algunos navegadores lo anuncian pero no lo aplican */ }
+  }
+  video.style.transformOrigin = `${origin.x}% ${origin.y}%`;
+  video.style.transform = z > 1 ? `scale(${z})` : '';
+  return 'css';
 }

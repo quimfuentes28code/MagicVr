@@ -22,7 +22,7 @@ export function applyLayout(mid, L) {
  * Abre el editor sobre la mesa. elements: { screen, mid, board, summon, mat }.
  * onChange(layout) en cada cambio; onDone(layout) al pulsar «Listo».
  */
-export function openCalibrator({ screen, mid, board, summon, mat }, layout, { onChange, onDone, firstTime = false }) {
+export function openCalibrator({ screen, mid, board, summon, mat }, layout, { onChange, onDone, firstTime = false, extra = null }) {
   const L = { ...LAYOUT_DEFAULTS, ...layout };
   const update = () => {
     applyLayout(mid, L);
@@ -82,8 +82,9 @@ export function openCalibrator({ screen, mid, board, summon, mat }, layout, { on
   const panel = h('div', { class: 'cal-panel parchment' },
     h('div', { class: 'cal-text' },
       h('h3', {}, firstTime ? 'Antes de empezar: ajusta tu mesa' : 'Ajustar la mesa'),
-      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero para que encajen con tu mesa.'),
+      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. Con el ', h('b', {}, 'zoom'), ', haz que tu carta llene el círculo.'),
     ),
+    extra,
     h('label', { class: 'slider' }, h('span', {}, 'Inclinación'), tilt),
     h('div', { class: 'cal-btns' },
       h('button', { class: 'act', onClick: () => { Object.assign(L, LAYOUT_DEFAULTS); tilt.value = L.tilt; update(); } }, 'Restablecer'),

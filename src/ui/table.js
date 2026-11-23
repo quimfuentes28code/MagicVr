@@ -6,17 +6,20 @@ import { cardFace, cardInfo } from './cardview.js';
 import { icon } from './icons.js';
 import { openPicker } from './picker.js';
 import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
-import { startCamera, stopCamera, cameraSupported, cameraErrorText } from '../camera.js';
+import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, setCameraZoom } from '../camera.js';
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
+import { sfx, soundOn, setSound } from './sfx.js';
+import { openEditionPicker, autoMatchEdition, withPreferredEdition, rememberEdition } from './editions.js';
 import {
-  STEPS, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
-  power, toughness, displayName, canAttack, manaSources, planPayment,
+  STEPS, PHASES, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
+  power, toughness, displayName, canAttack, manaSources, manaAvailable, planPayment,
+  stackTop, waitingOn, combatReadyPending,
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
-const DEFAULTS = { tilt: 18, zoom: 1, camera: true, layout: null };
+const DEFAULTS = { tilt: 18, zoom: 1, camera: true, layout: null, camZoom: 1 };
 function loadSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { ...DEFAULTS }; }
 }
@@ -28,13 +31,8 @@ function saveSettings(s) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* */ }
 }
 
-const PHASE_RUNES = [
-  { label: 'I', steps: ['untap', 'upkeep', 'draw'] },
-  { label: 'II', steps: ['main1'] },
-  { label: '⚔', steps: ['attack', 'block', 'damage'] },
-  { label: 'III', steps: ['main2'] },
-  { label: '☾', steps: ['end'] },
-];
+const RUNE_LABELS = ['I', 'II', '⚔', 'III', '☾'];
+const PHASE_RUNES = PHASES.map((p, i) => ({ label: RUNE_LABELS[i], steps: p.steps, name: p.name }));
 
 export const RUNE_RING = `<svg viewBox="0 0 200 200" fill="none" stroke="#f7dc8f" stroke-width="0.8">
   <circle cx="100" cy="100" r="96"/><circle cx="100" cy="100" r="88" stroke-dasharray="2 4"/>
@@ -47,7 +45,7 @@ export const RUNE_RING = `<svg viewBox="0 0 200 200" fill="none" stroke="#f7dc8f
     }).join('')}
   </g></svg>`;
 
-export function mountTable(root, session, { onExit, calibrate = false, onCalibrated } = {}) {
+export function mountTable(root, session, { onExit, calibrate = false, onCalibrated, intro: showIntro = true } = {}) {
   const ui = {
     settings: loadSettings(),
     viewOpp: null,
@@ -78,7 +76,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const summon = h('aside', { class: 'summon', 'data-phase': 'loading' },
     summonWrap,
     h('div', { class: 'summon-tools' },
+      h('button', { class: 'rune-btn zoom-btn', title: 'Alejar la cámara', onClick: (e) => { e.stopPropagation(); zoomBy(-0.25); } }, '−'),
       summonStatus,
+      h('button', { class: 'rune-btn zoom-btn', title: 'Acercar la cámara (que tu carta llene el círculo)', onClick: (e) => { e.stopPropagation(); zoomBy(0.25); } }, '+'),
       h('button', { class: 'rune-btn', title: 'Grimorio (buscar a mano)', 'data-action': 'play', onClick: () => playCard() }, icon('grimoire')),
     ),
   );
@@ -86,20 +86,24 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const fx = h('div', { class: 'fx-layer' });
   const banner = h('div', { class: 'banner' });
   const targetBar = h('div', { class: 'target-bar parchment', hidden: true });
+  const stackPanel = h('div', { class: 'stack-panel', hidden: true });
+  const arrows = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  arrows.setAttribute('class', 'arrows');
   // Zona central: tablero y círculo se colocan donde el jugador los ajustó.
   const mid = h('div', { class: 'table-mid' }, board, summon);
-  const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, banner, targetBar, fx);
+  const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, stackPanel, banner, targetBar, arrows, fx);
   const layout = () => ({ ...LAYOUT_DEFAULTS, tilt: ui.settings.tilt, ...(ui.settings.layout || {}) });
   applyLayout(mid, layout());
   clear(root).append(screen);
 
   // --------------------------------------------------------- cámara + ojo
+  const regionOfSummon = () => {
+    const v = video.getBoundingClientRect();
+    const r = summonWrap.getBoundingClientRect();
+    return { x: (r.left - v.left) / v.width, y: (r.top - v.top) / v.height, w: r.width / v.width, h: r.height / v.height };
+  };
   const watcher = new CardWatcher(video, {
-    getRegion: () => {
-      const v = video.getBoundingClientRect();
-      const r = summonWrap.getBoundingClientRect();
-      return { x: (r.left - v.left) / v.width, y: (r.top - v.top) / v.height, w: r.width / v.width, h: r.height / v.height };
-    },
+    getRegion: regionOfSummon,
     onState: ({ phase, text }) => {
       summon.dataset.phase = phase;
       summonStatus.textContent = text;
@@ -114,7 +118,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     screen.classList.toggle('no-cam', !useCam);
     if (useCam) {
       startCamera(video)
-        .then(() => { watcher.pause(false); watcher.start(); })
+        .then(() => { watcher.pause(false); watcher.start(); applyZoom(); })
         .catch((e) => {
           screen.classList.add('no-cam');
           summon.dataset.phase = 'error';
@@ -128,6 +132,28 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       summonStatus.textContent = 'Cámara apagada: usa el grimorio';
     }
   };
+  // ------------------------------------------------------- zoom de cámara
+  const zoomLabel = h('span', { class: 'zoom-label' });
+  function summonOrigin() {
+    const v = video.getBoundingClientRect();
+    const r = summon.getBoundingClientRect();
+    if (!v.width) return { x: 50, y: 50 };
+    // origen en coordenadas del vídeo SIN escalar (el centro del círculo en pantalla)
+    const sr = screen.getBoundingClientRect();
+    return { x: ((r.left + r.width / 2 - sr.left) / sr.width) * 100, y: ((r.top + r.height / 2 - sr.top) / sr.height) * 100 };
+  }
+  async function applyZoom() {
+    const z = ui.settings.camZoom || 1;
+    const mode = await setCameraZoom(video, z, summonOrigin());
+    zoomLabel.textContent = `×${z.toFixed(2).replace(/\.?0+$/, '')}${mode === 'css' && z > 1 ? ' (digital)' : ''}`;
+  }
+  function zoomBy(d) {
+    ui.settings.camZoom = Math.min(4, Math.max(1, (ui.settings.camZoom || 1) + d));
+    saveSettings(ui.settings);
+    applyZoom();
+    toast(`Zoom de la cámara ×${ui.settings.camZoom}. Ajusta hasta que tu carta llene el círculo.`, 'info', 1800);
+  }
+
   /** Explica por qué falla la cámara y ofrece reintentar (un toque del usuario ayuda a algunos navegadores). */
   function cameraHelp(e) {
     let close;
@@ -145,13 +171,19 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   /** Abre «Ajustar mesa» sobre la partida. */
   function calibrateTable(firstTime = false) {
     watcher.pause(true);
+    session.pauseBots(true);
+    const zoomSlider = h('label', { class: 'slider' }, h('span', {}, 'Zoom cámara ', zoomLabel),
+      h('input', { type: 'range', min: 1, max: 4, step: 0.25, value: ui.settings.camZoom || 1, onInput: (e) => { ui.settings.camZoom = +e.target.value; saveSettings(ui.settings); applyZoom(); } }));
     openCalibrator({ screen, mid, board, summon, mat }, layout(), {
       firstTime,
+      extra: zoomSlider,
+      onChange: () => applyZoom(),
       onDone: (L) => {
         ui.settings.layout = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh };
         ui.settings.tilt = L.tilt;
         saveSettings(ui.settings);
         watcher.pause(false);
+        if (!screen.querySelector('.intro')) session.pauseBots(false);
         onCalibrated && onCalibrated();
       },
     });
@@ -164,6 +196,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   function onCardSeen(card) {
     buzz(40);
+    // Foto en color de la carta para averiguar su edición exacta.
+    try { ui.lastPhoto = { name: card.name, canvas: grabFrame(video, regionOfSummon(), { color: true }) }; } catch { ui.lastPhoto = null; }
     summonGhost(card);
     if (ui.awaitingCommander) {
       ui.awaitingCommander = false;
@@ -184,7 +218,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const myTurn = activePlayer(s).id === me();
     const main = s.step === 'main1' || s.step === 'main2';
     const fast = card.isInstant || card.keywords.includes('flash');
-    if (!fast && !(myTurn && main)) return false;
+    if (!fast && !(myTurn && main && !s.stack.length)) return false;
     return card.isLand || !!planPayment(player(s, me()), card.manaCost);
   }
 
@@ -199,7 +233,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   function dispatchPlay(card, targets) {
     const before = S().eventSeq;
+    card = withPreferredEdition(card);
     session.dispatch({ t: 'play', card, targets });
+    findEdition(card);
     // Aviso con opción de deshacer por si la cámara leyó mal.
     setTimeout(() => {
       const ev = S().events.filter((e) => e.id > before);
@@ -214,6 +250,21 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       const fx = card.isPermanent ? card.effects?.etb : card.effects?.spell;
       if (!card.isPermanent && !fx?.length) toast('Esta carta no se aplica sola: toca la criatura objetivo (daño, +X/+X, destruir…) o ajusta las vidas.', 'info', 5000);
     }, 60);
+  }
+
+  /** En segundo plano: compara la foto con las ilustraciones y pone tu edición. */
+  function findEdition(card) {
+    const photo = ui.lastPhoto && ui.lastPhoto.name === card.name ? ui.lastPhoto.canvas : null;
+    ui.lastPhoto = null;
+    if (!photo || !card.isPermanent || card.edition) return;
+    autoMatchEdition(photo, card).then((ed) => {
+      if (!ed) return;
+      rememberEdition(card, ed);
+      const mine = player(S(), me()).battlefield.filter((p) => p.card.name === card.name);
+      const perm = mine[mine.length - 1];
+      if (perm) session.dispatch({ t: 'setImage', uid: perm.uid, image: ed.image });
+      toast(`Edición detectada: ${ed.setName}.`);
+    }).catch(() => {});
   }
 
   // ------------------------------------------------------- objetivos
@@ -251,12 +302,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const t = ui.targeting;
     const want = currentWant();
     const s = S();
-    const players = want.target === 'creature' ? [] : s.players.filter((p) => !p.eliminated);
+    const players = want.target === 'creature' || want.target === 'spell' ? [] : s.players.filter((p) => !p.eliminated);
+    const spells = want.target === 'spell' ? s.stack : [];
     targetBar.hidden = false;
     clear(targetBar).append(
       h('div', { class: 'tb-title' }, displayName(t.card), ': ', describeEffect(want)),
-      h('div', { class: 'tb-hint' }, want.target === 'creature' ? 'Toca la criatura objetivo en el tablero.' : want.target === 'player' ? 'Elige el jugador objetivo.' : 'Toca una criatura o elige un jugador.'),
+      h('div', { class: 'tb-hint' }, want.target === 'spell' ? (spells.length ? 'Elige el hechizo de la pila.' : 'No hay ningún hechizo en la pila.') : want.target === 'creature' ? 'Toca la criatura objetivo en el tablero.' : want.target === 'player' ? 'Elige el jugador objetivo.' : 'Toca una criatura o elige un jugador.'),
       h('div', { class: 'row-btns' },
+        spells.map((it) => h('button', { class: 'act primary', onClick: () => pickTarget({ stack: it.id }) }, displayName(it.card))),
         players.map((p) => h('button', { class: 'act' + (p.id === me() ? '' : ' primary'), onClick: () => pickTarget({ player: p.id }) }, p.id === me() ? 'A mí' : p.name)),
         h('button', { class: 'act', onClick: () => finishTargeting(t.picked) }, 'Sin objetivo (a mano)'),
       ),
@@ -286,8 +339,152 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('span', {}, STEP_INFO[s.step].name),
     );
     renderHud(s, myP);
+    renderStack(s);
     processEvents(s);
+    requestAnimationFrame(() => drawArrows(S()));
+    if (s.winner && !ui.endShown) { ui.endShown = true; setTimeout(() => endScreen(S()), 1600); }
     for (const fn of ui.hooks) fn(s);
+  }
+
+  // ------------------------------------------------------------- la pila
+  function renderStack(s) {
+    clearTimeout(ui.passTimer);
+    if (!s.stack.length) { stackPanel.hidden = true; ui.waitingFor = null; return; }
+    stackPanel.hidden = false;
+    const top = stackTop(s);
+    const myResponse = top.waiting[0] === me();
+    const items = s.stack.map((it, i) => {
+      const owner = player(s, it.by);
+      const el = h('button', { class: 'stack-item' + (i === s.stack.length - 1 ? ' top' : ''), 'data-stack': it.id, onClick: () => sheet(cardInfo(it.card, h('p', { class: 'muted' }, `Lanzado por ${owner.name}.`))) },
+        cardFace(it.card), h('span', { class: 'who' }, owner.id === me() ? 'Tú' : owner.name));
+      return el;
+    });
+    const caster = player(s, top.by);
+    let status;
+    if (myResponse) {
+      // Ventana de respuesta: como en los juegos digitales, se pasa sola si no haces nada.
+      const secs = top.card.isCreature || top.card.isLand ? 4 : 7;
+      if (ui.waitingFor !== top.id) { ui.waitingFor = top.id; ui.passAt = Date.now() + secs * 1000; ui.hold = false; sfx('warn'); }
+      const left = Math.max(0, Math.ceil((ui.passAt - Date.now()) / 1000));
+      status = h('div', { class: 'stack-ask' },
+        h('div', {}, h('b', {}, caster.name), ' lanza ', h('b', {}, displayName(top.card)), describeTargets(s, top), '. ¿Respondes? Pon un instantáneo en el círculo.'),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'act primary', onClick: () => session.dispatch({ t: 'pass' }) }, ui.hold ? 'No respondo' : `No respondo (${left})`),
+          !ui.hold ? h('button', { class: 'act', onClick: () => { ui.hold = true; render(S()); } }, 'Esperar') : null,
+        ));
+      if (!ui.hold) {
+        ui.passTimer = setTimeout(() => {
+          if (Date.now() >= ui.passAt) { if (stackTop(S())?.waiting[0] === me()) session.dispatch({ t: 'pass' }); } else render(S());
+        }, 500);
+      }
+    } else {
+      const who = top.waiting[0] ? player(s, top.waiting[0]).name : '';
+      status = h('div', { class: 'stack-ask' }, who ? `Esperando a que ${who} responda…` : 'Resolviendo…');
+    }
+    clear(stackPanel).append(h('div', { class: 'stack-title' }, 'La pila', h('small', {}, ' (se resuelve de arriba abajo)')), h('div', { class: 'stack-items' }, items), status);
+  }
+
+  function describeTargets(s, it) {
+    const names = (it.targets || []).map((t) => {
+      if (t.player) return t.player === me() ? 'ti' : player(s, t.player)?.name;
+      if (t.stack) { const x = s.stack.find((y) => y.id === t.stack); return x ? displayName(x.card) : 'un hechizo'; }
+      const f = findPerm(s, t.uid);
+      return f ? displayName(f.perm.card) : '';
+    }).filter(Boolean);
+    return names.length ? ` sobre ${names.join(' y ')}` : '';
+  }
+
+  // ------------------------------------------------------------ flechas
+  function drawArrows(s) {
+    const sr = screen.getBoundingClientRect();
+    const center = (el) => {
+      if (!el || !el.isConnected) return null;
+      const r = el.getBoundingClientRect();
+      if (!r.width) return null;
+      return [r.left + r.width / 2 - sr.left, r.top + r.height / 2 - sr.top];
+    };
+    const playerEl = (id) => (id === me() ? hud.querySelector('[data-life]') : topbar.querySelector(`[data-player="${id}"]`));
+    const lines = [];
+    for (const [uid, target] of Object.entries(s.combat.attackers || {})) {
+      lines.push([center(ui.els.get(+uid)), center(playerEl(target)), 'atk']);
+    }
+    for (const [att, list] of Object.entries(s.combat.blocks || {})) {
+      for (const b of list) lines.push([center(ui.els.get(b)), center(ui.els.get(+att)), 'blk']);
+    }
+    for (const it of s.stack) {
+      const from = center(stackPanel.querySelector(`[data-stack="${it.id}"]`));
+      for (const t of it.targets || []) {
+        const to = t.player ? center(playerEl(t.player)) : t.stack ? center(stackPanel.querySelector(`[data-stack="${t.stack}"]`)) : center(ui.els.get(t.uid));
+        lines.push([from, to, 'tgt']);
+      }
+    }
+    arrows.setAttribute('viewBox', `0 0 ${sr.width} ${sr.height}`);
+    arrows.innerHTML = `<defs>${['atk', 'blk', 'tgt'].map((k) => `<marker id="ah-${k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah ${k}"/></marker>`).join('')}</defs>`
+      + lines.filter(([a, b]) => a && b).map(([a, b, k]) => {
+        const mx = (a[0] + b[0]) / 2;
+        const my = Math.min(a[1], b[1]) - 30;
+        return `<path class="arrow ${k}" d="M${a[0]},${a[1]} Q${mx},${my} ${b[0]},${b[1]}" marker-end="url(#ah-${k})"/>`;
+      }).join('');
+  }
+
+  // ------------------------------------------------- fin de la partida
+  function endScreen(s) {
+    const won = s.winner === me();
+    sfx(won ? 'win' : 'lose');
+    const plays = s.log.filter((l) => l.startsWith(player(s, me()).name + ' lanza') || l.startsWith(player(s, me()).name + ' juega')).length;
+    const box = h('div', { class: 'end-screen' + (won ? ' won' : ' lost') },
+      h('div', { class: 'end-card parchment' },
+        h('div', { class: 'end-title' }, won ? '¡Victoria!' : 'Derrota'),
+        h('p', {}, won ? 'Has derrotado a tus rivales.' : `${player(s, s.winner).name} gana la partida.`),
+        h('div', { class: 'end-stats' },
+          h('div', {}, h('b', {}, s.turn), h('span', {}, 'turnos')),
+          h('div', {}, h('b', {}, player(s, me()).life), h('span', {}, 'vidas finales')),
+          h('div', {}, h('b', {}, plays), h('span', {}, 'cartas jugadas')),
+        ),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'act', onClick: () => { box.remove(); openLog(); } }, 'Ver crónica'),
+          h('button', { class: 'act primary', onClick: exit }, 'Volver al menú'),
+        ),
+      ));
+    screen.append(box);
+  }
+
+  // ------------------------------------------------- inicio de partida
+  function intro(s) {
+    session.pauseBots(true); // los bots esperan a que mires la tirada
+    const ev = s.events.find((e) => e.kind === 'start');
+    const first = player(s, ev?.player || activePlayer(s).id);
+    sfx('dice');
+    const box = h('div', { class: 'intro' },
+      h('div', { class: 'intro-card parchment' },
+        h('h3', {}, 'Quién empieza'),
+        ev?.rolls ? h('div', { class: 'dice-row' }, s.players.map((p, i) => h('div', { class: 'die' + (p.id === first.id ? ' win' : '') }, h('b', {}, ev.rolls[i]), h('span', {}, p.id === me() ? 'Tú' : p.name)))) : null,
+        h('p', { class: 'intro-first' }, first.id === me() ? '¡Empiezas tú! (no robas en tu primer turno)' : `Empieza ${first.name}.`),
+        h('p', {}, 'Baraja tu mazo y roba 7 cartas. Si tu mano no te gusta (muy pocas o demasiadas tierras), puedes hacer ', h('b', {}, 'mulligan'), ': barajas y robas 7 otra vez, y pones 1 carta debajo del mazo por cada mulligan.'),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; toast(`Mulligan ${ui.mulligans}: baraja, roba 7 y pon ${ui.mulligans} carta${ui.mulligans > 1 ? 's' : ''} debajo del mazo.`, 'info', 6000); } }, 'Hago mulligan'),
+          h('button', { class: 'act primary', onClick: () => { box.remove(); if (!screen.classList.contains('calibrating')) session.pauseBots(false); } }, 'Me quedo la mano'),
+        ),
+      ));
+    screen.append(box);
+  }
+
+  // ---------------------------------------------------------- emotes
+  const EMOTES = ['¡Hola!', '¡Buena jugada!', 'Gracias', 'Uy…', 'Pensando…', '¡Buena partida!'];
+  function openEmotes() {
+    let close;
+    close = sheet(h('div', {}, h('h3', {}, 'Mensajes rápidos'),
+      h('div', { class: 'actions' }, EMOTES.map((t) => h('button', { class: 'act', onClick: () => { close(); session.dispatch({ t: 'emote', text: t }); } }, t)))));
+  }
+  function showEmote(e) {
+    const anchor = e.by === me() ? hud.querySelector('.me-plate') : topbar.querySelector(`[data-player="${e.by}"]`);
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    const sr = screen.getBoundingClientRect();
+    const b = h('div', { class: 'emote-bubble parchment', style: { left: r.left - sr.left + r.width / 2 + 'px', top: (e.by === me() ? r.top - sr.top - 40 : r.bottom - sr.top + 6) + 'px' } }, e.text);
+    screen.append(b);
+    sfx('emote');
+    setTimeout(() => b.remove(), 3200);
   }
 
   function renderTop(s, opps) {
@@ -296,6 +493,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('div', { class: 'foes' },
         opps.map((p) => h('button', {
           class: 'foe' + (p.id === ui.viewOpp ? ' on' : '') + (p.eliminated ? ' out' : ''),
+          'data-player': p.id,
           onClick: () => { ui.viewOpp = p.id; render(S()); },
         },
         h('span', { class: 'portrait' }, icon(p.isBot ? 'golem' : 'person')),
@@ -312,11 +510,12 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           const idxs = r.steps.map((x) => STEPS.indexOf(x));
           const on = r.steps.includes(s.step);
           const done = Math.max(...idxs) < stepIdx;
-          return h('span', { class: 'rune' + (on ? ' on' : '') + (done ? ' done' : '') }, r.label);
+          return h('span', { class: 'rune' + (on ? ' on' : '') + (done ? ' done' : ''), title: r.name }, r.label);
         }),
         h('span', { class: 'phase-name' }, STEP_INFO[s.step].name),
       ),
       h('div', { class: 'top-actions' },
+        session.role !== 'local' ? h('button', { class: 'rune-btn', title: 'Mensajes rápidos', onClick: openEmotes }, '💬') : null,
         h('button', { class: 'rune-btn', title: 'Crónica', onClick: openLog }, icon('scroll')),
         h('button', { class: 'rune-btn', title: 'Menú', onClick: openMenu }, icon('gear')),
       ),
@@ -411,33 +610,56 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const act = activePlayer(s);
     const myTurn = act.id === me();
     const pending = pendingDefenders(s);
+    const readyPend = combatReadyPending(s);
     let help = STEP_INFO[s.step].help;
     let primary = null;
-    const next = (label, cls = '') => h('button', { class: 'gem ' + cls, 'data-action': 'next', onClick: () => session.dispatch({ t: 'next' }) }, label);
+    let secondary = null;
+    const next = (label, cls = '') => h('button', { class: 'gem ' + cls, 'data-action': 'next', onClick: () => { sfx('click'); session.dispatch({ t: 'next' }); } }, label);
+    const lastCombat = s.lastCombat && s.lastCombat.turn === s.turn ? s.lastCombat.result.join(' ') : null;
 
     if (myP.eliminated) {
       help = 'Has sido eliminado. Puedes seguir mirando la partida.';
+    } else if (s.stack.length) {
+      help = stackTop(s).waiting[0] === me() ? 'Hay un hechizo en la pila esperando tu respuesta (arriba).' : 'Hay hechizos en la pila. Se resuelven de arriba abajo.';
     } else if (myTurn) {
-      if (s.step === 'attack') {
+      if (s.step === 'main1') {
+        help = 'Fase principal 1: pon cartas en el círculo para jugarlas. ' + manaHint(myP);
+        const canAtk = myP.battlefield.some((p) => canAttack(s, p));
+        primary = next(canAtk ? '⚔ Ir al combate' : 'Ir a la fase 2');
+      } else if (s.step === 'attack') {
         const n = Object.keys(s.combat.attackers).length;
         help = n ? `Atacas con ${n}. Toca otra criatura para añadirla o quitarla.` : 'Toca las criaturas que brillan para atacar' + (opponents(s, me()).length > 1 ? ` a ${player(s, ui.viewOpp).name} (elige el rival arriba).` : '.');
         primary = next(n ? `⚔ Atacar (${n})` : 'No atacar', n ? 'ruby pulse' : '');
+        if (myP.battlefield.filter((p) => canAttack(s, p)).length > 1) secondary = h('button', { class: 'gem small bronze', onClick: () => session.dispatch({ t: 'attackAll', target: ui.viewOpp }) }, 'Todos al ataque');
       } else if (s.step === 'block') {
-        help = pending.length ? `${pending.map((id) => player(s, id).name).join(', ')} está decidiendo bloqueos…` : 'Bloqueos decididos.';
-        primary = h('button', { class: 'gem', disabled: pending.length > 0, onClick: () => session.dispatch({ t: 'next' }) }, 'Seguir');
+        if (pending.length) help = `${pending.map((id) => player(s, id).name).join(', ')} está decidiendo bloqueos…`;
+        else if (readyPend.length) help = `${readyPend.map((id) => player(s, id).name).join(', ')} puede usar trucos de combate…`;
+        else help = 'Bloqueos decididos. Puedes lanzar un instantáneo (truco de combate) antes del daño.';
+        primary = h('button', { class: 'gem', disabled: pending.length > 0 || readyPend.length > 0, onClick: () => session.dispatch({ t: 'next' }) }, 'Al daño');
+      } else if (s.step === 'main2') {
+        help = (lastCombat ? lastCombat + ' ' : '') + 'Fase principal 2. ' + manaHint(myP);
+        primary = next('Pasar turno');
       } else {
-        if (s.step === 'main1' || s.step === 'main2') help = 'Pon cartas en el círculo para jugarlas. ' + manaHint(myP);
-        if (s.step === 'damage' && s.combat.result) help = s.combat.result.join(' ');
-        primary = next(s.step === 'end' ? 'Pasar turno' : 'Siguiente fase');
+        primary = next('Seguir');
       }
     } else if (s.step === 'block' && pending.includes(me())) {
-      help = '¡Te atacan! Toca una criatura tuya enderezada para elegir a quién bloquea. Luego confirma.';
+      help = '¡Te atacan! Toca una criatura tuya enderezada para elegir a quién bloquea (puedes poner varias sobre un mismo atacante). Luego confirma.';
       primary = h('button', { class: 'gem ruby pulse', onClick: () => session.dispatch({ t: 'confirmBlocks' }) }, icon('shield'), 'Bloquear');
+    } else if (readyPend.includes(me())) {
+      help = 'Bloqueos hechos. ¿Usas algún truco de combate? Pon un instantáneo en el círculo, o sigue al daño.';
+      primary = h('button', { class: 'gem', onClick: () => session.dispatch({ t: 'ready' }) }, 'Al daño');
     } else {
       help = `Turno de ${act.name}: ${STEP_INFO[s.step].name}. Puedes lanzar instantáneos poniéndolos en el círculo.`;
-      if (s.step === 'damage' && s.combat.result) help = s.combat.result.join(' ');
+      if (lastCombat) help = lastCombat;
     }
-    append(hud, [lifePlate, oracle(help), primary]);
+    append(hud, [lifePlate, manaOrbs(myP), oracle(help), secondary, primary]);
+  }
+
+  function manaOrbs(p) {
+    const m = manaAvailable(p);
+    const orbs = ['W', 'U', 'B', 'R', 'G', 'C'].filter((c) => m[c]).map((c) => h('span', { class: 'orb orb-' + c }, m[c]));
+    if (m.any) orbs.push(h('span', { class: 'orb orb-any' }, m.any));
+    return h('div', { class: 'mana-orbs', title: 'Maná disponible (tierras enderezadas)' }, orbs.length ? orbs : h('span', { class: 'orb orb-none' }, '0'));
   }
 
   function manaHint(p) {
@@ -452,6 +674,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     ui.lastEvent = fresh[fresh.length - 1].id;
     for (const e of fresh) {
       if (e.kind === 'play' && e.uid) {
+        sfx(findPerm(s, e.uid)?.perm.card.isLand ? 'land' : 'play');
         const el = ui.els.get(e.uid);
         if (el) {
           el.classList.remove('enter');
@@ -459,9 +682,20 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           el.classList.add('enter');
           setTimeout(() => burst(el, e.color, 22), 650);
         }
-      } else if (e.kind === 'spell') {
-        spellFx(e.card, e.color);
+      } else if (e.kind === 'cast') {
+        sfx('cast');
+        if (!e.card.isPermanent || e.by !== me()) spellFx(e.card, e.color);
+      } else if (e.kind === 'resolve') {
+        sfx('resolve');
+      } else if (e.kind === 'fizzle') {
+        sfx('warn');
+        toast(e.text, 'warn', 4000);
+      } else if (e.kind === 'start') {
+        // (la tirada se muestra al montar la mesa)
+      } else if (e.kind === 'emote') {
+        showEmote(e);
       } else if (e.kind === 'death' && e.uid) {
+        sfx('death');
         const el = ui.els.get(e.uid);
         if (el) {
           ui.els.delete(e.uid);
@@ -477,11 +711,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         }
       } else if (e.kind === 'life') {
         floatText(document.querySelector(`[data-life="${e.target}"]`), (e.delta > 0 ? '+' : '') + e.delta, e.delta > 0 ? 'gain' : 'loss');
+        sfx(e.delta > 0 ? 'gain' : 'loss');
         if (e.delta < 0 && e.target === me()) { screen.classList.add('hurt'); buzz(120); setTimeout(() => screen.classList.remove('hurt'), 500); }
       } else if (e.kind === 'turn') {
+        sfx('turn');
         showBanner(e.player === me() ? 'Tu turno' : 'Turno de ' + player(s, e.player).name);
       } else if (e.kind === 'attack') {
         showBanner('¡Al ataque!');
+        sfx('attack');
         buzz(60);
       } else if (e.kind === 'illegal' && e.to === me()) {
         illegalSheet(e);
@@ -491,6 +728,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       } else if ((e.kind === 'manual' || e.kind === 'draw' || e.kind === 'info') && e.to === me()) {
         toast(e.text, 'info', 4500);
       } else if (e.kind === 'pump' || e.kind === 'hit') {
+        sfx(e.kind === 'hit' ? 'hit' : 'resolve');
         const el = ui.els.get(e.uid);
         if (el) burst(el, e.kind === 'pump' ? 'G' : 'R', 12);
       }
@@ -520,7 +758,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const { perm, owner } = f;
     const want = currentWant();
     if (want) {
-      if (perm.card.isCreature) pickTarget({ uid });
+      if (want.target === 'spell') toast('Este hechizo tiene que apuntar a un hechizo de la pila.', 'warn');
+      else if (perm.card.isCreature) pickTarget({ uid });
       else toast('Ese objetivo no vale: tiene que ser una criatura.', 'warn');
       return;
     }
@@ -558,7 +797,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     close = sheet(cardInfo(perm.card, [
       h('p', { class: 'muted' }, mine ? 'Tu permanente.' : `Permanente de ${owner.name}. Usa estos botones cuando un hechizo tuyo le afecte.`),
       perm.card.isCreature ? h('div', { class: 'dmg-row' }, 'Hacer daño:', [1, 2, 3, 4, 5].map((n) => btn(n, { t: 'damage', uid: perm.uid, amount: n }))) : null,
+      perm.loyalty != null ? h('div', { class: 'dmg-row' }, `Lealtad ${perm.loyalty}:`, [-3, -2, -1, 1, 2].map((n) => btn((n > 0 ? '+' : '') + n, { t: 'loyalty', uid: perm.uid, delta: n }))) : null,
       h('div', { class: 'actions' },
+        mine && !perm.card.isToken ? h('button', { class: 'act', onClick: () => { close(); openEditionPicker(perm.card, (ed) => session.dispatch({ t: 'setImage', uid: perm.uid, image: ed.image })); } }, 'Cambiar edición') : null,
         btn(perm.tapped ? 'Enderezar' : 'Girar', { t: 'tap', uid: perm.uid }),
         perm.card.isCreature ? [
           btn('+3/+3 hasta fin de turno', { t: 'pump', uid: perm.uid, p: 3, t: 3 }),
@@ -661,6 +902,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       slider('Inclinación', 'tilt', 0, 45, 1),
       slider('Tamaño', 'zoom', 0.7, 1.15, 0.05),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: st.camera, onChange: (e) => { st.camera = e.target.checked; saveSettings(st); applySettings(); } }), 'Usar la cámara'),
+      h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: soundOn(), onChange: (e) => setSound(e.target.checked) }), 'Efectos de sonido'),
       h('div', { class: 'actions' },
         h('button', { class: 'act', onClick: () => { close(); openLog(); } }, 'Crónica de la partida'),
         h('button', { class: 'act', onClick: () => { close(); playCard(); } }, 'Grimorio'),
@@ -684,6 +926,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   const unsub = session.subscribe(render);
   render(S());
+  // Al empezar la partida: quién empieza (tirada de dado) y ayuda para el mulligan.
+  if (showIntro && S().turn === 1 && !S().log.some((l) => l.startsWith('Turno 2'))) setTimeout(() => intro(S()), 500);
   session.scheduleBots();
 
   return {

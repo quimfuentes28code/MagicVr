@@ -58,7 +58,7 @@ function steps(me) {
     },
     {
       title: 'Mareo de invocación',
-      text: 'Las criaturas no pueden atacar el turno que entran. Verás «zZ» sobre ella. Ahora pulsa «Siguiente fase» hasta «Pasar turno» para terminar tu turno.',
+      text: 'Las criaturas no pueden atacar el turno que entran. Verás «zZ» sobre ella. Ahora pulsa «Ir a la fase 2» y luego «Pasar turno» para terminar tu turno.',
       focus: '.hud .gem',
       until: (s) => activePlayer(s).id !== me,
     },
@@ -69,7 +69,7 @@ function steps(me) {
     },
     {
       title: 'Tu segundo turno',
-      text: 'Primero se enderezan tus cartas y robas una carta (cógela de tu mazo físico). Avanza hasta la Fase principal 1.',
+      text: 'Las fases de inicio pasan solas: se enderezan tus cartas y robas una carta (cógela de tu mazo físico). Ya estás en la Fase principal 1.',
       focus: '.phase-runes',
       until: (s) => activePlayer(s).id === me && s.step === 'main1',
     },
@@ -85,9 +85,9 @@ function steps(me) {
     },
     {
       title: '¡Al combate!',
-      text: 'Pulsa «Siguiente fase» hasta llegar al combate (runa ⚔). Toca la criatura que brilla en dorado y luego pulsa «Atacar».',
+      text: 'Pulsa «Ir al combate». Toca la criatura que brilla en dorado (verás una flecha roja hacia tu rival), pulsa «Atacar» y después «Al daño».',
       focus: '.hud .gem',
-      until: (s) => s.step === 'damage' || (activePlayer(s).id === me && s.step === 'main2'),
+      until: (s) => activePlayer(s).id === me && s.step === 'main2' && !!s.lastCombat,
     },
     {
       title: 'Resultado del combate',
@@ -95,8 +95,8 @@ function steps(me) {
       focus: '.oracle',
     },
     {
-      title: 'Instantáneos',
-      text: 'Los instantáneos se lanzan en cualquier momento. Por ejemplo, Crecimiento gigante da +3/+3 a una criatura hasta el final del turno. Al lanzarlo, la app te pedirá que toques la criatura objetivo y aplicará el efecto sola.',
+      title: 'Instantáneos y la pila',
+      text: 'Los instantáneos se lanzan en cualquier momento. Por ejemplo, Crecimiento gigante da +3/+3 a una criatura hasta el final del turno. Al lanzar un hechizo va a «la pila» y tu rival puede responder antes de que se resuelva. Lo último que se lanza se resuelve primero.',
       example: {
         label: 'Lanzar Crecimiento gigante',
         actions: (s) => {

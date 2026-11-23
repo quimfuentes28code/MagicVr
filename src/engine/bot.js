@@ -4,12 +4,23 @@
 
 import { targetsFor } from './effects.js';
 import {
-  activePlayer, canAttack, canBlock, findPerm, has, opponents, pendingDefenders,
-  planPayment, player, power, toughness,
+  activePlayer, canAttack, canBlock, canTarget, combatReadyPending, findPerm, has, opponents,
+  pendingDefenders, planPayment, player, power, stackTop, toughness,
 } from './game.js';
+
+const smart = (pl) => pl.level !== 'easy';
 
 export function nextBotAction(s) {
   if (s.winner) return null;
+
+  // 0) La pila: el bot al que le toca responder decide (responder o pasar).
+  const top = stackTop(s);
+  if (top) {
+    const id = top.waiting[0];
+    const pl = id && player(s, id);
+    if (!pl || !pl.isBot) return null; // le toca a un humano
+    return respond(s, pl, top) || { t: 'pass', by: pl.id };
+  }
 
   // 1) Bots que tienen que bloquear
   if (s.step === 'block') {
@@ -22,6 +33,14 @@ export function nextBotAction(s) {
         if (current.get(blocker) !== attacker) return { t: 'block', by: pl.id, uid: blocker, attacker };
       }
       return { t: 'confirmBlocks', by: pl.id };
+    }
+    // Trucos de combate tras los bloqueos (cualquier bot implicado).
+    if (!pendingDefenders(s).length) {
+      for (const pl of s.players) {
+        if (!pl.isBot || pl.eliminated || !smart(pl)) continue;
+        const trick = combatTrick(s, pl);
+        if (trick) return trick;
+      }
     }
   }
 
@@ -60,7 +79,8 @@ export function nextBotAction(s) {
       return { t: 'next', by: me.id };
     }
     case 'block':
-      return pendingDefenders(s).length ? null : { t: 'next', by: me.id };
+      // Espera a que los defensores humanos digan si usan trucos de combate.
+      return pendingDefenders(s).length || combatReadyPending(s).length ? null : { t: 'next', by: me.id };
     default:
       return { t: 'next', by: me.id };
   }
@@ -124,6 +144,13 @@ function chooseBlocks(s, me) {
       cands.find((b) => kills(b) && b.card.cmc <= att.card.cmc);
     // bloqueo desesperado si el daño entrante es letal
     if (!pick && incoming >= me.life) pick = [...cands].sort((a, b) => a.card.cmc - b.card.cmc)[0];
+    if (pick && has(att, 'menace')) {
+      // Amenaza: hacen falta dos bloqueadores; si no hay segundo, no se bloquea.
+      const second = cands.find((b) => b !== pick && !used.has(b.uid));
+      if (!second) continue;
+      used.add(second.uid);
+      out.push([second.uid, att.uid]);
+    }
     if (pick) {
       used.add(pick.uid);
       out.push([pick.uid, att.uid]);
@@ -138,13 +165,63 @@ function chooseBlocks(s, me) {
 /** ¿Merece la pena lanzar este hechizo ahora? (los trucos de combate se guardan) */
 function usefulSpell(card) {
   const fx = card.effects?.spell || [];
-  return fx.length > 0 && !fx.some((e) => e.kind === 'pump' && e.t >= 0);
+  return fx.length > 0 && !fx.some((e) => (e.kind === 'pump' && e.t >= 0) || e.kind === 'counterspell');
+}
+
+const affordable = (pl, c) => !c.isLand && planPayment(pl, c.manaCost);
+const instants = (pl) => pl.hand.filter((c) => (c.isInstant || c.keywords.includes('flash')) && affordable(pl, c));
+
+/** ¿Responde el bot a lo que hay en la pila? */
+function respond(s, pl, top) {
+  if (!smart(pl) || top.by === pl.id) return null;
+  const card = top.card;
+  const hand = instants(pl);
+  // a) Contrahechizo contra algo que merezca la pena
+  const counter = hand.find((c) => (c.effects?.spell || []).some((e) => e.kind === 'counterspell'));
+  const threatens = (top.targets || []).some((t) => t.player === pl.id || (t.uid != null && findPerm(s, t.uid)?.owner.id === pl.id));
+  if (counter && pl.level === 'hard' && (card.cmc >= 3 || threatens)) return { t: 'play', by: pl.id, handUid: counter.uid, targets: [{ stack: top.id }] };
+  // b) Salvar a una criatura propia con un +X/+X si el daño la iba a matar
+  const dmg = (card.effects?.spell || []).find((e) => e.kind === 'damage');
+  const t0 = (top.targets || [])[0];
+  if (dmg && t0 && t0.uid != null) {
+    const f = findPerm(s, t0.uid);
+    if (f && f.owner.id === pl.id) {
+      const pump = hand.find((c) => (c.effects?.spell || []).some((e) => e.kind === 'pump' && e.t > 0 && toughness(f.perm) - f.perm.damage + e.t > dmg.amount));
+      if (pump) return { t: 'play', by: pl.id, handUid: pump.uid, targets: [{ uid: f.perm.uid }] };
+    }
+  }
+  return null;
+}
+
+/** Truco de combate: un +X/+X que cambia el resultado de un combate en el que está el bot. */
+function combatTrick(s, pl) {
+  const pumps = instants(pl).filter((c) => (c.effects?.spell || []).some((e) => e.kind === 'pump' && e.t > 0));
+  if (!pumps.length) return null;
+  for (const [attUid, list] of Object.entries(s.combat.blocks)) {
+    const att = findPerm(s, +attUid)?.perm;
+    if (!att) continue;
+    const blockers = list.map((u) => findPerm(s, u)?.perm).filter(Boolean);
+    const mine = att.ownerId === pl.id ? [att] : blockers.filter((b) => b.ownerId === pl.id);
+    const foes = att.ownerId === pl.id ? blockers : [att];
+    for (const c of mine) {
+      const incoming = foes.reduce((a, f) => a + power(f), 0);
+      const dies = incoming >= toughness(c) - c.damage || foes.some((f) => has(f, 'deathtouch'));
+      if (!dies) continue;
+      for (const card of pumps) {
+        const e = card.effects.spell.find((x) => x.kind === 'pump');
+        if (incoming < toughness(c) - c.damage + e.t && !foes.some((f) => has(f, 'deathtouch'))) {
+          return { t: 'play', by: pl.id, handUid: card.uid, targets: [{ uid: c.uid }] };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /** Elige objetivos para cada efecto que lo pide; null si no hay uno bueno. */
 export function chooseTargets(s, me, wanted) {
   const opps = opponents(s, me.id);
-  const foeCreatures = opps.flatMap((o) => o.battlefield.filter((p) => p.card.isCreature));
+  const foeCreatures = opps.flatMap((o) => o.battlefield.filter((p) => p.card.isCreature && canTarget(s, me.id, p, o)));
   const weakest = [...opps].sort((a, b) => a.life - b.life)[0];
   const value = (p) => power(p) * 2 + toughness(p) + p.card.cmc + (p.isCommander ? 5 : 0);
   return wanted.map((e) => {

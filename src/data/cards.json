@@ -1,0 +1,1470 @@
+{
+ "generated": "2026-11-20",
+ "cards": {
+  "Llanowar Elves": {
+   "name": "Llanowar Elves",
+   "printedName": "Elfos de Llanowar",
+   "image": "https://cards.scryfall.io/normal/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1783909057",
+   "imageEn": "https://cards.scryfall.io/normal/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1783909057",
+   "manaCost": "{G}",
+   "cmc": 1,
+   "typeLine": "Creature — Elf Druid",
+   "oracle": "{T}: Add {G}.",
+   "printedText": "{T}: Agrega {G}.",
+   "power": "1",
+   "toughness": "1",
+   "colors": [
+    "G"
+   ],
+   "keywords": [],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Elvish Visionary": {
+   "name": "Elvish Visionary",
+   "printedName": "Visionaria élfica",
+   "image": "https://cards.scryfall.io/normal/front/4/2/427d2e09-12bb-4c1d-aa24-87db7ecaf28b.jpg?1783941504",
+   "imageEn": "https://cards.scryfall.io/normal/front/6/d/6d2f4a37-453f-4a2c-bfba-2d1227394c90.jpg?1785497604",
+   "manaCost": "{1}{G}",
+   "cmc": 2,
+   "typeLine": "Creature — Elf Shaman",
+   "oracle": "When this creature enters, draw a card.",
+   "printedText": null,
+   "power": "1",
+   "toughness": "1",
+   "colors": [
+    "G"
+   ],
+   "keywords": [],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Grizzly Bears": {
+   "name": "Grizzly Bears",
+   "printedName": "Osos pardos",
+   "image": "https://cards.scryfall.io/normal/front/4/0/409f9b88-f03e-40b6-9883-68c14c37c0de.jpg?1783943001",
+   "imageEn": "https://cards.scryfall.io/normal/front/4/0/409f9b88-f03e-40b6-9883-68c14c37c0de.jpg?1783943001",
+   "manaCost": "{1}{G}",
+   "cmc": 2,
+   "typeLine": "Creature — Bear",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "G"
+   ],
+   "keywords": [],
+   "set": "Tenth Edition",
+   "noSpanish": false
+  },
+  "Thornweald Archer": {
+   "name": "Thornweald Archer",
+   "printedName": "Arquero de Arboleda espinosa",
+   "image": "https://cards.scryfall.io/normal/front/f/b/fb96aacd-911b-4f6d-aed1-2f33351c721d.jpg?1794373845",
+   "imageEn": "https://cards.scryfall.io/normal/front/1/8/189f6199-f2fe-49a5-89ca-3c4cb39fbf2b.jpg?1783908944",
+   "manaCost": "{1}{G}",
+   "cmc": 2,
+   "typeLine": "Creature — Elf Archer",
+   "oracle": "Reach (This creature can block creatures with flying.)\nDeathtouch (Any amount of damage this deals to a creature is enough to destroy it.)",
+   "printedText": "Alcance (Esta criatura puede bloquear criaturas con la habilidad de volar.) Toque mortal (Siempre que esta criatura haga daño a una criatura, destruye esa criatura.)",
+   "power": "2",
+   "toughness": "1",
+   "colors": [
+    "G"
+   ],
+   "keywords": [
+    "Reach",
+    "Deathtouch"
+   ],
+   "set": "Future Sight",
+   "noSpanish": false
+  },
+  "Centaur Courser": {
+   "name": "Centaur Courser",
+   "printedName": "Cazador centauro",
+   "image": "https://cards.scryfall.io/normal/front/e/8/e8b67ee8-3189-4426-8b1a-b540267768fd.jpg?1783932966",
+   "imageEn": "https://cards.scryfall.io/normal/front/e/8/e8b67ee8-3189-4426-8b1a-b540267768fd.jpg?1783932966",
+   "manaCost": "{2}{G}",
+   "cmc": 3,
+   "typeLine": "Creature — Centaur Warrior",
+   "oracle": "",
+   "printedText": null,
+   "power": "3",
+   "toughness": "3",
+   "colors": [
+    "G"
+   ],
+   "keywords": [],
+   "set": "Core Set 2020",
+   "noSpanish": false
+  },
+  "Giant Spider": {
+   "name": "Giant Spider",
+   "printedName": "Araña gigante",
+   "image": "https://cards.scryfall.io/normal/front/6/2/62831941-00ec-4fba-b552-2e70993fc12c.jpg?1783941503",
+   "imageEn": "https://cards.scryfall.io/normal/front/2/1/213c9202-b6f4-43ab-b57f-b97a1da5e263.jpg?1783918443",
+   "manaCost": "{3}{G}",
+   "cmc": 4,
+   "typeLine": "Creature — Spider",
+   "oracle": "Reach (This creature can block creatures with flying.)",
+   "printedText": null,
+   "power": "2",
+   "toughness": "4",
+   "colors": [
+    "G"
+   ],
+   "keywords": [
+    "Reach"
+   ],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Rumbling Baloth": {
+   "name": "Rumbling Baloth",
+   "printedName": "Báloth retumbante",
+   "image": "https://cards.scryfall.io/normal/front/9/3/93a56610-482b-4ddf-88e1-e4a2edf4fa0f.jpg?1783930355",
+   "imageEn": "https://cards.scryfall.io/normal/front/9/3/93a56610-482b-4ddf-88e1-e4a2edf4fa0f.jpg?1783930355",
+   "manaCost": "{2}{G}{G}",
+   "cmc": 4,
+   "typeLine": "Creature — Beast",
+   "oracle": "",
+   "printedText": null,
+   "power": "4",
+   "toughness": "4",
+   "colors": [
+    "G"
+   ],
+   "keywords": [],
+   "set": "Magic 2014",
+   "noSpanish": false
+  },
+  "Colossal Dreadmaw": {
+   "name": "Colossal Dreadmaw",
+   "printedName": "Fauces pavorosas colosal",
+   "image": "https://cards.scryfall.io/normal/front/b/e/bee08d2f-e875-473c-adc6-8dc286792ab5.jpg?1783908649",
+   "imageEn": "https://cards.scryfall.io/normal/front/b/e/bee08d2f-e875-473c-adc6-8dc286792ab5.jpg?1783908649",
+   "manaCost": "{4}{G}{G}",
+   "cmc": 6,
+   "typeLine": "Creature — Dinosaur",
+   "oracle": "Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)",
+   "printedText": "Arrolla. (Esta criatura puede hacer el daño de combate sobrante al jugador o planeswalker al que ataca.)",
+   "power": "6",
+   "toughness": "6",
+   "colors": [
+    "G"
+   ],
+   "keywords": [
+    "Trample"
+   ],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Giant Growth": {
+   "name": "Giant Growth",
+   "printedName": "Crecimiento gigante",
+   "image": "https://cards.scryfall.io/normal/front/8/4/8463b618-4c0b-49c6-91c7-5ee53a64ad6e.jpg?1785270505",
+   "imageEn": "https://cards.scryfall.io/normal/front/f/d/fd1f95bf-48ea-455a-8a6c-0249b11c8900.jpg?1783902918",
+   "manaCost": "{G}",
+   "cmc": 1,
+   "typeLine": "Instant",
+   "oracle": "Target creature gets +3/+3 until end of turn.",
+   "printedText": "La criatura objetivo obtiene +3/+3 hasta el final del turno.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "G"
+   ],
+   "keywords": [],
+   "set": "Marvel Super Heroes",
+   "noSpanish": false
+  },
+  "Titanic Growth": {
+   "name": "Titanic Growth",
+   "printedName": "Crecimiento titánico",
+   "image": "https://cards.scryfall.io/normal/front/4/6/46917de3-5e98-4dd6-8950-fc10338515df.jpg?1783915076",
+   "imageEn": "https://cards.scryfall.io/normal/front/4/6/46917de3-5e98-4dd6-8950-fc10338515df.jpg?1783915076",
+   "manaCost": "{1}{G}",
+   "cmc": 2,
+   "typeLine": "Instant",
+   "oracle": "Target creature gets +4/+4 until end of turn.",
+   "printedText": "La criatura objetivo obtiene +4/+4 hasta el final del turno.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "G"
+   ],
+   "keywords": [],
+   "set": "Wilds of Eldraine",
+   "noSpanish": false
+  },
+  "Forest": {
+   "name": "Forest",
+   "printedName": "Bosque",
+   "image": "https://cards.scryfall.io/normal/front/7/c/7c9594ff-2b01-4222-96a5-fb16967b4009.jpg?1794263537",
+   "imageEn": "https://cards.scryfall.io/normal/front/2/e/2e781bfd-f8cb-4d20-b977-4359f3a21311.jpg?1791578317",
+   "manaCost": "",
+   "cmc": 0,
+   "typeLine": "Basic Land — Forest",
+   "oracle": "({T}: Add {G}.)",
+   "printedText": null,
+   "power": null,
+   "toughness": null,
+   "colors": [],
+   "keywords": [],
+   "set": "Star Trek",
+   "noSpanish": false
+  },
+  "Kodama of the North Tree": {
+   "name": "Kodama of the North Tree",
+   "printedName": "Kodama del árbol del norte",
+   "image": "https://cards.scryfall.io/normal/front/2/d/2d9b5c33-63c4-4ddd-9f04-37bb36970b43.jpg?1783944287",
+   "imageEn": "https://cards.scryfall.io/normal/front/2/d/2d9b5c33-63c4-4ddd-9f04-37bb36970b43.jpg?1783944287",
+   "manaCost": "{2}{G}{G}{G}",
+   "cmc": 5,
+   "typeLine": "Legendary Creature — Spirit",
+   "oracle": "Trample\nShroud (This creature can't be the target of spells or abilities.)",
+   "printedText": "Arrolla.\nEl Kodama del árbol del norte no puede ser objetivo de hechizos o habilidades.",
+   "power": "6",
+   "toughness": "4",
+   "colors": [
+    "G"
+   ],
+   "keywords": [
+    "Shroud",
+    "Trample"
+   ],
+   "set": "Champions of Kamigawa",
+   "noSpanish": false
+  },
+  "Raging Goblin": {
+   "name": "Raging Goblin",
+   "printedName": "Trasgo furioso",
+   "image": "https://cards.scryfall.io/normal/front/f/2/f209b6b0-a8f4-4c9c-bef2-11d72cfcc2d1.jpg?1783943759",
+   "imageEn": "https://cards.scryfall.io/normal/front/3/4/3480927c-10da-4817-9954-10aea2bc7100.jpg?1783934405",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "typeLine": "Creature — Goblin Berserker",
+   "oracle": "Haste (This creature can attack and {T} as soon as it comes under your control.)",
+   "printedText": null,
+   "power": "1",
+   "toughness": "1",
+   "colors": [
+    "R"
+   ],
+   "keywords": [
+    "Haste"
+   ],
+   "set": "Salvat 2005",
+   "noSpanish": false
+  },
+  "Goblin Piker": {
+   "name": "Goblin Piker",
+   "printedName": "Lancero trasgo",
+   "image": "https://cards.scryfall.io/normal/front/e/1/e1a33fbd-dcf7-4503-8a99-c289252cb612.jpg?1783941516",
+   "imageEn": "https://cards.scryfall.io/normal/front/0/8/083ec3e7-950c-4e9d-aba5-02ed13d723f0.jpg?1783941070",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "typeLine": "Creature — Goblin Warrior",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "1",
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Viashino Pyromancer": {
+   "name": "Viashino Pyromancer",
+   "printedName": "Piromante viashino",
+   "image": "https://cards.scryfall.io/normal/front/9/f/9f52ada2-cabc-46a3-99df-271833a86909.jpg?1783908920",
+   "imageEn": "https://cards.scryfall.io/normal/front/9/f/9f52ada2-cabc-46a3-99df-271833a86909.jpg?1783908920",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "typeLine": "Creature — Lizard Wizard",
+   "oracle": "When this creature enters, it deals 2 damage to target player or planeswalker.",
+   "printedText": "Cuando el Piromante viashino entre al campo de batalla, hace 2 puntos de daño al jugador o planeswalker objetivo.",
+   "power": "2",
+   "toughness": "1",
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Jumpstart 2022",
+   "noSpanish": false
+  },
+  "Gray Ogre": {
+   "name": "Gray Ogre",
+   "printedName": "Ogro gris",
+   "image": "https://cards.scryfall.io/normal/front/1/1/11bf2cc0-799f-4eb8-b338-ed7543f469e7.jpg?1783947828",
+   "imageEn": "https://cards.scryfall.io/normal/front/1/1/11bf2cc0-799f-4eb8-b338-ed7543f469e7.jpg?1783947828",
+   "manaCost": "{2}{R}",
+   "cmc": 3,
+   "typeLine": "Creature — Ogre",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Fourth Edition Foreign Black Border",
+   "noSpanish": false
+  },
+  "Hill Giant": {
+   "name": "Hill Giant",
+   "printedName": "Gigante de las colinas",
+   "image": "https://cards.scryfall.io/normal/front/b/8/b81b3ba3-b8aa-4f51-801f-9cd67f75239e.jpg?1783941514",
+   "imageEn": "https://cards.scryfall.io/normal/front/1/4/14c2be6a-9ca6-4d3a-8dd0-db4ea40799f8.jpg?1783943018",
+   "manaCost": "{3}{R}",
+   "cmc": 4,
+   "typeLine": "Creature — Giant",
+   "oracle": "",
+   "printedText": null,
+   "power": "3",
+   "toughness": "3",
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Fire Elemental": {
+   "name": "Fire Elemental",
+   "printedName": "Elemental de fuego",
+   "image": "https://cards.scryfall.io/normal/front/d/c/dc506f58-048d-49cc-ad8c-2eb851b08bb6.jpg?1783908952",
+   "imageEn": "https://cards.scryfall.io/normal/front/d/c/dc506f58-048d-49cc-ad8c-2eb851b08bb6.jpg?1783908952",
+   "manaCost": "{3}{R}{R}",
+   "cmc": 5,
+   "typeLine": "Creature — Elemental",
+   "oracle": "",
+   "printedText": null,
+   "power": "5",
+   "toughness": "4",
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Foundations",
+   "noSpanish": false
+  },
+  "Shivan Dragon": {
+   "name": "Shivan Dragon",
+   "printedName": "Dragón shivano",
+   "image": "https://cards.scryfall.io/normal/front/8/3/83ea117a-320a-4762-9987-a2f29f531b87.jpg?1791701023",
+   "imageEn": "https://cards.scryfall.io/normal/front/7/0/702c4781-670b-49ae-b511-90ed119841b0.jpg?1787562519",
+   "manaCost": "{4}{R}{R}",
+   "cmc": 6,
+   "typeLine": "Creature — Dragon",
+   "oracle": "Flying\n{R}: This creature gets +1/+0 until end of turn.",
+   "printedText": "Vuela. (Esta criatura no puede ser bloqueada excepto por criaturas con la habilidad de volar o alcance.)\n{R}: Esta criatura obtiene +1/+0 hasta el final del turno.",
+   "power": "5",
+   "toughness": "5",
+   "colors": [
+    "R"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Foundations",
+   "noSpanish": false
+  },
+  "Shock": {
+   "name": "Shock",
+   "printedName": "Choque",
+   "image": "https://cards.scryfall.io/normal/front/2/8/28a6f0e5-f17a-4acf-a642-46f5432a13cd.jpg?1784193156",
+   "imageEn": "https://cards.scryfall.io/normal/front/b/2/b23900fb-efe9-43ab-9f67-4545dd01fb9c.jpg?1783903007",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "typeLine": "Instant",
+   "oracle": "Shock deals 2 damage to any target.",
+   "printedText": "El Choque hace 2 puntos de daño a cualquier objetivo.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Marvel's Spider-Man",
+   "noSpanish": false
+  },
+  "Lightning Bolt": {
+   "name": "Lightning Bolt",
+   "printedName": "Relámpago",
+   "image": "https://cards.scryfall.io/normal/front/0/5/05aa8d78-789f-440a-b1fc-6daea5982b9a.jpg?1782763912",
+   "imageEn": "https://cards.scryfall.io/normal/front/7/6/7673784e-db4b-43a1-8d55-1bb9fc1e284f.jpg?1783903008",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "typeLine": "Instant",
+   "oracle": "Lightning Bolt deals 3 damage to any target.",
+   "printedText": "El Relámpago hace 3 puntos de daño a cualquier objetivo.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Avatar: The Last Airbender Eternal",
+   "noSpanish": false
+  },
+  "Volcanic Hammer": {
+   "name": "Volcanic Hammer",
+   "printedName": "Martillo volcánico",
+   "image": "https://cards.scryfall.io/normal/front/a/b/abc680ff-3b89-416a-b5f0-24c620f10d7f.jpg?1783943754",
+   "imageEn": "https://cards.scryfall.io/normal/front/9/d/9db3f454-4aeb-4e48-b961-bea760ea8ddf.jpg?1783943943",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "typeLine": "Sorcery",
+   "oracle": "Volcanic Hammer deals 3 damage to any target.",
+   "printedText": null,
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "R"
+   ],
+   "keywords": [],
+   "set": "Salvat 2005",
+   "noSpanish": false
+  },
+  "Mountain": {
+   "name": "Mountain",
+   "printedName": "Montaña",
+   "image": "https://cards.scryfall.io/normal/front/1/4/147a189c-1d16-4f21-9aee-e39df51e5a9a.jpg?1794263482",
+   "imageEn": "https://cards.scryfall.io/normal/front/8/5/85177bd7-6c50-48da-b692-ae5fe7bd357c.jpg?1791578439",
+   "manaCost": "",
+   "cmc": 0,
+   "typeLine": "Basic Land — Mountain",
+   "oracle": "({T}: Add {R}.)",
+   "printedText": null,
+   "power": null,
+   "toughness": null,
+   "colors": [],
+   "keywords": [],
+   "set": "Star Trek",
+   "noSpanish": false
+  },
+  "Kamahl, Pit Fighter": {
+   "name": "Kamahl, Pit Fighter",
+   "printedName": "Kamahl, luchador del foso",
+   "image": "https://cards.scryfall.io/normal/front/f/a/fa214538-a9cf-4c1f-b252-fe0ecd6051e7.jpg?1783941511",
+   "imageEn": "https://cards.scryfall.io/normal/front/7/a/7a65dd4d-f838-4964-bd5a-a517960cc644.jpg?1783936566",
+   "manaCost": "{4}{R}{R}",
+   "cmc": 6,
+   "typeLine": "Legendary Creature — Human Barbarian",
+   "oracle": "Haste (This creature can attack and {T} as soon as it comes under your control.)\n{T}: Kamahl deals 3 damage to any target.",
+   "printedText": "Prisa. (Esta criatura puede atacar y {T} tan pronto como entre bajo tu control.)\n{T}: Kamahl, luchador del foso hacee 3 puntos de daño a la criatura o jugador objetivo.",
+   "power": "6",
+   "toughness": "1",
+   "colors": [
+    "R"
+   ],
+   "keywords": [
+    "Haste"
+   ],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Savannah Lions": {
+   "name": "Savannah Lions",
+   "printedName": "Leones de la sabana",
+   "image": "https://cards.scryfall.io/normal/front/9/c/9c9ac1bc-cdf3-4fa6-8319-a7ea164e9e47.jpg?1783909083",
+   "imageEn": "https://cards.scryfall.io/normal/front/9/c/9c9ac1bc-cdf3-4fa6-8319-a7ea164e9e47.jpg?1783909083",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "typeLine": "Creature — Cat",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "1",
+   "colors": [
+    "W"
+   ],
+   "keywords": [],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Suntail Hawk": {
+   "name": "Suntail Hawk",
+   "printedName": "Halcón colasol",
+   "image": "https://cards.scryfall.io/normal/front/0/7/07b6c274-78e1-48eb-8436-05608797826f.jpg?1783941549",
+   "imageEn": "https://cards.scryfall.io/normal/front/2/8/28a1f83c-a9ef-463e-97b5-2ca3b7232f82.jpg?1783939938",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "typeLine": "Creature — Bird",
+   "oracle": "Flying",
+   "printedText": "Vuela.",
+   "power": "1",
+   "toughness": "1",
+   "colors": [
+    "W"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Healer's Hawk": {
+   "name": "Healer's Hawk",
+   "printedName": "Halcón de sanador",
+   "image": "https://cards.scryfall.io/normal/front/3/9/39b71de4-2836-4299-b924-709074efe9b1.jpg?1791700096",
+   "imageEn": "https://cards.scryfall.io/normal/front/0/6/069cfaa5-bba4-4503-b54e-b98fa9f0a0fc.jpg?1787563133",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "typeLine": "Creature — Bird",
+   "oracle": "Flying\nLifelink (Damage dealt by this creature also causes you to gain that much life.)",
+   "printedText": "Vuela. (Esta criatura no puede ser bloqueada excepto por criaturas con la habilidad de volar o alcance.)\nVínculo vital. (El daño hecho por esta criatura también hace que ganes esa misma cantidad de vidas.)",
+   "power": "1",
+   "toughness": "1",
+   "colors": [
+    "W"
+   ],
+   "keywords": [
+    "Flying",
+    "Lifelink"
+   ],
+   "set": "Foundations",
+   "noSpanish": false
+  },
+  "Glory Seeker": {
+   "name": "Glory Seeker",
+   "printedName": "Buscador de gloria",
+   "image": "https://cards.scryfall.io/normal/front/2/b/2bd51dd3-ce49-41cf-85ef-a5a1428bc71b.jpg?1783936550",
+   "imageEn": "https://cards.scryfall.io/normal/front/2/b/2bd51dd3-ce49-41cf-85ef-a5a1428bc71b.jpg?1783936550",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "typeLine": "Creature — Human Soldier",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "W"
+   ],
+   "keywords": [],
+   "set": "Welcome Deck 2017",
+   "noSpanish": false
+  },
+  "Ajani's Sunstriker": {
+   "name": "Ajani's Sunstriker",
+   "printedName": "Golpeasol de Ajani",
+   "image": "https://cards.scryfall.io/normal/front/3/7/373d6799-e031-4043-8437-ed4880be0de9.jpg?1783939367",
+   "imageEn": "https://cards.scryfall.io/normal/front/3/7/373d6799-e031-4043-8437-ed4880be0de9.jpg?1783939367",
+   "manaCost": "{W}{W}",
+   "cmc": 2,
+   "typeLine": "Creature — Cat Cleric",
+   "oracle": "Lifelink (Damage dealt by this creature also causes you to gain that much life.)",
+   "printedText": "Vínculo vital. (El daño hecho por esta criatura también hace que ganes esa misma cantidad de vidas.)",
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "W"
+   ],
+   "keywords": [
+    "Lifelink"
+   ],
+   "set": "Magic 2013",
+   "noSpanish": false
+  },
+  "Inspiring Overseer": {
+   "name": "Inspiring Overseer",
+   "printedName": "Supervisor motivante",
+   "image": "https://cards.scryfall.io/normal/front/2/0/20a6556e-120d-4bad-a59d-9e1b9e02c49a.jpg?1791700160",
+   "imageEn": "https://cards.scryfall.io/normal/front/7/9/79016cf3-6eea-4b21-9ff3-f187d606e19a.jpg?1787563124",
+   "manaCost": "{2}{W}",
+   "cmc": 3,
+   "typeLine": "Creature — Angel Cleric",
+   "oracle": "Flying\nWhen this creature enters, you gain 1 life and draw a card.",
+   "printedText": "Vuela. (Esta criatura no puede ser bloqueada excepto por criaturas con la habilidad de volar o alcance.)\nCuando esta criatura entre, ganas 1 vida y robas una carta.",
+   "power": "2",
+   "toughness": "1",
+   "colors": [
+    "W"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Foundations",
+   "noSpanish": false
+  },
+  "Serra Angel": {
+   "name": "Serra Angel",
+   "printedName": "Ángel de Serra",
+   "image": "https://cards.scryfall.io/normal/front/4/4/44fb6ae6-d411-49b9-a849-a5839ac9e296.jpg?1791700302",
+   "imageEn": "https://cards.scryfall.io/normal/front/b/8/b8c5e74c-96e7-4a1f-93b7-14d776fe4b2d.jpg?1787563091",
+   "manaCost": "{3}{W}{W}",
+   "cmc": 5,
+   "typeLine": "Creature — Angel",
+   "oracle": "Flying\nVigilance (Attacking doesn't cause this creature to tap.)",
+   "printedText": "Vuela. (Esta criatura no puede ser bloqueada excepto por criaturas con la habilidad de volar o alcance.)\nVigilancia. (Esta criatura no se gira al atacar.)",
+   "power": "4",
+   "toughness": "4",
+   "colors": [
+    "W"
+   ],
+   "keywords": [
+    "Flying",
+    "Vigilance"
+   ],
+   "set": "Foundations",
+   "noSpanish": false
+  },
+  "Siege Mastodon": {
+   "name": "Siege Mastodon",
+   "printedName": "Mastodonte de asedio",
+   "image": "https://cards.scryfall.io/normal/front/7/1/71fd27a8-2de6-454f-8174-a60918bfe60e.jpg?1783932912",
+   "imageEn": "https://cards.scryfall.io/normal/front/7/1/71fd27a8-2de6-454f-8174-a60918bfe60e.jpg?1783932912",
+   "manaCost": "{4}{W}",
+   "cmc": 5,
+   "typeLine": "Creature — Elephant",
+   "oracle": "",
+   "printedText": null,
+   "power": "3",
+   "toughness": "5",
+   "colors": [
+    "W"
+   ],
+   "keywords": [],
+   "set": "Core Set 2020",
+   "noSpanish": false
+  },
+  "Raise the Alarm": {
+   "name": "Raise the Alarm",
+   "printedName": "Dar la alarma",
+   "image": "https://cards.scryfall.io/normal/front/8/1/81d3e5c5-6531-48e7-9dd6-2db519dd61b1.jpg?1783908838",
+   "imageEn": "https://cards.scryfall.io/normal/front/8/1/81d3e5c5-6531-48e7-9dd6-2db519dd61b1.jpg?1783908838",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "typeLine": "Instant",
+   "oracle": "Create two 1/1 white Soldier creature tokens.",
+   "printedText": "Crea dos fichas de criatura Soldado blancas 1/1.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "W"
+   ],
+   "keywords": [],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Divine Verdict": {
+   "name": "Divine Verdict",
+   "printedName": "Veredicto divino",
+   "image": "https://cards.scryfall.io/normal/front/e/d/ed07b708-7232-4b87-b5d9-edaa20a69293.jpg?1783935340",
+   "imageEn": "https://cards.scryfall.io/normal/front/e/d/ed07b708-7232-4b87-b5d9-edaa20a69293.jpg?1783935340",
+   "manaCost": "{3}{W}",
+   "cmc": 4,
+   "typeLine": "Instant",
+   "oracle": "Destroy target attacking or blocking creature.",
+   "printedText": "Destruye la criatura atacante o bloqueadora objetivo.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "W"
+   ],
+   "keywords": [],
+   "set": "Jumpstart 2022",
+   "noSpanish": false
+  },
+  "Angel's Mercy": {
+   "name": "Angel's Mercy",
+   "printedName": "Piedad del ángel",
+   "image": "https://cards.scryfall.io/normal/front/4/3/43e6d650-4e96-43a3-8b94-7f044d3b2f82.jpg?1783940523",
+   "imageEn": "https://cards.scryfall.io/normal/front/4/3/43e6d650-4e96-43a3-8b94-7f044d3b2f82.jpg?1783940523",
+   "manaCost": "{2}{W}{W}",
+   "cmc": 4,
+   "typeLine": "Instant",
+   "oracle": "You gain 7 life.",
+   "printedText": "Ganas 7 vidas.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "W"
+   ],
+   "keywords": [],
+   "set": "Magic 2013",
+   "noSpanish": false
+  },
+  "Plains": {
+   "name": "Plains",
+   "printedName": "Llanura",
+   "image": "https://cards.scryfall.io/normal/front/0/b/0ba17a32-b849-41fd-9075-3998f8387ab5.jpg?1794263312",
+   "imageEn": "https://cards.scryfall.io/normal/front/0/9/09ac862f-0a51-44dd-b86f-9412b8218b13.jpg?1791578423",
+   "manaCost": "",
+   "cmc": 0,
+   "typeLine": "Basic Land — Plains",
+   "oracle": "({T}: Add {W}.)",
+   "printedText": null,
+   "power": null,
+   "toughness": null,
+   "colors": [],
+   "keywords": [],
+   "set": "Star Trek",
+   "noSpanish": false
+  },
+  "Isamaru, Hound of Konda": {
+   "name": "Isamaru, Hound of Konda",
+   "printedName": "Isamaru, mastín de Konda",
+   "image": "https://cards.scryfall.io/normal/front/6/a/6afead32-3542-44c4-82d6-b6a81beb9f90.jpg?1783930470",
+   "imageEn": "https://cards.scryfall.io/normal/front/6/a/6afead32-3542-44c4-82d6-b6a81beb9f90.jpg?1783930470",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "typeLine": "Legendary Creature — Dog",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "W"
+   ],
+   "keywords": [],
+   "set": "Jumpstart 2022",
+   "noSpanish": false
+  },
+  "Typhoid Rats": {
+   "name": "Typhoid Rats",
+   "printedName": "Ratas tifoideas",
+   "image": "https://cards.scryfall.io/normal/front/6/c/6c37f680-770b-4d0e-8bf7-44ba3449d419.jpg?1783908707",
+   "imageEn": "https://cards.scryfall.io/normal/front/6/c/6c37f680-770b-4d0e-8bf7-44ba3449d419.jpg?1783908707",
+   "manaCost": "{B}",
+   "cmc": 1,
+   "typeLine": "Creature — Rat",
+   "oracle": "Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)",
+   "printedText": "Toque mortal. (Cualquier cantidad de daño que esto haga a una criatura es suficiente para destruirla.)",
+   "power": "1",
+   "toughness": "1",
+   "colors": [
+    "B"
+   ],
+   "keywords": [
+    "Deathtouch"
+   ],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Bog Imp": {
+   "name": "Bog Imp",
+   "printedName": "Diablillo del pantano",
+   "image": "https://cards.scryfall.io/normal/front/8/4/846f5cda-3d93-4dfd-b1c3-1dff7b814d98.jpg?1783944015",
+   "imageEn": "https://cards.scryfall.io/normal/front/8/4/846f5cda-3d93-4dfd-b1c3-1dff7b814d98.jpg?1783944015",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "typeLine": "Creature — Imp",
+   "oracle": "Flying (This creature can't be blocked except by creatures with flying or reach.)",
+   "printedText": "Vuela. (Esta criatura no puede ser bloqueada excepto por criaturas que tengan la habilidad de volar.)",
+   "power": "1",
+   "toughness": "1",
+   "colors": [
+    "B"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Ninth Edition",
+   "noSpanish": false
+  },
+  "Walking Corpse": {
+   "name": "Walking Corpse",
+   "printedName": "Cadáver ambulante",
+   "image": "https://cards.scryfall.io/normal/front/0/5/053b59b4-a22c-4228-aadc-ae9da6bb465e.jpg?1783930696",
+   "imageEn": "https://cards.scryfall.io/normal/front/0/5/053b59b4-a22c-4228-aadc-ae9da6bb465e.jpg?1783930696",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "typeLine": "Creature — Zombie",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "B"
+   ],
+   "keywords": [],
+   "set": "Core Set 2021",
+   "noSpanish": false
+  },
+  "Vampire Nighthawk": {
+   "name": "Vampire Nighthawk",
+   "printedName": "Halcón nocturno vampiro",
+   "image": "https://cards.scryfall.io/normal/front/7/6/766611f3-030e-45a0-90ac-c66dc2df955e.jpg?1791700855",
+   "imageEn": "https://cards.scryfall.io/normal/front/7/a/7aff07f9-9528-4149-9af0-f4e3c66c9dc5.jpg?1787562825",
+   "manaCost": "{1}{B}{B}",
+   "cmc": 3,
+   "typeLine": "Creature — Vampire Shaman",
+   "oracle": "Flying\nDeathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nLifelink (Damage dealt by this creature also causes you to gain that much life.)",
+   "printedText": "Vuela. (Esta criatura no puede ser bloqueada excepto por criaturas con la habilidad de volar o alcance.)\nToque mortal. (Cualquier cantidad de daño que esto haga a una criatura es suficiente para destruirla.)\nVínculo vital. (El daño hecho por esta criatura también hace que ganes esa misma cantidad de vidas.)",
+   "power": "2",
+   "toughness": "3",
+   "colors": [
+    "B"
+   ],
+   "keywords": [
+    "Deathtouch",
+    "Flying",
+    "Lifelink"
+   ],
+   "set": "Foundations",
+   "noSpanish": false
+  },
+  "Gravedigger": {
+   "name": "Gravedigger",
+   "printedName": "Sepulturero",
+   "image": "https://cards.scryfall.io/normal/front/d/0/d094e9e0-9223-430b-82e8-cdad22ede3f3.jpg?1783941528",
+   "imageEn": "https://cards.scryfall.io/normal/front/8/8/883989d7-0efd-4f17-8eaa-cdcf51c09d04.jpg?1783908722",
+   "manaCost": "{3}{B}",
+   "cmc": 4,
+   "typeLine": "Creature — Zombie",
+   "oracle": "When this creature enters, you may return target creature card from your graveyard to your hand.",
+   "printedText": "Cuando el Sepulturero entre en el campo de batalla, puedes regresar la carta objetivo de criatura de tu cementerio a tu mano.",
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "B"
+   ],
+   "keywords": [],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Sengir Vampire": {
+   "name": "Sengir Vampire",
+   "printedName": "Vampiro de Sengir",
+   "image": "https://cards.scryfall.io/normal/front/2/a/2a7c3371-1168-4033-b37c-88f5792cebc3.jpg?1783941522",
+   "imageEn": "https://cards.scryfall.io/normal/front/d/e/de652420-eacf-4f9d-9f13-c6bc02b0fa72.jpg?1783930409",
+   "manaCost": "{3}{B}{B}",
+   "cmc": 5,
+   "typeLine": "Creature — Vampire",
+   "oracle": "Flying (This creature can't be blocked except by creatures with flying or reach.)\nWhenever a creature dealt damage by this creature this turn dies, put a +1/+1 counter on this creature.",
+   "printedText": "Vuela.\nSiempre que una criatura que haya recibido daño del Vampiro de Sengir este turno vaya a un cementerio, pon un contador +1/+1 sobre el Vampiro de Sengir.",
+   "power": "4",
+   "toughness": "4",
+   "colors": [
+    "B"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Vampire Sovereign": {
+   "name": "Vampire Sovereign",
+   "printedName": "Soberana vampira",
+   "image": "https://cards.scryfall.io/normal/front/6/f/6f7f0f05-fe4e-4827-bedf-a54352f95967.jpg?1783921896",
+   "imageEn": "https://cards.scryfall.io/normal/front/6/f/6f7f0f05-fe4e-4827-bedf-a54352f95967.jpg?1783921896",
+   "manaCost": "{3}{B}{B}",
+   "cmc": 5,
+   "typeLine": "Creature — Vampire Noble",
+   "oracle": "Flying\nWhen this creature enters, target opponent loses 3 life and you gain 3 life.",
+   "printedText": "Vuela.\nCuando la Soberana vampira entre al campo de batalla, el oponente objetivo pierde 3 vidas y tú ganas 3 vidas.",
+   "power": "3",
+   "toughness": "4",
+   "colors": [
+    "B"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Core Set 2019",
+   "noSpanish": false
+  },
+  "Murder": {
+   "name": "Murder",
+   "printedName": "Asesinato",
+   "image": "https://cards.scryfall.io/normal/front/1/f/1f29d9e4-3100-43cb-9723-7d5c23f89b12.jpg?1783908723",
+   "imageEn": "https://cards.scryfall.io/normal/front/1/f/1f29d9e4-3100-43cb-9723-7d5c23f89b12.jpg?1783908723",
+   "manaCost": "{1}{B}{B}",
+   "cmc": 3,
+   "typeLine": "Instant",
+   "oracle": "Destroy target creature.",
+   "printedText": "Destruye la criatura objetivo.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "B"
+   ],
+   "keywords": [],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Disfigure": {
+   "name": "Disfigure",
+   "printedName": "Desfigurar",
+   "image": "https://cards.scryfall.io/normal/front/f/e/fea6aa2b-d466-4844-b174-796adab9cce3.jpg?1783908733",
+   "imageEn": "https://cards.scryfall.io/normal/front/f/e/fea6aa2b-d466-4844-b174-796adab9cce3.jpg?1783908733",
+   "manaCost": "{B}",
+   "cmc": 1,
+   "typeLine": "Instant",
+   "oracle": "Target creature gets -2/-2 until end of turn.",
+   "printedText": "La criatura objetivo obtiene -2/-2 hasta el final del turno.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "B"
+   ],
+   "keywords": [],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Sign in Blood": {
+   "name": "Sign in Blood",
+   "printedName": "Firmar con sangre",
+   "image": "https://cards.scryfall.io/normal/front/b/8/b89d9372-8682-4a61-a003-8bccfbb6cbb4.jpg?1783909613",
+   "imageEn": "https://cards.scryfall.io/normal/front/b/8/b89d9372-8682-4a61-a003-8bccfbb6cbb4.jpg?1783909613",
+   "manaCost": "{B}{B}",
+   "cmc": 2,
+   "typeLine": "Sorcery",
+   "oracle": "Target player draws two cards and loses 2 life.",
+   "printedText": "El jugador objetivo roba dos cartas y pierde 2 vidas.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "B"
+   ],
+   "keywords": [],
+   "set": "Duskmourn: House of Horror Commander",
+   "noSpanish": false
+  },
+  "Swamp": {
+   "name": "Swamp",
+   "printedName": "Pantano",
+   "image": "https://cards.scryfall.io/normal/front/7/9/79979cc6-23eb-4ca1-8a09-50d5f0edc382.jpg?1794263407",
+   "imageEn": "https://cards.scryfall.io/normal/front/b/2/b233b117-9369-45c1-80c5-cc857386b6be.jpg?1791578437",
+   "manaCost": "",
+   "cmc": 0,
+   "typeLine": "Basic Land — Swamp",
+   "oracle": "({T}: Add {B}.)",
+   "printedText": null,
+   "power": null,
+   "toughness": null,
+   "colors": [],
+   "keywords": [],
+   "set": "Star Trek",
+   "noSpanish": false
+  },
+  "Yargle, Glutton of Urborg": {
+   "name": "Yargle, Glutton of Urborg",
+   "printedName": "Yargle, insaciable de Urborg",
+   "image": "https://cards.scryfall.io/normal/front/e/a/eaab4b77-d9d7-40ca-b7a6-b3f1568c5998.jpg?1790687782",
+   "imageEn": "https://cards.scryfall.io/normal/front/0/4/04c816fb-5951-4db1-8834-ed3f0b36bfe1.jpg?1789127722",
+   "manaCost": "{4}{B}",
+   "cmc": 5,
+   "typeLine": "Legendary Creature — Frog Spirit",
+   "oracle": "",
+   "printedText": null,
+   "power": "9",
+   "toughness": "3",
+   "colors": [
+    "B"
+   ],
+   "keywords": [],
+   "set": "Reality Fracture",
+   "noSpanish": false
+  },
+  "Coral Merfolk": {
+   "name": "Coral Merfolk",
+   "printedName": "Tritón del coral",
+   "image": "https://cards.scryfall.io/normal/front/9/7/97a74ccf-8165-4db1-a87c-52c2d8ea0058.jpg?1783932908",
+   "imageEn": "https://cards.scryfall.io/normal/front/9/7/97a74ccf-8165-4db1-a87c-52c2d8ea0058.jpg?1783932908",
+   "manaCost": "{1}{U}",
+   "cmc": 2,
+   "typeLine": "Creature — Merfolk",
+   "oracle": "",
+   "printedText": null,
+   "power": "2",
+   "toughness": "1",
+   "colors": [
+    "U"
+   ],
+   "keywords": [],
+   "set": "Core Set 2020",
+   "noSpanish": false
+  },
+  "Wind Drake": {
+   "name": "Wind Drake",
+   "printedName": "Draco del viento",
+   "image": "https://cards.scryfall.io/normal/front/5/e/5e227a63-abea-494e-9d66-6ff0a3da14ca.jpg?1783937211",
+   "imageEn": "https://cards.scryfall.io/normal/front/5/e/5e227a63-abea-494e-9d66-6ff0a3da14ca.jpg?1783937211",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "typeLine": "Creature — Drake",
+   "oracle": "Flying",
+   "printedText": "Vuela.",
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "U"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Kaladesh",
+   "noSpanish": false
+  },
+  "Horned Turtle": {
+   "name": "Horned Turtle",
+   "printedName": "Tortuga astada",
+   "image": "https://cards.scryfall.io/normal/front/f/8/f8f2b7c1-9f2a-481d-94ee-04728828f7df.jpg?1783938499",
+   "imageEn": "https://cards.scryfall.io/normal/front/f/8/f8f2b7c1-9f2a-481d-94ee-04728828f7df.jpg?1783938499",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "typeLine": "Creature — Turtle",
+   "oracle": "",
+   "printedText": null,
+   "power": "1",
+   "toughness": "4",
+   "colors": [
+    "U"
+   ],
+   "keywords": [],
+   "set": "Magic 2010",
+   "noSpanish": false
+  },
+  "Cloudkin Seer": {
+   "name": "Cloudkin Seer",
+   "printedName": "Vidente nimboide",
+   "image": "https://cards.scryfall.io/normal/front/f/2/f2ada531-a5e2-444f-9e08-8aaf1dc8ece9.jpg?1783908775",
+   "imageEn": "https://cards.scryfall.io/normal/front/f/2/f2ada531-a5e2-444f-9e08-8aaf1dc8ece9.jpg?1783908775",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "typeLine": "Creature — Elemental Wizard",
+   "oracle": "Flying\nWhen this creature enters, draw a card.",
+   "printedText": "Vuela.\nCuando la Vidente nimboide entre, roba una carta.",
+   "power": "2",
+   "toughness": "1",
+   "colors": [
+    "U"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Foundations Jumpstart",
+   "noSpanish": false
+  },
+  "Man-o'-War": {
+   "name": "Man-o'-War",
+   "printedName": "Carabela",
+   "image": "https://cards.scryfall.io/normal/front/a/1/a1ef40d5-c287-4229-8059-3505d9f251ca.jpg?1783918492",
+   "imageEn": "https://cards.scryfall.io/normal/front/a/1/a1ef40d5-c287-4229-8059-3505d9f251ca.jpg?1783918492",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "typeLine": "Creature — Jellyfish",
+   "oracle": "When this creature enters, return target creature to its owner's hand.",
+   "printedText": "Cuando la Carabela entre al campo de batalla, regresa la criatura objetivo a la mano de su propietario.",
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "U"
+   ],
+   "keywords": [],
+   "set": "Dominaria Remastered",
+   "noSpanish": false
+  },
+  "Air Elemental": {
+   "name": "Air Elemental",
+   "printedName": "Elemental de aire",
+   "image": "https://cards.scryfall.io/normal/front/0/9/09b3086b-d737-4b26-ae1a-d03fa4553ccf.jpg?1783941545",
+   "imageEn": "https://cards.scryfall.io/normal/front/8/1/81ac7bdf-a722-4bed-b480-a1c2f80c5d64.jpg?1783908780",
+   "manaCost": "{3}{U}{U}",
+   "cmc": 5,
+   "typeLine": "Creature — Elemental",
+   "oracle": "Flying",
+   "printedText": "Vuela.",
+   "power": "4",
+   "toughness": "4",
+   "colors": [
+    "U"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Mahamoti Djinn": {
+   "name": "Mahamoti Djinn",
+   "printedName": "Djinn Mahamoti",
+   "image": "https://cards.scryfall.io/normal/front/e/b/ebd1222e-9a63-42f6-8b59-97469b5e6294.jpg?1783941539",
+   "imageEn": "https://cards.scryfall.io/normal/front/8/5/855de173-6bec-457b-828e-28678b7d396e.jpg?1783933840",
+   "manaCost": "{4}{U}{U}",
+   "cmc": 6,
+   "typeLine": "Creature — Djinn",
+   "oracle": "Flying (This creature can't be blocked except by creatures with flying or reach.)",
+   "printedText": "Vuela.",
+   "power": "5",
+   "toughness": "6",
+   "colors": [
+    "U"
+   ],
+   "keywords": [
+    "Flying"
+   ],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Opt": {
+   "name": "Opt",
+   "printedName": "Optar",
+   "image": "https://cards.scryfall.io/normal/front/b/b/bbc99a51-1501-4525-a3cc-f48249b64bed.jpg?1783907102",
+   "imageEn": "https://cards.scryfall.io/normal/front/b/b/bbc99a51-1501-4525-a3cc-f48249b64bed.jpg?1783907102",
+   "manaCost": "{U}",
+   "cmc": 1,
+   "typeLine": "Instant",
+   "oracle": "Scry 1. (Look at the top card of your library. You may put that card on the bottom.)\nDraw a card.",
+   "printedText": "Adivina 1. (Mira la primera carta de tu biblioteca. Puedes poner esa carta en el fondo.)\nRoba una carta.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "U"
+   ],
+   "keywords": [
+    "Scry"
+   ],
+   "set": "Tarkir: Dragonstorm Commander",
+   "noSpanish": false
+  },
+  "Unsummon": {
+   "name": "Unsummon",
+   "printedName": "Anular invocación",
+   "image": "https://cards.scryfall.io/normal/front/4/4/4488071c-ac39-4858-aef5-d4638129d56e.jpg?1790682268",
+   "imageEn": "https://cards.scryfall.io/normal/front/d/d/ddad9f16-52d5-49de-82b0-b1a5294a9c44.jpg?1789556722",
+   "manaCost": "{U}",
+   "cmc": 1,
+   "typeLine": "Instant",
+   "oracle": "Return target creature to its owner's hand.",
+   "printedText": "Regresa la criatura objetivo a la mano de su propietario.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "U"
+   ],
+   "keywords": [],
+   "set": "Reality Fracture",
+   "noSpanish": false
+  },
+  "Divination": {
+   "name": "Divination",
+   "printedName": "Adivinación",
+   "image": "https://cards.scryfall.io/normal/front/4/2/424660ef-6e58-4c98-a5d1-001485c4d1cc.jpg?1783941543",
+   "imageEn": "https://cards.scryfall.io/normal/front/c/b/cb3b35b8-f321-46d8-a441-6b9a6efa9021.jpg?1783934590",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "typeLine": "Sorcery",
+   "oracle": "Draw two cards.",
+   "printedText": "Roba dos cartas.",
+   "power": null,
+   "toughness": null,
+   "colors": [
+    "U"
+   ],
+   "keywords": [],
+   "set": "Salvat 2011",
+   "noSpanish": false
+  },
+  "Island": {
+   "name": "Island",
+   "printedName": "Isla",
+   "image": "https://cards.scryfall.io/normal/front/4/7/474b0866-cd00-45ec-9fa6-985e7ff94e54.jpg?1794263362",
+   "imageEn": "https://cards.scryfall.io/normal/front/1/3/1335d293-3dd2-4f13-bd2c-22181f4528ee.jpg?1791578424",
+   "manaCost": "",
+   "cmc": 0,
+   "typeLine": "Basic Land — Island",
+   "oracle": "({T}: Add {U}.)",
+   "printedText": null,
+   "power": null,
+   "toughness": null,
+   "colors": [],
+   "keywords": [],
+   "set": "Star Trek",
+   "noSpanish": false
+  },
+  "Talrand, Sky Summoner": {
+   "name": "Talrand, Sky Summoner",
+   "printedName": "Talrand, invocador celeste",
+   "image": "https://cards.scryfall.io/normal/front/1/b/1be3ed47-072e-481a-b3d9-dc232ac4b24f.jpg?1783911937",
+   "imageEn": "https://cards.scryfall.io/normal/front/1/b/1be3ed47-072e-481a-b3d9-dc232ac4b24f.jpg?1783911937",
+   "manaCost": "{2}{U}{U}",
+   "cmc": 4,
+   "typeLine": "Legendary Creature — Merfolk Wizard",
+   "oracle": "Whenever you cast an instant or sorcery spell, create a 2/2 blue Drake creature token with flying.",
+   "printedText": "Siempre que lances un hechizo de instantáneo o de conjuro, crea una ficha de criatura Draco azul 2/2 con la habilidad de volar.",
+   "power": "2",
+   "toughness": "2",
+   "colors": [
+    "U"
+   ],
+   "keywords": [],
+   "set": "Outlaws of Thunder Junction Commander",
+   "noSpanish": false
+  }
+ },
+ "decks": {
+  "G": {
+   "label": "Furia del Bosque",
+   "color": "G",
+   "commander": "Kodama of the North Tree",
+   "blurb": "Criaturas enormes, arrollar, alcance y trucos de +X/+X.",
+   "list": [
+    [
+     "Llanowar Elves",
+     4
+    ],
+    [
+     "Elvish Visionary",
+     4
+    ],
+    [
+     "Grizzly Bears",
+     4
+    ],
+    [
+     "Thornweald Archer",
+     3
+    ],
+    [
+     "Centaur Courser",
+     4
+    ],
+    [
+     "Giant Spider",
+     3
+    ],
+    [
+     "Rumbling Baloth",
+     3
+    ],
+    [
+     "Colossal Dreadmaw",
+     3
+    ],
+    [
+     "Giant Growth",
+     4
+    ],
+    [
+     "Titanic Growth",
+     4
+    ],
+    [
+     "Forest",
+     24
+    ]
+   ]
+  },
+  "R": {
+   "label": "Horda Ardiente",
+   "color": "R",
+   "commander": "Kamahl, Pit Fighter",
+   "blurb": "Ataque rápido con prisa y hechizos que hacen daño directo.",
+   "list": [
+    [
+     "Raging Goblin",
+     4
+    ],
+    [
+     "Goblin Piker",
+     4
+    ],
+    [
+     "Viashino Pyromancer",
+     4
+    ],
+    [
+     "Gray Ogre",
+     4
+    ],
+    [
+     "Hill Giant",
+     4
+    ],
+    [
+     "Fire Elemental",
+     3
+    ],
+    [
+     "Shivan Dragon",
+     2
+    ],
+    [
+     "Shock",
+     4
+    ],
+    [
+     "Lightning Bolt",
+     4
+    ],
+    [
+     "Volcanic Hammer",
+     3
+    ],
+    [
+     "Mountain",
+     24
+    ]
+   ]
+  },
+  "W": {
+   "label": "Alas del Alba",
+   "color": "W",
+   "commander": "Isamaru, Hound of Konda",
+   "blurb": "Voladores, vínculo vital, fichas de soldado y ganar vidas.",
+   "list": [
+    [
+     "Savannah Lions",
+     4
+    ],
+    [
+     "Suntail Hawk",
+     3
+    ],
+    [
+     "Healer's Hawk",
+     4
+    ],
+    [
+     "Glory Seeker",
+     4
+    ],
+    [
+     "Ajani's Sunstriker",
+     3
+    ],
+    [
+     "Inspiring Overseer",
+     3
+    ],
+    [
+     "Serra Angel",
+     3
+    ],
+    [
+     "Siege Mastodon",
+     2
+    ],
+    [
+     "Raise the Alarm",
+     4
+    ],
+    [
+     "Divine Verdict",
+     3
+    ],
+    [
+     "Angel's Mercy",
+     3
+    ],
+    [
+     "Plains",
+     24
+    ]
+   ]
+  },
+  "B": {
+   "label": "Cripta Nocturna",
+   "color": "B",
+   "commander": "Yargle, Glutton of Urborg",
+   "blurb": "Toque mortal, eliminación de criaturas y drenar vidas.",
+   "list": [
+    [
+     "Typhoid Rats",
+     4
+    ],
+    [
+     "Bog Imp",
+     4
+    ],
+    [
+     "Walking Corpse",
+     4
+    ],
+    [
+     "Vampire Nighthawk",
+     3
+    ],
+    [
+     "Gravedigger",
+     3
+    ],
+    [
+     "Sengir Vampire",
+     3
+    ],
+    [
+     "Vampire Sovereign",
+     3
+    ],
+    [
+     "Murder",
+     4
+    ],
+    [
+     "Disfigure",
+     4
+    ],
+    [
+     "Sign in Blood",
+     4
+    ],
+    [
+     "Swamp",
+     24
+    ]
+   ]
+  },
+  "U": {
+   "label": "Mareas Arcanas",
+   "color": "U",
+   "commander": "Talrand, Sky Summoner",
+   "blurb": "Voladores, robar cartas y devolver criaturas a la mano.",
+   "list": [
+    [
+     "Coral Merfolk",
+     4
+    ],
+    [
+     "Wind Drake",
+     4
+    ],
+    [
+     "Horned Turtle",
+     3
+    ],
+    [
+     "Cloudkin Seer",
+     4
+    ],
+    [
+     "Man-o'-War",
+     4
+    ],
+    [
+     "Air Elemental",
+     3
+    ],
+    [
+     "Mahamoti Djinn",
+     2
+    ],
+    [
+     "Opt",
+     4
+    ],
+    [
+     "Unsummon",
+     4
+    ],
+    [
+     "Divination",
+     4
+    ],
+    [
+     "Island",
+     24
+    ]
+   ]
+  }
+ }
+}

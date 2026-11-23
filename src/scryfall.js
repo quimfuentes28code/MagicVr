@@ -2,6 +2,7 @@
 // Con caché en memoria + localStorage y respaldo a la base de datos local.
 
 import { fromScryfall, localCard, searchLocal } from './engine/cards.js';
+import { cardDbReady, cardByName, searchNames, candidates, recordToCard, norm } from './carddb.js';
 
 const API = 'https://api.scryfall.com';
 const mem = new Map();
@@ -38,6 +39,7 @@ async function get(path) {
 
 /** Sugerencias de nombres mientras escribes (inglés y español). */
 export async function autocomplete(q) {
+  if (cardDbReady()) return searchNames(q, 12);
   const local = searchLocal(q).map((c) => c.printedName || c.name);
   if (q.trim().length < 2) return local.slice(0, 8);
   try {
@@ -52,6 +54,13 @@ export async function autocomplete(q) {
 export async function findCard(name, { spanish = true } = {}) {
   const key = name.trim().toLowerCase();
   if (!key) return null;
+  // 1º la base de datos completa que va dentro de la app (sin internet).
+  if (cardDbReady()) {
+    const exact = cardByName(name);
+    if (exact) return exact;
+    const near = candidates(name, 5).find(([k]) => similar(k, norm(name)));
+    if (near) return recordToCard(near[1]);
+  }
   if (mem.has(key)) return mem.get(key);
   let card = null;
   try {
@@ -87,4 +96,21 @@ export async function findCard(name, { spanish = true } = {}) {
     saveCache();
   }
   return card;
+}
+
+/** Cartas ya encontradas antes (para reconocerlas al instante con la cámara). */
+export function knownCards() {
+  return [...new Set(mem.values())].filter(Boolean);
+}
+
+function similar(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 3) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length] <= Math.max(1, Math.floor(b.length / 6));
 }

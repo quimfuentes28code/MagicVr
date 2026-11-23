@@ -48,9 +48,28 @@ export class Session {
   }
 
   applyAndShare(action) {
+    if (action.t === 'undo') return this.undo(action.by);
+    const before = this.state;
     const next = apply(this.state, action);
     if (next === this.state) return;
     this.state = next;
+    // Se puede deshacer la última carta jugada (por si la cámara se equivoca).
+    const played = (action.t === 'play' || action.t === 'castCommander') && next.events.at(-1)?.kind !== 'illegal';
+    this.undoable = played ? { by: action.by, before, seq: next.eventSeq } : null;
+    this.share();
+  }
+
+  undo(by) {
+    const u = this.undoable;
+    if (!u || u.by !== by || u.seq !== this.state.eventSeq) return;
+    this.undoable = null;
+    // Conservamos la numeración de eventos para que la UI no repita animaciones.
+    this.state = { ...u.before, eventSeq: this.state.eventSeq, events: [...u.before.events] };
+    this.share();
+  }
+
+  share() {
+    const next = this.state;
     if (this.role === 'host') this.net.broadcast({ type: 'state', state: next });
     this.emit();
     this.scheduleBots();

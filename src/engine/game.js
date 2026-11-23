@@ -3,6 +3,7 @@
 // código sirve para jugar en local, contra bots y en red (el anfitrión manda).
 
 import { pips } from './cards.js';
+import { tokenCard, describeEffect, needsTarget } from './effects.js';
 
 export const STEPS = ['untap', 'upkeep', 'draw', 'main1', 'attack', 'block', 'damage', 'main2', 'end'];
 
@@ -274,14 +275,18 @@ const HANDLERS = {
 
     if (card.isLand) pl.landsPlayed += 1;
     const verb = card.isLand ? 'juega' : 'lanza';
+    let source = null;
     if (card.isPermanent) {
       const perm = makePerm(s, card, pl.id);
       pl.battlefield.push(perm);
+      source = perm;
       pushEvent(s, 'play', `${pl.name} ${verb} ${displayName(card)}.`, { uid: perm.uid, by: pl.id, color: card.colors[0] || (card.produces[0]) || 'C' });
     } else {
       pl.graveyard.push(stripCard(card));
       pushEvent(s, 'spell', `${pl.name} lanza ${displayName(card)}. Al resolverse, va al cementerio.`, { by: pl.id, card: stripCard(card), color: card.colors[0] || 'C' });
     }
+    const fx = card.isPermanent ? card.effects?.etb : card.effects?.spell;
+    if (fx && fx.length) resolveEffects(s, pl, card, fx, a.targets || [], source);
     return s;
   },
 
@@ -547,6 +552,102 @@ function resolveCombat(s) {
   checkDeaths(s);
 }
 
+// ------------------------------------------------------------- efectos
+
+/**
+ * Aplica las habilidades de una carta. targets: [{ uid } | { player }] en el
+ * orden en que la carta los pide. Si falta un objetivo, avisa para hacerlo a mano.
+ */
+function resolveEffects(s, pl, card, fx, targets, source) {
+  const name = displayName(card);
+  let ti = 0;
+  for (const e of fx) {
+    let tgt = null;
+    if (needsTarget(e)) {
+      tgt = targets[ti++];
+      if (!tgt) {
+        if (pl.isBot) continue;
+        pushEvent(s, 'manual', `${name} ${describeEffect(e)}: aplícalo a mano tocando el objetivo.`, { to: pl.id });
+        continue;
+      }
+    }
+    const perm = tgt && tgt.uid != null ? findPerm(s, tgt.uid) : null;
+    const target = tgt && tgt.player ? player(s, tgt.player) : null;
+    switch (e.kind) {
+      case 'damage':
+        if (e.target === 'opponents') {
+          for (const o of opponents(s, pl.id)) hurtPlayer(s, o, e.amount, name);
+        } else if (perm) {
+          perm.perm.damage += e.amount;
+          pushEvent(s, 'hit', `${name} hace ${e.amount} de daño a ${displayName(perm.perm.card)}.`, { uid: perm.perm.uid });
+        } else if (target) hurtPlayer(s, target, e.amount, name);
+        break;
+      case 'destroy':
+        if (perm) leaveBattlefield(s, perm.owner, perm.perm, 'graveyard', 'es destruida');
+        break;
+      case 'pump':
+        if (perm) {
+          perm.perm.pump.p += e.p;
+          perm.perm.pump.t += e.t;
+          pushEvent(s, 'pump', `${displayName(perm.perm.card)} recibe ${e.p >= 0 ? '+' : ''}${e.p}/${e.t >= 0 ? '+' : ''}${e.t} hasta el final del turno.`, { uid: perm.perm.uid });
+        }
+        break;
+      case 'bounce':
+        if (perm) leaveBattlefield(s, perm.owner, perm.perm, 'hand', 'vuelve a la mano');
+        break;
+      case 'counter':
+        if (perm) {
+          perm.perm.counters += 1;
+          pushEvent(s, 'pump', `${displayName(perm.perm.card)} recibe un contador +1/+1.`, { uid: perm.perm.uid });
+        }
+        break;
+      case 'drain':
+        for (const o of opponents(s, pl.id)) {
+          o.life -= e.amount;
+          pushEvent(s, 'life', `${o.name} pierde ${e.amount} vidas (${o.life}).`, { target: o.id, delta: -e.amount });
+        }
+        break;
+      case 'gain':
+        pl.life += e.amount;
+        pushEvent(s, 'life', `${pl.name} gana ${e.amount} vidas (${pl.life}).`, { target: pl.id, delta: e.amount });
+        break;
+      case 'lose':
+        pl.life -= e.amount;
+        pushEvent(s, 'life', `${pl.name} pierde ${e.amount} vidas (${pl.life}).`, { target: pl.id, delta: -e.amount });
+        break;
+      case 'draw':
+        if (pl.isBot) for (let i = 0; i < e.amount; i++) drawCard(s, pl);
+        pushEvent(s, 'draw', pl.isBot ? `${pl.name} roba ${e.amount} carta${e.amount > 1 ? 's' : ''}.` : `${name}: roba ${e.amount} carta${e.amount > 1 ? 's' : ''} de tu mazo.`, { to: pl.id, amount: e.amount });
+        break;
+      case 'token':
+        for (let i = 0; i < e.amount; i++) {
+          const perm2 = makePerm(s, tokenCard(e), pl.id);
+          pl.battlefield.push(perm2);
+          pushEvent(s, 'play', `${name} crea una ficha de ${e.subtype} ${e.power}/${e.toughness}.`, { uid: perm2.uid, by: pl.id, color: e.colors[0] || 'C' });
+        }
+        break;
+      case 'regrow': {
+        const idx = pl.graveyard.map((c, i) => [c, i]).filter(([c]) => c.isCreature).sort((x, y) => y[0].cmc - x[0].cmc)[0];
+        if (idx) {
+          const [c, i] = idx;
+          pl.graveyard.splice(i, 1);
+          if (pl.isBot) pl.hand.push({ ...c, uid: s.nextId++ });
+          pushEvent(s, 'info', pl.isBot ? `${pl.name} recupera ${displayName(c)} de su cementerio.` : `${name}: coge ${displayName(c)} de tu cementerio y ponla en tu mano.`, { to: pl.id });
+        }
+        break;
+      }
+      default:
+    }
+  }
+  checkCreatureDeaths(s);
+  checkDeaths(s);
+}
+
+function hurtPlayer(s, t, amount, srcName) {
+  t.life -= amount;
+  pushEvent(s, 'life', `${srcName} hace ${amount} de daño a ${t.name} (${t.life}).`, { target: t.id, delta: -amount });
+}
+
 function checkCreatureDeaths(s) {
   for (const p of s.players) {
     for (const perm of [...p.battlefield]) {
@@ -567,6 +668,10 @@ function leaveBattlefield(s, owner, perm, to, verb) {
   if (perm.isCommander && (to === 'graveyard' || to === 'exile' || to === 'hand' || to === 'library')) {
     owner.commanderInZone = true;
     pushEvent(s, 'death', `${name} ${verb || 'deja el campo'} y vuelve a la zona de mando.`, { uid: perm.uid });
+    return;
+  }
+  if (perm.card.isToken) {
+    pushEvent(s, 'death', `${name} desaparece (las fichas dejan de existir fuera del campo de batalla).`, { uid: perm.uid });
     return;
   }
   if (to === 'graveyard') owner.graveyard.push(perm.card);

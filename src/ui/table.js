@@ -530,9 +530,38 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     );
   }
 
+  /**
+   * Coloca los hijos de `container` en el orden deseado SIN sacar del DOM los
+   * que ya están en su sitio: así sus animaciones no se reinician cada vez
+   * que el rival hace algo.
+   */
+  function reconcile(container, wanted) {
+    wanted.forEach((node, i) => {
+      if (container.children[i] !== node) container.insertBefore(node, container.children[i] || null);
+    });
+    while (container.children.length > wanted.length) container.lastElementChild.remove();
+  }
+
   function renderSide(el, s, p, side) {
-    clear(el);
-    if (!p) return;
+    if (!p) { clear(el); el.__parts = null; return; }
+    // Estructura fija por lado (sólo se reconstruye si cambia el jugador mostrado).
+    let parts = el.__parts;
+    if (!parts || parts.pid !== p.id) {
+      clear(el);
+      parts = {
+        pid: p.id,
+        zones: h('div', { class: 'zones' }),
+        rowC: h('div', { class: 'row creatures', 'data-zone': 'battlefield' }),
+        rowL: h('div', { class: 'row lands', 'data-zone': 'lands' }),
+        hintC: h('div', { class: 'hint' }, side === 'me' ? 'Tus criaturas' : 'Criaturas rivales'),
+        hintL: h('div', { class: 'hint' }, side === 'me' ? 'Tus tierras' : 'Tierras rivales'),
+      };
+      parts.battle = h('div', { class: 'battle' }, ...(side === 'opp' ? [parts.rowL, parts.rowC] : [parts.rowC, parts.rowL]));
+      // Como en un tapete real: tu mazo a tu derecha; el del rival, enfrente (a tu izquierda).
+      if (side === 'me') el.append(parts.battle, parts.zones);
+      else el.append(parts.zones, parts.battle);
+      el.__parts = parts;
+    }
     const creatures = p.battlefield.filter((x) => x.card.isCreature || /Planeswalker/.test(x.card.typeLine));
     const support = p.battlefield.filter((x) => !creatures.includes(x));
     const lands = support.filter((x) => x.card.isLand);
@@ -542,23 +571,20 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       content, h('span', { class: 'zl' }, label), count != null ? h('span', { class: 'n' }, count) : null);
     const topGrave = p.graveyard[p.graveyard.length - 1];
     const topExile = p.exile[p.exile.length - 1];
-    const zones = h('div', { class: 'zones' + (s.mode === 'commander' ? ' four' : '') },
+    parts.zones.className = 'zones' + (s.mode === 'commander' ? ' four' : '');
+    clear(parts.zones).append(
       zone('library', 'Mazo', h('div', { class: 'card-back' }), p.isBot ? p.library.length : null, () => toast('Biblioteca: el mazo, boca abajo. Se roba de aquí.')),
       zone('graveyard', 'Cementerio', topGrave ? cardFace(topGrave) : null, p.graveyard.length, () => showZone(p, 'graveyard')),
       zone('exile', 'Exilio', topExile ? cardFace(topExile) : null, p.exile.length || null, () => showZone(p, 'exile')),
       s.mode === 'commander' ? zone('command', 'Mando', commandZone(p), null, () => commandAction(p)) : null,
     );
 
-    const rowC = h('div', { class: 'row creatures', 'data-zone': 'battlefield' }, creatures.map((x) => permEl(s, x, p)));
-    const rowL = h('div', { class: 'row lands', 'data-zone': 'lands' }, others.map((x) => permEl(s, x, p)), lands.map((x) => permEl(s, x, p)));
-    rowC.style.setProperty('--n', Math.max(1, creatures.length));
-    rowL.style.setProperty('--n', Math.max(1, support.length));
-    if (!creatures.length) rowC.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus criaturas' : 'Criaturas rivales'));
-    if (!support.length) rowL.append(h('div', { class: 'hint' }, side === 'me' ? 'Tus tierras' : 'Tierras rivales'));
-    const battle = h('div', { class: 'battle' }, ...(side === 'opp' ? [rowL, rowC] : [rowC, rowL]));
-    // Como en un tapete real: tu mazo a tu derecha; el del rival, enfrente (a tu izquierda).
-    if (side === 'me') el.append(battle, zones);
-    else el.append(zones, battle);
+    const cEls = creatures.map((x) => permEl(s, x, p));
+    const lEls = [...others, ...lands].map((x) => permEl(s, x, p));
+    reconcile(parts.rowC, cEls.length ? cEls : [parts.hintC]);
+    reconcile(parts.rowL, lEls.length ? lEls : [parts.hintL]);
+    parts.rowC.style.setProperty('--n', Math.max(1, creatures.length));
+    parts.rowL.style.setProperty('--n', Math.max(1, support.length));
     el.classList.toggle('eliminated', p.eliminated);
   }
 
@@ -692,6 +718,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           el.classList.remove('enter');
           void el.offsetWidth;
           el.classList.add('enter');
+          clearTimeout(el.__enterT);
+          el.__enterT = setTimeout(() => el.classList.remove('enter'), 1100);
           setTimeout(() => burst(el, e.color, 22), 650);
         }
       } else if (e.kind === 'cast') {

@@ -30,6 +30,7 @@ function parseSentence(t) {
   else if ((m = t.match(/deals (\d+) damage to target (?:creature|attacking or blocking creature)/i))) fx.push({ kind: 'damage', amount: +m[1], target: 'creature' });
   else if ((m = t.match(/deals (\d+) damage to (?:target player|target opponent|each opponent)/i))) fx.push({ kind: 'damage', amount: +m[1], target: /each opponent/i.test(t) ? 'opponents' : 'player' });
   if (/Destroy target (?:attacking or blocking |nonblack |tapped )?creature/i.test(t)) fx.push({ kind: 'destroy', target: 'creature' });
+  if (/Counter target (?:creature |noncreature |instant or sorcery |instant |sorcery )?spell/i.test(t)) fx.push({ kind: 'counterspell', target: 'spell' });
   if ((m = t.match(/Target creature gets ([+-]\d+)\/([+-]\d+) until end of turn/i))) fx.push({ kind: 'pump', p: +m[1], t: +m[2], target: 'creature' });
   if (/Return target (?:nonland permanent|creature) to its owner's hand/i.test(t)) fx.push({ kind: 'bounce', target: 'creature' });
   if (/[Pp]ut a \+1\/\+1 counter on target creature/.test(t)) fx.push({ kind: 'counter', target: 'creature' });
@@ -51,7 +52,7 @@ function parseSentence(t) {
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-export const needsTarget = (e) => ['any', 'creature', 'player'].includes(e.target);
+export const needsTarget = (e) => ['any', 'creature', 'player', 'spell'].includes(e.target);
 
 /** Lista de objetivos que pide una carta al jugarse (en orden). */
 export function targetsFor(card) {
@@ -92,6 +93,7 @@ export function describeEffect(e) {
     case 'draw': return `robas ${e.amount} carta${e.amount > 1 ? 's' : ''}`;
     case 'token': return `crea ${e.amount} ficha${e.amount > 1 ? 's' : ''} de ${e.power}/${e.toughness}`;
     case 'regrow': return 'recupera una criatura de tu cementerio';
+    case 'counterspell': return 'contrarresta un hechizo';
     default: return '';
   }
 }

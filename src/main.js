@@ -3,7 +3,7 @@
 import './styles.css';
 import { h, clear, toast } from './ui/dom.js';
 import { icon } from './ui/icons.js';
-import { mountTable, RUNE_RING } from './ui/table.js';
+import { mountTable, RUNE_RING, needsCalibration } from './ui/table.js';
 import { startTutorial } from './ui/tutorial.js';
 import { RULES, KEYWORDS } from './ui/learn.js';
 import { Session } from './session.js';
@@ -27,11 +27,12 @@ const getName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } cat
 const setName = (n) => { try { localStorage.setItem(NAME_KEY, n); } catch { /* */ } };
 const myName = () => getName() || 'Planeswalker';
 
-function botPlayer(i, color, mode) {
+function botPlayer(i, color, mode, level = 'normal') {
   return {
     id: 'bot' + i,
     name: BOT_NAMES[color],
     isBot: true,
+    level,
     deckLabel: BOT_DECKS[color].label,
     deck: buildBotDeck(color, mode === 'commander' ? 99 : 60),
     commander: mode === 'commander' ? localCard(BOT_DECKS[color].commander) : null,
@@ -101,6 +102,7 @@ function menu() {
       h('div', { class: 'logo-title' }, 'MagicVR'),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
       h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), nameInput),
+      h('button', { class: 'gem small bronze', onClick: calibrateFromMenu }, icon('eye'), 'Ajustar mesa'),
       dbLine(),
     ),
     h('div', { class: 'menu-right' },
@@ -125,6 +127,8 @@ function modeMenu(mode) {
 function botSetup(mode) {
   let bots = mode === 'commander' ? 3 : 1;
   let color = 'random';
+  let level = 'normal';
+  const LEVELS = { easy: ['Aprendiz', 'No responde ni usa trucos de combate.'], normal: ['Mago', 'Responde en la pila y usa trucos de combate.'], hard: ['Archimago', 'Igual que Mago y además contrarresta tus hechizos importantes.'] };
   const render = () => {
     clear(app).append(subScreen(mode === 'commander' ? 'Commander contra golems' : 'Duelo contra un golem', () => modeMenu(mode),
       h('div', { class: 'panel setup-panel' },
@@ -139,25 +143,40 @@ function botSetup(mode) {
         h('p', { class: 'muted' }, mode === 'commander'
           ? 'Prepara tu mazo de Commander. Al empezar, toca tu zona de Mando y pon tu comandante en el círculo.'
           : 'Baraja tu mazo, roba 7 cartas y apunta la cámara a tu mesa.'),
-        h('button', { class: 'gem wide', onClick: () => startBotGame(mode, bots, color) }, '¡A la batalla!'),
+        h('div', { class: 'field-label' }, 'Dificultad'),
+        h('div', { class: 'seg' }, Object.entries(LEVELS).map(([k, [label]]) => h('button', { class: 'sigil-opt' + (level === k ? ' on' : ''), onClick: () => { level = k; render(); } }, label))),
+        h('p', { class: 'muted' }, LEVELS[level][1]),
+        h('button', { class: 'gem wide', onClick: () => startBotGame(mode, bots, color, level) }, '¡A la batalla!'),
       )));
   };
   render();
 }
 
-function startBotGame(mode, nBots, color) {
+function startBotGame(mode, nBots, color, level = 'normal') {
   const colors = color === 'random' ? shuffled(COLORS) : Array(nBots).fill(color);
   const players = [{ id: 'me', name: myName() }];
-  for (let i = 0; i < nBots; i++) players.push(botPlayer(i, colors[i % colors.length], mode));
+  for (let i = 0; i < nBots; i++) players.push(botPlayer(i, colors[i % colors.length], mode, level));
   const state = createGame({ mode, players });
   return mountTable(app, new Session({ role: 'local', state, me: 'me' }), { onExit: menu });
 }
 
 function startTutorialGame() {
-  const state = createGame({ mode: '1v1', players: [{ id: 'me', name: myName() }, { ...botPlayer(0, 'W', '1v1'), name: 'Golem de entrenamiento' }] });
+  // En el tutorial empiezas tú y el golem no usa trucos.
+  const state = createGame({ mode: '1v1', first: 0, players: [{ id: 'me', name: myName() }, { ...botPlayer(0, 'W', '1v1', 'easy'), name: 'Golem de entrenamiento' }] });
   const session = new Session({ role: 'local', state, me: 'me' });
   session.botDelay = 1100;
-  startTutorial(mountTable(app, session, { onExit: menu }));
+  // Si es la primera vez, el tutorial empieza después de ajustar la mesa.
+  const first = needsCalibration();
+  const table = mountTable(app, session, { onExit: menu, intro: false, onCalibrated: () => first && startTutorial(table) });
+  if (!first) startTutorial(table);
+}
+
+/** «Ajustar mesa» desde el menú: la mesa con la cámara, sin partida en marcha. */
+function calibrateFromMenu() {
+  const state = createGame({ mode: '1v1', players: [{ id: 'me', name: myName() }, botPlayer(0, 'G', '1v1')] });
+  const session = new Session({ role: 'local', state, me: 'me' });
+  session.pauseBots(true);
+  const table = mountTable(app, session, { calibrate: true, onExit: menu, onCalibrated: () => table.exit() });
 }
 
 // ------------------------------------------------------------- online

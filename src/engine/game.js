@@ -1,25 +1,46 @@
-// Motor de partida simplificado de Magic.
+// Motor de reglas de Magic.
 // Es un "reducer" puro: apply(state, action) -> nuevo estado. Así el mismo
 // código sirve para jugar en local, contra bots y en red (el anfitrión manda).
+//
+// Sigue la estructura oficial del turno (reglas 500-514), la pila y la
+// prioridad (405, 117), el combate con dañar primero (510) y las acciones
+// basadas en estado más comunes (704). Las habilidades se leen del texto
+// oficial (effects.js); lo que no se reconoce se aplica a mano.
 
 import { pips } from './cards.js';
 import { tokenCard, describeEffect, needsTarget } from './effects.js';
 
-export const STEPS = ['untap', 'upkeep', 'draw', 'main1', 'attack', 'block', 'damage', 'main2', 'end'];
+// Etapas del turno en orden. Las marcadas como automáticas pasan solas
+// (como en los juegos digitales) salvo que haya algo en la pila.
+export const STEPS = ['untap', 'upkeep', 'draw', 'main1', 'begincombat', 'attack', 'block', 'firststrike', 'damage', 'endcombat', 'main2', 'end', 'cleanup'];
+const AUTO = new Set(['untap', 'upkeep', 'draw', 'begincombat', 'firststrike', 'damage', 'endcombat', 'end', 'cleanup']);
+
+export const PHASES = [
+  { name: 'Inicio', steps: ['untap', 'upkeep', 'draw'] },
+  { name: 'Principal 1', steps: ['main1'] },
+  { name: 'Combate', steps: ['begincombat', 'attack', 'block', 'firststrike', 'damage', 'endcombat'] },
+  { name: 'Principal 2', steps: ['main2'] },
+  { name: 'Final', steps: ['end', 'cleanup'] },
+];
 
 export const STEP_INFO = {
-  untap: { name: 'Enderezar', group: 'Inicio', help: 'Endereza (pon en vertical) todas tus cartas giradas. Ya puedes volver a usar tus tierras y criaturas.' },
-  upkeep: { name: 'Mantenimiento', group: 'Inicio', help: 'Se resuelven efectos de "al comienzo de tu mantenimiento". Normalmente no pasa nada: sigue.' },
-  draw: { name: 'Robar', group: 'Inicio', help: 'Roba una carta de tu biblioteca (el jugador que empieza no roba en su primer turno).' },
-  main1: { name: 'Fase principal 1', group: 'Principal', help: 'Puedes jugar UNA tierra por turno y lanzar criaturas, artefactos, encantamientos y conjuros pagando su coste de maná (gira tus tierras).' },
-  attack: { name: 'Declarar atacantes', group: 'Combate', help: 'Toca las criaturas con las que quieres atacar. Se giran al atacar. Las que entraron este turno están "mareadas" y no pueden atacar (salvo con prisa).' },
-  block: { name: 'Declarar bloqueadores', group: 'Combate', help: 'El defensor elige qué criaturas enderezadas bloquean a cada atacante. Una criatura sólo puede bloquear a un atacante.' },
+  untap: { name: 'Enderezar', group: 'Inicio', help: 'Se enderezan todas tus cartas giradas. Ya puedes volver a usar tus tierras y criaturas.' },
+  upkeep: { name: 'Mantenimiento', group: 'Inicio', help: 'Se resuelven los efectos de "al comienzo de tu mantenimiento".' },
+  draw: { name: 'Robar', group: 'Inicio', help: 'Robas una carta de tu biblioteca (quien empieza la partida no roba en su primer turno).' },
+  main1: { name: 'Fase principal 1', group: 'Principal', help: 'Puedes jugar UNA tierra por turno y lanzar criaturas, artefactos, encantamientos, planeswalkers y conjuros pagando su coste de maná.' },
+  begincombat: { name: 'Inicio del combate', group: 'Combate', help: 'Último momento para usar efectos antes de declarar atacantes.' },
+  attack: { name: 'Declarar atacantes', group: 'Combate', help: 'Toca las criaturas con las que quieres atacar. Se giran al atacar (salvo con vigilancia). Las que entraron este turno están "mareadas" y no pueden atacar (salvo con prisa).' },
+  block: { name: 'Declarar bloqueadores', group: 'Combate', help: 'El defensor elige qué criaturas enderezadas bloquean a cada atacante. Después, ambos pueden usar trucos de combate (instantáneos).' },
+  firststrike: { name: 'Daño de dañar primero', group: 'Combate', help: 'Las criaturas con dañar primero (o dañar dos veces) hacen su daño antes que las demás.' },
   damage: { name: 'Daño de combate', group: 'Combate', help: 'Cada criatura hace daño igual a su fuerza. Si una criatura recibe daño igual o mayor a su resistencia, muere. El daño no bloqueado va al jugador.' },
-  main2: { name: 'Fase principal 2', group: 'Principal', help: 'Otra fase principal: si no jugaste tierra, aún puedes. También puedes lanzar hechizos después de ver cómo fue el combate.' },
-  end: { name: 'Final del turno', group: 'Final', help: 'Los efectos "hasta el final del turno" terminan y el daño a las criaturas se cura. Pasa el turno.' },
+  endcombat: { name: 'Final del combate', group: 'Combate', help: 'Termina el combate.' },
+  main2: { name: 'Fase principal 2', group: 'Principal', help: 'Otra fase principal: si no jugaste tierra, aún puedes, y puedes lanzar hechizos después de ver cómo fue el combate.' },
+  end: { name: 'Paso final', group: 'Final', help: 'Se resuelven los efectos de "al comienzo del paso final".' },
+  cleanup: { name: 'Limpieza', group: 'Final', help: 'Se descartan cartas hasta tener 7 en la mano, se cura el daño y terminan los efectos "hasta el final del turno".' },
 };
 
-const MAX_EVENTS = 40;
+const MAX_EVENTS = 60;
+const MAX_HAND = 7;
 
 const clone = (o) => (typeof structuredClone === 'function' ? structuredClone(o) : JSON.parse(JSON.stringify(o)));
 
@@ -38,9 +59,10 @@ function rng(seed) {
 
 /**
  * Crea una partida.
- * players: [{ id, name, isBot, deck?: Card[], commander?: Card }]
+ * players: [{ id, name, isBot, level?, deck?: Card[], commander?: Card }]
+ * first: índice de quien empieza (si no, se tira un dado).
  */
-export function createGame({ mode = '1v1', players, seed = Date.now() }) {
+export function createGame({ mode = '1v1', players, seed = Date.now(), first = null }) {
   const commander = mode === 'commander';
   const rnd = rng(seed);
   const s = {
@@ -51,15 +73,19 @@ export function createGame({ mode = '1v1', players, seed = Date.now() }) {
     step: 'main1',
     nextId: 1,
     combat: emptyCombat(),
+    lastCombat: null,
+    stack: [],
     events: [],
     eventSeq: 0,
     log: [],
     winner: null,
+    seed: Math.floor(rnd() * 1e9),
   };
   s.players = players.map((p) => ({
     id: p.id,
     name: p.name,
     isBot: !!p.isBot,
+    level: p.level || 'normal',
     deckLabel: p.deckLabel || null,
     life: s.startingLife,
     poison: 0,
@@ -75,20 +101,51 @@ export function createGame({ mode = '1v1', players, seed = Date.now() }) {
     landsPlayed: 0,
     eliminated: false,
   }));
+
+  // ¿Quién empieza? Se tira un dado de 20 caras (regla 103.1).
+  let rolls = null;
+  if (first == null) {
+    do {
+      rolls = s.players.map(() => 1 + Math.floor(rnd() * 20));
+    } while (rolls.filter((r) => r === Math.max(...rolls)).length > 1);
+    first = rolls.indexOf(Math.max(...rolls));
+  }
+  s.active = first;
+  s.rolls = rolls;
+
   s.players.forEach((pl, i) => {
     const src = players[i];
     if (src.deck) {
       pl.library = shuffle(src.deck.map((c) => ({ ...c, uid: s.nextId++ })), rnd);
       for (let k = 0; k < 7; k++) drawCard(s, pl);
+      if (pl.isBot) botMulligan(s, pl, rnd);
     }
     if (commander && src.commander) setCommander(s, pl, src.commander);
   });
-  pushEvent(s, 'info', `¡Empieza la partida! Turno de ${s.players[0].name}.`);
+  const starter = s.players[first];
+  pushEvent(s, 'start', rolls
+    ? `Se tira un dado: ${s.players.map((p, i) => `${p.name} saca ${rolls[i]}`).join(', ')}. Empieza ${starter.name}.`
+    : `¡Empieza la partida! Turno de ${starter.name}.`, { player: starter.id, rolls });
   return s;
 }
 
+/** Mulligan de Londres para los bots: si la mano no tiene 2-5 tierras, otra vez (una vez). */
+function botMulligan(s, pl, rnd) {
+  const lands = pl.hand.filter((c) => c.isLand).length;
+  if (lands >= 2 && lands <= 5) return;
+  pl.library.push(...pl.hand.splice(0));
+  shuffle(pl.library, rnd);
+  for (let k = 0; k < 7; k++) drawCard(s, pl);
+  // pone al fondo la carta peor (la más cara si sobran hechizos, una tierra si sobran tierras)
+  const l2 = pl.hand.filter((c) => c.isLand).length;
+  const pick = l2 > 4 ? pl.hand.find((c) => c.isLand) : [...pl.hand].filter((c) => !c.isLand).sort((a, b) => b.cmc - a.cmc)[0] || pl.hand[0];
+  pl.hand.splice(pl.hand.indexOf(pick), 1);
+  pl.library.push(pick);
+  pushEvent(s, 'info', `${pl.name} hace mulligan y se queda con 6 cartas.`);
+}
+
 function emptyCombat() {
-  return { attackers: {}, blocks: {}, confirmed: [], result: null };
+  return { attackers: {}, blocks: {}, confirmed: [], ready: [], result: null, firstDone: false };
 }
 
 // ---------------------------------------------------------------- utilidades
@@ -97,6 +154,7 @@ export const player = (s, id) => s.players.find((p) => p.id === id);
 export const activePlayer = (s) => s.players[s.active];
 export const alivePlayers = (s) => s.players.filter((p) => !p.eliminated);
 export const opponents = (s, id) => s.players.filter((p) => p.id !== id && !p.eliminated);
+export const stackTop = (s) => s.stack[s.stack.length - 1] || null;
 
 export function findPerm(s, uid) {
   for (const p of s.players) {
@@ -116,10 +174,12 @@ export function power(perm) {
 export function toughness(perm) {
   return (perm.card.toughness || 0) + perm.counters + perm.pump.t;
 }
+const isPlaneswalker = (perm) => /Planeswalker/.test(perm.card.typeLine);
+const firstStriker = (perm) => has(perm, 'first strike') || has(perm, 'double strike');
 
 export function canAttack(s, perm) {
   if (!perm.card.isCreature || perm.tapped) return false;
-  if (has(perm, 'defender')) return false;
+  if (has(perm, 'defender') || /can.t attack/i.test(perm.card.oracle)) return false;
   if (perm.sick && !has(perm, 'haste')) return false;
   return true;
 }
@@ -131,13 +191,20 @@ export function canBlock(perm, attacker) {
   return true;
 }
 
+/** ¿Puede `caster` hacer objetivo a este permanente? (antimaleficio, velo) */
+export function canTarget(s, casterId, perm, owner) {
+  if (has(perm, 'shroud')) return false;
+  if (has(perm, 'hexproof') && owner.id !== casterId) return false;
+  return true;
+}
+
 function pushEvent(s, kind, text, extra = {}) {
   s.eventSeq += 1;
   s.events.push({ id: s.eventSeq, kind, text, ...extra });
   if (s.events.length > MAX_EVENTS) s.events.splice(0, s.events.length - MAX_EVENTS);
   if (kind !== 'illegal') {
     s.log.push(text);
-    if (s.log.length > 200) s.log.shift();
+    if (s.log.length > 250) s.log.shift();
   }
 }
 
@@ -166,6 +233,7 @@ function makePerm(s, card, ownerId) {
     sick: true,
     damage: 0,
     counters: 0,
+    loyalty: card.loyalty != null ? parseInt(card.loyalty, 10) || 0 : null,
     pump: { p: 0, t: 0 },
     isCommander: false,
   };
@@ -185,9 +253,22 @@ export function manaSources(pl) {
   );
 }
 
+/** Maná disponible por color (para mostrarlo como en los juegos digitales). */
+export function manaAvailable(pl) {
+  const out = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0, any: 0, total: 0 };
+  for (const p of manaSources(pl)) {
+    out.total++;
+    const c = p.card.produces;
+    if (c.length >= 5) out.any++;
+    else if (c.length === 1) out[c[0]]++;
+    else out[c[0]]++; // tierras duales: se cuentan por su primer color
+  }
+  return out;
+}
+
 /**
  * Intenta pagar un coste girando fuentes. Devuelve la lista de uids a girar
- * o null si no alcanza. Simplificación: cada fuente produce 1 maná.
+ * o null si no alcanza. Cada fuente produce 1 maná.
  */
 export function planPayment(pl, cost, extraGeneric = 0) {
   // Preferimos girar tierras antes que criaturas (que podrían atacar).
@@ -201,13 +282,10 @@ export function planPayment(pl, cost, extraGeneric = 0) {
     else if (p === 'X') continue;
     else colored.push(p.split('/').filter((c) => 'WUBRGC'.includes(c)));
   }
-  // Primero los colores más restringidos.
   colored.sort((a, b) => a.length - b.length);
   for (const opts of colored) {
     if (opts.length === 0) { generic += 1; continue; }
-    const cand = sources
-      .filter((src) => !used.has(src.uid) && src.colors.some((c) => opts.includes(c)))
-      .sort(byCost)[0];
+    const cand = sources.filter((src) => !used.has(src.uid) && src.colors.some((c) => opts.includes(c))).sort(byCost)[0];
     if (!cand) return null;
     used.add(cand.uid);
   }
@@ -223,6 +301,94 @@ function tapForPayment(pl, uids) {
 }
 
 const isMain = (s) => s.step === 'main1' || s.step === 'main2';
+const speedOK = (card) => card.isInstant || card.keywords.includes('flash');
+
+// ----------------------------------------------------------------- pila
+
+/** ¿Quién tiene que decidir ahora? (para la UI y los bots) */
+export function waitingOn(s) {
+  const top = stackTop(s);
+  if (top) return top.waiting[0] || null;
+  if (s.step === 'block') {
+    const pend = pendingDefenders(s);
+    if (pend.length) return pend[0];
+    const ready = combatReadyPending(s);
+    if (ready.length) return ready[0];
+  }
+  return activePlayer(s).id;
+}
+
+/** Jugadores (humanos) que aún no han dicho "seguimos" tras los bloqueos. */
+export function combatReadyPending(s) {
+  if (s.step !== 'block' || pendingDefenders(s).length) return [];
+  const defenders = [...new Set(Object.values(s.combat.attackers))];
+  return defenders.filter((id) => !s.combat.ready.includes(id) && !player(s, id).eliminated && !player(s, id).isBot);
+}
+
+/** Orden de prioridad empezando por el jugador siguiente a `fromId`. */
+function othersInOrder(s, fromId) {
+  const n = s.players.length;
+  const start = s.players.findIndex((p) => p.id === fromId);
+  const out = [];
+  for (let k = 1; k < n; k++) {
+    const p = s.players[(start + k) % n];
+    if (!p.eliminated) out.push(p.id);
+  }
+  return out;
+}
+
+function pushStack(s, item) {
+  item.id = s.nextId++;
+  item.waiting = othersInOrder(s, item.by); // cada rival puede responder o pasar
+  s.stack.push(item);
+}
+
+/** Resuelve todo lo que ya no espera respuestas (la cima de la pila primero). */
+function resolveReady(s) {
+  while (s.stack.length && stackTop(s).waiting.length === 0 && !s.winner) {
+    const item = s.stack.pop();
+    resolveItem(s, item);
+    // Lo que queda debajo ya tuvo su ronda de respuestas (quien quiso respondió
+    // y por eso está encima): se resuelve a continuación.
+    const next = stackTop(s);
+    if (next) next.waiting = [];
+  }
+  if (!s.stack.length) autoAdvance(s);
+}
+
+function resolveItem(s, item) {
+  const pl = player(s, item.by);
+  const card = item.card;
+  const name = displayName(card);
+  // ¿Siguen siendo legales sus objetivos? (regla 608.2b)
+  const fx = card.isPermanent ? card.effects?.etb || [] : card.effects?.spell || [];
+  const needed = fx.filter(needsTarget);
+  const legal = (item.targets || []).filter((t) => targetStillLegal(s, item.by, t));
+  if (!card.isPermanent && needed.length && item.targets?.length && legal.length === 0) {
+    pl.graveyard.push(stripCard(card));
+    pushEvent(s, 'fizzle', `${name} se contrarresta al resolverse: su objetivo ya no es legal.`, { by: pl.id });
+    return;
+  }
+  if (card.isPermanent) {
+    const perm = makePerm(s, card, pl.id);
+    if (item.commander) perm.isCommander = true;
+    pl.battlefield.push(perm);
+    pushEvent(s, 'play', `${name} entra al campo de batalla.`, { uid: perm.uid, by: pl.id, color: card.colors[0] || card.produces[0] || 'C' });
+    stateBased(s);
+    if (fx.length) resolveEffects(s, pl, card, fx, item.targets || [], perm);
+  } else {
+    pushEvent(s, 'resolve', `${name} se resuelve.`, { by: pl.id, card: stripCard(card), color: card.colors[0] || 'C' });
+    if (fx.length) resolveEffects(s, pl, card, fx, item.targets || [], null);
+    pl.graveyard.push(stripCard(card));
+  }
+}
+
+function targetStillLegal(s, casterId, t) {
+  if (t.player) return !player(s, t.player)?.eliminated;
+  if (t.stack) return s.stack.some((x) => x.id === t.stack);
+  const f = findPerm(s, t.uid);
+  return !!f && canTarget(s, casterId, f.perm, f.owner);
+}
 
 // --------------------------------------------------------------- acciones
 
@@ -239,7 +405,7 @@ export function apply(state, action) {
 }
 
 const HANDLERS = {
-  /** Jugar una carta (física registrada, o de la mano del bot si trae uid). */
+  /** Jugar una carta (física registrada, o de la mano del bot si trae handUid). */
   play(s, a, pl) {
     let card = a.card;
     let fromHand = -1;
@@ -249,19 +415,25 @@ const HANDLERS = {
       card = pl.hand[fromHand];
     }
     if (!card) return s;
-    const myTurn = s.players[s.active].id === pl.id;
-    const sorcerySpeed = !card.isInstant && !/flash/i.test(card.keywords.join(' '));
+    const myTurn = activePlayer(s).id === pl.id;
+    const stackEmpty = s.stack.length === 0;
 
     if (!a.force) {
       if (card.isLand) {
-        if (!myTurn || !isMain(s)) return illegal(s, pl.id, 'Las tierras sólo se juegan en tu propio turno, durante una fase principal.', a);
+        if (!myTurn || !isMain(s) || !stackEmpty) return illegal(s, pl.id, 'Las tierras sólo se juegan en tu propio turno, en una fase principal y con la pila vacía.', a);
         if (pl.landsPlayed >= 1) return illegal(s, pl.id, 'Sólo puedes jugar UNA tierra por turno.', a);
-      } else if (sorcerySpeed && (!myTurn || !isMain(s))) {
-        return illegal(
-          s, pl.id,
-          `${displayName(card)} es ${card.isSorcery ? 'un conjuro' : 'un permanente'}: sólo se lanza en tu turno, en una fase principal. Sólo los instantáneos (o cartas con destello) se pueden lanzar en cualquier momento.`,
-          a,
-        );
+      } else if (!speedOK(card) && (!myTurn || !isMain(s) || !stackEmpty)) {
+        return illegal(s, pl.id,
+          `${displayName(card)} es ${card.isSorcery ? 'un conjuro' : 'un permanente'}: sólo se lanza en tu turno, en una fase principal y con la pila vacía. Sólo los instantáneos (o cartas con destello) se pueden lanzar en cualquier momento, también en respuesta.`,
+          a);
+      }
+      // antimaleficio / velo
+      for (const t of a.targets || []) {
+        if (t.uid == null) continue;
+        const f = findPerm(s, t.uid);
+        if (f && !canTarget(s, pl.id, f.perm, f.owner)) {
+          return illegal(s, pl.id, `${displayName(f.perm.card)} tiene ${has(f.perm, 'shroud') ? 'velo' : 'antimaleficio'}: no puedes hacerla objetivo.`, a);
+        }
       }
     }
     if (!card.isLand) {
@@ -273,21 +445,27 @@ const HANDLERS = {
     }
     if (fromHand >= 0) pl.hand.splice(fromHand, 1);
 
-    if (card.isLand) pl.landsPlayed += 1;
-    const verb = card.isLand ? 'juega' : 'lanza';
-    let source = null;
-    if (card.isPermanent) {
+    // Las tierras no usan la pila (regla 305.1).
+    if (card.isLand) {
+      pl.landsPlayed += 1;
       const perm = makePerm(s, card, pl.id);
       pl.battlefield.push(perm);
-      source = perm;
-      pushEvent(s, 'play', `${pl.name} ${verb} ${displayName(card)}.`, { uid: perm.uid, by: pl.id, color: card.colors[0] || (card.produces[0]) || 'C' });
-    } else {
-      pl.graveyard.push(stripCard(card));
-      pushEvent(s, 'spell', `${pl.name} lanza ${displayName(card)}. Al resolverse, va al cementerio.`, { by: pl.id, card: stripCard(card), color: card.colors[0] || 'C' });
+      pushEvent(s, 'play', `${pl.name} juega ${displayName(card)}.`, { uid: perm.uid, by: pl.id, color: card.produces[0] || 'C' });
+      stateBased(s);
+      return s;
     }
-    const fx = card.isPermanent ? card.effects?.etb : card.effects?.spell;
-    if (fx && fx.length) resolveEffects(s, pl, card, fx, a.targets || [], source);
+    pushStack(s, { by: pl.id, card: stripCard(card), targets: a.targets || [] });
+    pushEvent(s, 'cast', `${pl.name} lanza ${displayName(card)}.`, { by: pl.id, card: stripCard(card), targets: a.targets || [], color: card.colors[0] || 'C', stackId: stackTop(s).id });
+    resolveReady(s);
     return s;
+  },
+
+  /** Pasar la prioridad / no responder a lo que hay en la cima de la pila. */
+  pass(s, a, pl) {
+    const top = stackTop(s);
+    if (!top) return s;
+    top.waiting = top.waiting.filter((id) => id !== pl.id);
+    resolveReady(s);
   },
 
   setCommander(s, a, pl) {
@@ -297,17 +475,16 @@ const HANDLERS = {
 
   castCommander(s, a, pl) {
     if (!pl.commander || !pl.commanderInZone) return s;
-    const myTurn = s.players[s.active].id === pl.id;
-    if (!a.force && (!myTurn || !isMain(s))) return illegal(s, pl.id, 'El comandante es una criatura: se lanza en tu turno, en una fase principal.', a);
+    const myTurn = activePlayer(s).id === pl.id;
+    if (!a.force && (!myTurn || !isMain(s) || s.stack.length)) return illegal(s, pl.id, 'El comandante se lanza en tu turno, en una fase principal y con la pila vacía.', a);
     const plan = planPayment(pl, pl.commander.manaCost, pl.commanderTax);
     if (plan) tapForPayment(pl, plan);
     else if (!a.force) return illegal(s, pl.id, `No tienes maná suficiente. Tu comandante cuesta ${pl.commander.manaCost}${pl.commanderTax ? ` + ${pl.commanderTax} de impuesto` : ''}.`, a);
-    const perm = makePerm(s, pl.commander, pl.id);
-    perm.isCommander = true;
-    pl.battlefield.push(perm);
     pl.commanderInZone = false;
     pl.commanderTax += 2;
-    pushEvent(s, 'play', `${pl.name} lanza a su comandante ${displayName(pl.commander)} desde la zona de mando.`, { uid: perm.uid, by: pl.id, color: pl.commander.colors[0] || 'C' });
+    pushStack(s, { by: pl.id, card: stripCard(pl.commander), targets: a.targets || [], commander: true });
+    pushEvent(s, 'cast', `${pl.name} lanza a su comandante ${displayName(pl.commander)} desde la zona de mando.`, { by: pl.id, card: stripCard(pl.commander), color: pl.commander.colors[0] || 'C', stackId: stackTop(s).id });
+    resolveReady(s);
   },
 
   tap(s, a) {
@@ -315,7 +492,7 @@ const HANDLERS = {
     if (f) f.perm.tapped = a.value ?? !f.perm.tapped;
   },
 
-  move(s, a, pl) {
+  move(s, a) {
     const f = findPerm(s, a.uid);
     if (!f) return s;
     leaveBattlefield(s, f.owner, f.perm, a.to);
@@ -326,28 +503,36 @@ const HANDLERS = {
     if (!t) return s;
     t.life += a.delta;
     pushEvent(s, 'life', `${t.name} ${a.delta >= 0 ? 'gana' : 'pierde'} ${Math.abs(a.delta)} vida${Math.abs(a.delta) === 1 ? '' : 's'} (${t.life}).`, { target: t.id, delta: a.delta });
-    checkDeaths(s);
+    stateBased(s);
   },
 
   poison(s, a) {
     const t = player(s, a.target);
     if (!t) return s;
     t.poison = Math.max(0, t.poison + a.delta);
-    checkDeaths(s);
+    stateBased(s);
   },
 
   cmdDamage(s, a) {
     const t = player(s, a.target);
     if (!t) return s;
     t.cmdDamage[a.from] = Math.max(0, (t.cmdDamage[a.from] || 0) + a.delta);
-    checkDeaths(s);
+    stateBased(s);
   },
 
   counter(s, a) {
     const f = findPerm(s, a.uid);
     if (!f) return s;
     f.perm.counters += a.delta;
-    checkCreatureDeaths(s);
+    stateBased(s);
+  },
+
+  loyalty(s, a) {
+    const f = findPerm(s, a.uid);
+    if (!f || f.perm.loyalty == null) return s;
+    f.perm.loyalty += a.delta;
+    pushEvent(s, 'pump', `${displayName(f.perm.card)} ${a.delta >= 0 ? 'gana' : 'pierde'} ${Math.abs(a.delta)} de lealtad (${f.perm.loyalty}).`, { uid: f.perm.uid });
+    stateBased(s);
   },
 
   pump(s, a) {
@@ -356,15 +541,15 @@ const HANDLERS = {
     f.perm.pump.p += a.p;
     f.perm.pump.t += a.t;
     pushEvent(s, 'pump', `${displayName(f.perm.card)} recibe ${fmt(a.p)}/${fmt(a.t)} hasta el final del turno.`, { uid: f.perm.uid });
-    checkCreatureDeaths(s);
+    stateBased(s);
   },
 
   damage(s, a) {
     const f = findPerm(s, a.uid);
     if (!f) return s;
-    f.perm.damage += a.amount;
+    dealDamageToPerm(s, f.perm, a.amount, null);
     pushEvent(s, 'hit', `${displayName(f.perm.card)} recibe ${a.amount} de daño.`, { uid: f.perm.uid });
-    checkCreatureDeaths(s);
+    stateBased(s);
   },
 
   draw(s, a, pl) {
@@ -372,7 +557,7 @@ const HANDLERS = {
   },
 
   attack(s, a, pl) {
-    if (s.step !== 'attack' || activePlayer(s).id !== pl.id) return s;
+    if (s.step !== 'attack' || activePlayer(s).id !== pl.id || s.stack.length) return s;
     const f = findPerm(s, a.uid);
     if (!f || f.owner.id !== pl.id) return s;
     if (s.combat.attackers[a.uid]) {
@@ -380,11 +565,18 @@ const HANDLERS = {
       return s;
     }
     if (!canAttack(s, f.perm)) {
-      const why = f.perm.tapped ? 'está girada' : f.perm.sick ? 'acaba de entrar y está mareada (necesita prisa para atacar este turno)' : 'no puede atacar';
+      const why = f.perm.tapped ? 'está girada' : f.perm.sick ? 'acaba de entrar y está mareada (necesita prisa para atacar este turno)' : 'no puede atacar (defensor)';
       return illegal(s, pl.id, `${displayName(f.perm.card)} no puede atacar: ${why}.`);
     }
     const target = a.target && player(s, a.target) && !player(s, a.target).eliminated ? a.target : opponents(s, pl.id)[0]?.id;
     s.combat.attackers[a.uid] = target;
+  },
+
+  /** Atacar con todas las criaturas que pueden (botón "Todos al ataque"). */
+  attackAll(s, a, pl) {
+    if (s.step !== 'attack' || activePlayer(s).id !== pl.id) return s;
+    const target = a.target || opponents(s, pl.id)[0]?.id;
+    for (const perm of pl.battlefield) if (canAttack(s, perm) && !s.combat.attackers[perm.uid]) s.combat.attackers[perm.uid] = target;
   },
 
   block(s, a, pl) {
@@ -392,7 +584,6 @@ const HANDLERS = {
     const bf = findPerm(s, a.uid);
     if (!bf || bf.owner.id !== pl.id) return s;
     if (s.combat.confirmed.includes(pl.id)) return s;
-    // quitar bloqueo previo de esta criatura
     for (const k of Object.keys(s.combat.blocks)) {
       s.combat.blocks[k] = s.combat.blocks[k].filter((u) => u !== a.uid);
       if (!s.combat.blocks[k].length) delete s.combat.blocks[k];
@@ -408,18 +599,51 @@ const HANDLERS = {
   },
 
   confirmBlocks(s, a, pl) {
+    if (s.step !== 'block' || s.combat.confirmed.includes(pl.id)) return s;
+    // Amenaza: necesita dos o más bloqueadores (regla 702.110).
+    for (const [att, target] of Object.entries(s.combat.attackers)) {
+      if (target !== pl.id) continue;
+      const f = findPerm(s, +att);
+      const n = (s.combat.blocks[att] || []).length;
+      if (f && has(f.perm, 'menace') && n === 1) {
+        return illegal(s, pl.id, `${displayName(f.perm.card)} tiene amenaza: sólo puede ser bloqueada por dos o más criaturas.`);
+      }
+    }
+    s.combat.confirmed.push(pl.id);
+    if (pl.isBot) s.combat.ready.push(pl.id);
+    const n = Object.values(s.combat.blocks).flat().length;
+    pushEvent(s, 'blocks', n ? `${pl.name} bloquea con ${n} criatura${n > 1 ? 's' : ''}.` : `${pl.name} no bloquea.`, { by: pl.id });
+  },
+
+  /** "Seguimos": tras los bloqueos, no quiero (más) trucos de combate. */
+  ready(s, a, pl) {
     if (s.step !== 'block') return s;
-    if (!s.combat.confirmed.includes(pl.id)) s.combat.confirmed.push(pl.id);
-    if (pendingDefenders(s).length === 0) enterStep(s, 'damage');
+    if (!s.combat.ready.includes(pl.id)) s.combat.ready.push(pl.id);
   },
 
   next(s, a, pl) {
     if (activePlayer(s).id !== pl.id && !a.force) return s;
+    if (s.stack.length) return illegal(s, pl.id, 'Hay hechizos en la pila: primero tienen que resolverse (o esperar a que los rivales respondan).');
     advance(s);
   },
 
   concede(s, a, pl) {
     eliminate(s, pl, 'se rinde');
+  },
+
+  /** Cambiar la imagen (edición) de una carta en juego. */
+  setImage(s, a) {
+    const f = findPerm(s, a.uid);
+    if (f && typeof a.image === 'string' && /^https:\/\/cards\.scryfall\.io\//.test(a.image)) f.perm.card.image = a.image;
+  },
+
+  /** Mensaje rápido entre jugadores. */
+  emote(s, a, pl) {
+    const text = String(a.text || '').slice(0, 40);
+    if (!text) return s;
+    s.eventSeq += 1;
+    s.events.push({ id: s.eventSeq, kind: 'emote', text, by: pl.id });
+    if (s.events.length > MAX_EVENTS) s.events.shift();
   },
 };
 
@@ -432,23 +656,35 @@ export function pendingDefenders(s) {
 
 function advance(s) {
   const step = s.step;
+  if (step === 'main1') {
+    // Sin criaturas que puedan atacar, el combate se salta.
+    const any = activePlayer(s).battlefield.some((p) => canAttack(s, p));
+    return enterStep(s, any ? 'begincombat' : 'main2');
+  }
   if (step === 'attack') {
-    if (Object.keys(s.combat.attackers).length === 0) return enterStep(s, 'main2');
-    // girar atacantes
+    if (Object.keys(s.combat.attackers).length === 0) return enterStep(s, 'endcombat');
     for (const uid of Object.keys(s.combat.attackers)) {
       const f = findPerm(s, +uid);
       if (f && !has(f.perm, 'vigilance')) f.perm.tapped = true;
     }
     const n = Object.keys(s.combat.attackers).length;
-    pushEvent(s, 'attack', `${activePlayer(s).name} ataca con ${n} criatura${n > 1 ? 's' : ''}.`, { uids: Object.keys(s.combat.attackers).map(Number) });
+    pushEvent(s, 'attack', `${activePlayer(s).name} ataca con ${n} criatura${n > 1 ? 's' : ''}.`, { uids: Object.keys(s.combat.attackers).map(Number), targets: { ...s.combat.attackers } });
     return enterStep(s, 'block');
   }
   if (step === 'block') {
     if (pendingDefenders(s).length) return s;
-    return enterStep(s, 'damage');
+    const anyFirst = Object.keys(s.combat.attackers).some((u) => { const f = findPerm(s, +u); return f && firstStriker(f.perm); })
+      || Object.values(s.combat.blocks).flat().some((u) => { const f = findPerm(s, u); return f && firstStriker(f.perm); });
+    return enterStep(s, anyFirst ? 'firststrike' : 'damage');
   }
-  if (step === 'end') return passTurn(s);
+  if (step === 'cleanup') return passTurn(s);
   enterStep(s, STEPS[STEPS.indexOf(step) + 1]);
+}
+
+/** Las etapas automáticas avanzan solas cuando la pila está vacía. */
+function autoAdvance(s) {
+  let guard = 0;
+  while (!s.winner && AUTO.has(s.step) && s.stack.length === 0 && guard++ < 20) advance(s);
 }
 
 function passTurn(s) {
@@ -464,9 +700,20 @@ function passTurn(s) {
 }
 
 function cleanup(s) {
+  const pl = activePlayer(s);
+  // Descartar hasta 7 (los humanos lo hacen con sus cartas físicas).
+  if (pl.isBot) {
+    while (pl.hand.length > MAX_HAND) {
+      const worst = [...pl.hand].sort((a, b) => (a.isLand ? -1 : 0) - (b.isLand ? -1 : 0) || a.cmc - b.cmc)[0];
+      pl.hand.splice(pl.hand.indexOf(worst), 1);
+      pl.graveyard.push(stripCard(worst));
+      pushEvent(s, 'info', `${pl.name} descarta ${displayName(worst)} (máximo 7 cartas en mano).`);
+    }
+  }
   for (const p of s.players) {
     for (const perm of p.battlefield) {
       perm.damage = 0;
+      perm.deathtouched = false;
       perm.pump = { p: 0, t: 0 };
     }
   }
@@ -483,24 +730,52 @@ function enterStep(s, step) {
     }
     pl.landsPlayed = 0;
   } else if (step === 'draw') {
-    if (s.turn > 1 && pl.library.length) drawCard(s, pl);
+    if (s.turn > 1) {
+      if (pl.isBot && pl.library.length) drawCard(s, pl);
+      else if (pl.isBot && !pl.library.length) eliminate(s, pl, 'tiene que robar y no le quedan cartas');
+      if (!pl.isBot) pushEvent(s, 'draw', 'Paso de robar: roba una carta de tu mazo.', { to: pl.id, amount: 1 });
+    }
   } else if (step === 'block') {
     s.combat.confirmed = [];
+    s.combat.ready = [];
+  } else if (step === 'firststrike') {
+    resolveCombat(s, 'first');
   } else if (step === 'damage') {
-    resolveCombat(s);
-  } else if (step === 'main2') {
+    resolveCombat(s, 'regular');
+  } else if (step === 'endcombat') {
+    if (s.combat.result) s.lastCombat = { turn: s.turn, result: s.combat.result };
     s.combat = emptyCombat();
+  } else if (step === 'cleanup') {
+    // Recordatorio sólo al principio (luego ya se sabe).
+    if (!pl.isBot && s.turn <= 4) pushEvent(s, 'info', 'Limpieza: si tienes más de 7 cartas en la mano, descarta hasta quedarte con 7.', { to: pl.id });
   }
+  autoAdvance(s);
   return s;
 }
 
 // ---------------------------------------------------------------- combate
 
-function resolveCombat(s) {
-  const results = [];
+function dealDamageToPerm(s, perm, amount, src) {
+  if (amount <= 0) return;
+  if (isPlaneswalker(perm) && !perm.card.isCreature) {
+    perm.loyalty = (perm.loyalty || 0) - amount;
+  } else {
+    perm.damage += amount;
+    if (src && has(src, 'deathtouch')) perm.deathtouched = true;
+  }
+  if (src && has(src, 'lifelink')) {
+    const ctrl = player(s, src.ownerId);
+    ctrl.life += amount;
+  }
+}
+
+/** Daño de combate. phase: 'first' (dañar primero) o 'regular' (regla 510.4). */
+function resolveCombat(s, phase) {
+  const results = s.combat.result || [];
+  const deals = (perm) => (phase === 'first' ? firstStriker(perm) : !has(perm, 'first strike') || has(perm, 'double strike') || !s.combat.firstDone);
   const lethalTo = (src, perm) => (has(src, 'deathtouch') ? 1 : Math.max(0, toughness(perm) - perm.damage));
-  const dealt = []; // [perm, amount, sourcePerm]
-  const toPlayer = []; // [playerId, amount, sourcePerm]
+  const dealt = [];
+  const toPlayer = [];
 
   for (const [uidStr, targetId] of Object.entries(s.combat.attackers)) {
     const uid = +uidStr;
@@ -508,55 +783,55 @@ function resolveCombat(s) {
     if (!af) continue;
     const att = af.perm;
     const blockers = (s.combat.blocks[uid] || []).map((b) => findPerm(s, b)).filter(Boolean).map((f) => f.perm);
+    const wasBlocked = (s.combat.blocks[uid] || []).length > 0;
+    // los bloqueadores golpean al atacante
+    for (const b of blockers) if (deals(b) && power(b) > 0) dealt.push([att, power(b), b]);
+    if (!deals(att)) continue;
     let pow = power(att);
-    if (blockers.length === 0) {
+    if (pow <= 0) continue;
+    if (!wasBlocked) {
       toPlayer.push([targetId, pow, att]);
       results.push(`${displayName(att.card)} no es bloqueada y hace ${pow} de daño.`);
       continue;
     }
+    if (!blockers.length) {
+      // bloqueada, pero sus bloqueadores ya no están: sólo con arrollar pasa el daño
+      if (has(att, 'trample')) toPlayer.push([targetId, pow, att]);
+      continue;
+    }
     for (const b of blockers) {
-      const need = lethalTo(att, b);
-      const amt = Math.min(pow, need);
+      const amt = Math.min(pow, lethalTo(att, b));
       if (amt > 0) dealt.push([b, amt, att]);
       pow -= amt;
-      dealt.push([att, power(b), b]);
     }
     if (pow > 0) {
       if (has(att, 'trample')) {
         toPlayer.push([targetId, pow, att]);
         results.push(`${displayName(att.card)} arrolla y hace ${pow} de daño al jugador.`);
-      } else if (blockers.length) {
-        dealt.push([blockers[0], pow, att]);
-      }
+      } else dealt.push([blockers[0], pow, att]);
     }
     results.push(`${displayName(att.card)} es bloqueada por ${blockers.map((b) => displayName(b.card)).join(' y ')}.`);
   }
 
-  for (const [perm, amt, src] of dealt) {
-    if (amt <= 0) continue;
-    perm.damage += amt;
-    if (has(src, 'deathtouch')) perm.deathtouched = true;
-    if (has(src, 'lifelink')) player(s, src.ownerId).life += amt;
-  }
+  for (const [perm, amt, src] of dealt) dealDamageToPerm(s, perm, amt, src);
   for (const [pid, amt, src] of toPlayer) {
-    if (amt <= 0) continue;
     const t = player(s, pid);
     t.life -= amt;
     if (src.isCommander) t.cmdDamage[src.ownerId] = (t.cmdDamage[src.ownerId] || 0) + amt;
     if (has(src, 'lifelink')) player(s, src.ownerId).life += amt;
-    pushEvent(s, 'life', `${t.name} recibe ${amt} de daño (${t.life}).`, { target: pid, delta: -amt });
+    pushEvent(s, 'life', `${t.name} recibe ${amt} de daño de ${displayName(src.card)} (${t.life}).`, { target: pid, delta: -amt, uid: src.uid });
   }
+  if (phase === 'first') s.combat.firstDone = true;
   s.combat.result = results;
-  pushEvent(s, 'combat', results.join(' '));
-  checkCreatureDeaths(s);
-  checkDeaths(s);
+  if (dealt.length || toPlayer.length) pushEvent(s, 'combat', (phase === 'first' ? 'Dañar primero: ' : '') + results.join(' '));
+  stateBased(s);
 }
 
 // ------------------------------------------------------------- efectos
 
 /**
- * Aplica las habilidades de una carta. targets: [{ uid } | { player }] en el
- * orden en que la carta los pide. Si falta un objetivo, avisa para hacerlo a mano.
+ * Aplica las habilidades de una carta. targets: [{ uid } | { player } | { stack }]
+ * en el orden en que la carta los pide. Si falta un objetivo, avisa para hacerlo a mano.
  */
 function resolveEffects(s, pl, card, fx, targets, source) {
   const name = displayName(card);
@@ -565,9 +840,8 @@ function resolveEffects(s, pl, card, fx, targets, source) {
     let tgt = null;
     if (needsTarget(e)) {
       tgt = targets[ti++];
-      if (!tgt) {
-        if (pl.isBot) continue;
-        pushEvent(s, 'manual', `${name} ${describeEffect(e)}: aplícalo a mano tocando el objetivo.`, { to: pl.id });
+      if (!tgt || !targetStillLegal(s, pl.id, tgt)) {
+        if (!pl.isBot && !tgt) pushEvent(s, 'manual', `${name} ${describeEffect(e)}: aplícalo a mano tocando el objetivo.`, { to: pl.id });
         continue;
       }
     }
@@ -578,18 +852,21 @@ function resolveEffects(s, pl, card, fx, targets, source) {
         if (e.target === 'opponents') {
           for (const o of opponents(s, pl.id)) hurtPlayer(s, o, e.amount, name);
         } else if (perm) {
-          perm.perm.damage += e.amount;
+          dealDamageToPerm(s, perm.perm, e.amount, null);
           pushEvent(s, 'hit', `${name} hace ${e.amount} de daño a ${displayName(perm.perm.card)}.`, { uid: perm.perm.uid });
         } else if (target) hurtPlayer(s, target, e.amount, name);
         break;
       case 'destroy':
-        if (perm) leaveBattlefield(s, perm.owner, perm.perm, 'graveyard', 'es destruida');
+        if (perm) {
+          if (has(perm.perm, 'indestructible')) pushEvent(s, 'info', `${displayName(perm.perm.card)} es indestructible y no se destruye.`);
+          else leaveBattlefield(s, perm.owner, perm.perm, 'graveyard', 'es destruida');
+        }
         break;
       case 'pump':
         if (perm) {
           perm.perm.pump.p += e.p;
           perm.perm.pump.t += e.t;
-          pushEvent(s, 'pump', `${displayName(perm.perm.card)} recibe ${e.p >= 0 ? '+' : ''}${e.p}/${e.t >= 0 ? '+' : ''}${e.t} hasta el final del turno.`, { uid: perm.perm.uid });
+          pushEvent(s, 'pump', `${displayName(perm.perm.card)} recibe ${fmt(e.p)}/${fmt(e.t)} hasta el final del turno.`, { uid: perm.perm.uid });
         }
         break;
       case 'bounce':
@@ -601,6 +878,17 @@ function resolveEffects(s, pl, card, fx, targets, source) {
           pushEvent(s, 'pump', `${displayName(perm.perm.card)} recibe un contador +1/+1.`, { uid: perm.perm.uid });
         }
         break;
+      case 'counterspell': {
+        const idx = s.stack.findIndex((x) => x.id === tgt.stack);
+        if (idx >= 0) {
+          const [it] = s.stack.splice(idx, 1);
+          const owner = player(s, it.by);
+          if (it.commander) owner.commanderInZone = true;
+          else owner.graveyard.push(it.card);
+          pushEvent(s, 'fizzle', `${name} contrarresta ${displayName(it.card)}.`, { by: pl.id });
+        }
+        break;
+      }
       case 'drain':
         for (const o of opponents(s, pl.id)) {
           o.life -= e.amount;
@@ -639,8 +927,7 @@ function resolveEffects(s, pl, card, fx, targets, source) {
       default:
     }
   }
-  checkCreatureDeaths(s);
-  checkDeaths(s);
+  stateBased(s);
 }
 
 function hurtPlayer(s, t, amount, srcName) {
@@ -648,15 +935,30 @@ function hurtPlayer(s, t, amount, srcName) {
   pushEvent(s, 'life', `${srcName} hace ${amount} de daño a ${t.name} (${t.life}).`, { target: t.id, delta: -amount });
 }
 
-function checkCreatureDeaths(s) {
+// ---------------------------------------------- acciones basadas en estado
+
+/** Regla 704: criaturas con daño letal, planeswalkers sin lealtad, leyendas, vidas... */
+function stateBased(s) {
   for (const p of s.players) {
     for (const perm of [...p.battlefield]) {
-      if (!perm.card.isCreature) continue;
-      if (toughness(perm) <= 0 || perm.damage >= toughness(perm) || (perm.deathtouched && perm.damage > 0)) {
-        leaveBattlefield(s, p, perm, 'graveyard', 'muere');
+      if (perm.card.isCreature) {
+        const lethal = perm.damage >= toughness(perm) || (perm.deathtouched && perm.damage > 0);
+        if (toughness(perm) <= 0) leaveBattlefield(s, p, perm, 'graveyard', 'muere');
+        else if (lethal && !has(perm, 'indestructible')) leaveBattlefield(s, p, perm, 'graveyard', 'muere');
+      } else if (isPlaneswalker(perm) && perm.loyalty != null && perm.loyalty <= 0) {
+        leaveBattlefield(s, p, perm, 'graveyard', 'se queda sin lealtad');
       }
     }
+    // Regla de leyendas: si controlas dos legendarios con el mismo nombre, te quedas uno.
+    const seen = new Map();
+    for (const perm of [...p.battlefield].reverse()) {
+      if (!perm.card.isLegendary) continue;
+      if (seen.has(perm.card.name)) {
+        leaveBattlefield(s, p, perm, 'graveyard', 'va al cementerio por la regla de leyendas');
+      } else seen.set(perm.card.name, perm);
+    }
   }
+  checkDeaths(s);
 }
 
 function leaveBattlefield(s, owner, perm, to, verb) {
@@ -697,6 +999,8 @@ function eliminate(s, p, why) {
   p.battlefield = [];
   pushEvent(s, 'out', `${p.name} ${why} y queda eliminado.`, { player: p.id });
   for (const k of Object.keys(s.combat.attackers)) if (s.combat.attackers[k] === p.id) delete s.combat.attackers[k];
+  for (const it of s.stack) it.waiting = it.waiting.filter((id) => id !== p.id);
+  s.stack = s.stack.filter((it) => it.by !== p.id);
   const alive = alivePlayers(s);
   if (alive.length === 1) {
     s.winner = alive[0].id;

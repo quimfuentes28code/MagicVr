@@ -7,13 +7,45 @@ export function cameraSupported() {
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
-export async function startCamera(video) {
-  if (!cameraSupported()) throw new Error('Este navegador no permite usar la cámara (¿estás en HTTPS?).');
-  if (!stream) {
-    starting ||= navigator.mediaDevices.getUserMedia({
+async function openStream() {
+  // 1º la cámara trasera a la máxima resolución; si el navegador o la webcam
+  // no aceptan esas condiciones, cualquier cámara.
+  try {
+    return await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
     });
+  } catch (e) {
+    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) throw e;
+    return navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+  }
+}
+
+/** Explicación en español de por qué no se pudo abrir la cámara. */
+export function cameraErrorText(e) {
+  switch (e && e.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'El navegador ha bloqueado la cámara. Pulsa el candado (o el icono de cámara) junto a la dirección, permite la cámara y vuelve a intentarlo.';
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'No se ha encontrado ninguna cámara conectada.';
+    case 'NotReadableError':
+    case 'AbortError':
+      return 'La cámara está ocupada por otra aplicación (Zoom, Teams, Discord…). Ciérrala y vuelve a intentarlo.';
+    default:
+      return 'No se pudo abrir la cámara' + (e && e.message ? ` (${e.message})` : '') + '.';
+  }
+}
+
+export async function startCamera(video) {
+  if (!cameraSupported()) {
+    const err = new Error('Este navegador no permite usar la cámara (hace falta HTTPS).');
+    err.name = 'Unsupported';
+    throw err;
+  }
+  if (!stream) {
+    starting ||= openStream();
     try {
       stream = await starting;
     } finally {
@@ -37,7 +69,7 @@ export function cameraActive() {
 }
 
 /** Captura un recorte del vídeo (coordenadas relativas 0..1 sobre lo que se ve en pantalla). */
-export function grabFrame(video, rect) {
+export function grabFrame(video, rect, { color = false } = {}) {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   if (!vw) return null;
@@ -58,7 +90,7 @@ export function grabFrame(video, rect) {
   canvas.width = Math.round(sw * up);
   canvas.height = Math.round(sh * up);
   const ctx = canvas.getContext('2d');
-  ctx.filter = 'grayscale(1)';
+  ctx.filter = color ? 'none' : 'grayscale(1)';
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   return canvas;
@@ -156,4 +188,26 @@ export function titleBar(src) {
   out.height = y1 - y0;
   out.getContext('2d').drawImage(src, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
   return out;
+}
+
+/**
+ * Zoom de la cámara (1 = sin zoom). Usa el zoom real de la cámara si lo tiene
+ * (sin perder calidad); si no, amplía la imagen hacia `origin` (% en pantalla).
+ * Devuelve 'hw' (zoom real) o 'css' (digital).
+ */
+export async function setCameraZoom(video, z, origin = { x: 50, y: 50 }) {
+  const track = stream && stream.getVideoTracks()[0];
+  const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+  if (caps && caps.zoom && caps.zoom.max > caps.zoom.min) {
+    const { min, max } = caps.zoom;
+    const value = Math.min(max, Math.max(min, min * z));
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: value }] });
+      video.style.transform = '';
+      return 'hw';
+    } catch { /* algunos navegadores lo anuncian pero no lo aplican */ }
+  }
+  video.style.transformOrigin = `${origin.x}% ${origin.y}%`;
+  video.style.transform = z > 1 ? `scale(${z})` : '';
+  return 'css';
 }

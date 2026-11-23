@@ -403,7 +403,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       if (!r.width) return null;
       return [r.left + r.width / 2 - sr.left, r.top + r.height / 2 - sr.top];
     };
-    const playerEl = (id) => (id === me() ? hud.querySelector('[data-life]') : topbar.querySelector(`[data-player="${id}"]`));
+    const playerEl = (id) => (typeof id === 'string' && id.startsWith('pw:') ? ui.els.get(+id.slice(3))
+      : id === me() ? hud.querySelector('[data-life]') : topbar.querySelector(`[data-player="${id}"]`));
     const lines = [];
     for (const [uid, target] of Object.entries(s.combat.attackers || {})) {
       lines.push([center(ui.els.get(+uid)), center(playerEl(target)), 'atk']);
@@ -460,17 +461,20 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         h('h3', {}, 'Quién empieza'),
         ev?.rolls ? h('p', { class: 'intro-sub' }, 'Cada jugador tira un dado de 20 caras: quien saca el número más alto empieza.') : null,
         ev?.rolls ? h('div', { class: 'dice-row' }, s.players.map((p, i) => h('div', { class: 'die' + (p.id === first.id ? ' win' : '') }, h('b', {}, ev.rolls[i]), h('span', {}, p.id === me() ? 'Tú' : p.name)))) : null,
-        h('p', { class: 'intro-first' }, first.id === me() ? '¡Empiezas tú! (quien empieza no roba carta en su primer turno)' : `Empieza ${first.name}.`),
+        h('p', { class: 'intro-first' }, first.id === me()
+          ? (s.players.length > 2 ? '¡Empiezas tú! (en multijugador, quien empieza también roba en su primer turno)' : '¡Empiezas tú! (en un duelo, quien empieza no roba carta en su primer turno)')
+          : `Empieza ${first.name}.`),
         h('div', { class: 'intro-steps' },
           h('b', {}, 'Con tus cartas de verdad:'),
           h('ol', {},
             h('li', {}, 'Coge tu mazo físico y barájalo.'),
             h('li', {}, 'Roba 7 cartas: esa es tu mano. Tenla en la mano, sin enseñarla (la app no ve tu mano, sólo las cartas que pones en el círculo para jugarlas).'),
-            h('li', {}, '¿No te gusta la mano (muy pocas o demasiadas tierras)? Haz ', h('b', {}, 'mulligan'), ': vuelve a barajar todo y roba 7; luego pon 1 carta debajo del mazo por cada mulligan que hayas hecho.'),
+            h('li', {}, '¿No te gusta la mano (muy pocas o demasiadas tierras)? Haz ', h('b', {}, 'mulligan'), ': vuelve a barajar todo y roba 7; luego pon 1 carta debajo del mazo por cada mulligan que hayas hecho.',
+              s.players.length > 2 ? ' En multijugador (Commander) el primer mulligan es gratis: no pones ninguna carta debajo.' : ''),
           ),
         ),
         h('div', { class: 'row-btns' },
-          h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; toast(`Mulligan ${ui.mulligans}: baraja tu mazo, roba 7 cartas y pon ${ui.mulligans} carta${ui.mulligans > 1 ? 's' : ''} de tu mano debajo del mazo.`, 'info', 7000); } }, 'Hago mulligan'),
+          h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; const bottom = ui.mulligans - (S().players.length > 2 ? 1 : 0); toast(bottom > 0 ? `Mulligan ${ui.mulligans}: baraja tu mazo, roba 7 cartas y pon ${bottom} carta${bottom > 1 ? 's' : ''} de tu mano debajo del mazo.` : 'Mulligan gratis: baraja tu mazo y roba 7 cartas (no pones ninguna debajo).', 'info', 7000); } }, 'Hago mulligan'),
           h('button', { class: 'act primary', onClick: () => { box.remove(); if (!screen.classList.contains('calibrating')) session.pauseBots(false); } }, 'Me quedo la mano'),
         ),
       ));
@@ -808,6 +812,17 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     }
     if (s.step === 'attack' && activePlayer(s).id === me() && owner.id === me() && perm.card.isCreature) {
       buzz(15);
+      const pws = (player(s, ui.viewOpp)?.battlefield || []).filter((x) => /Planeswalker/.test(x.card.typeLine));
+      if (pws.length && s.combat.attackers[uid] == null && canAttack(s, perm)) {
+        // ¿Al jugador o a uno de sus planeswalkers? (regla 506.1)
+        let close;
+        close = sheet(h('div', {}, h('h3', {}, `¿A quién ataca ${displayName(perm.card)}?`),
+          h('div', { class: 'choice-list' },
+            h('button', { class: 'choice', onClick: () => { close(); session.dispatch({ t: 'attack', uid, target: ui.viewOpp }); } }, icon('person'), h('span', {}, player(s, ui.viewOpp).name + ' (jugador)')),
+            pws.map((pw) => h('button', { class: 'choice', onClick: () => { close(); session.dispatch({ t: 'attack', uid, target: 'pw:' + pw.uid }); } },
+              cardFace(pw.card), h('span', {}, `${displayName(pw.card)} — lealtad ${pw.loyalty}`))))));
+        return;
+      }
       session.dispatch({ t: 'attack', uid, target: ui.viewOpp });
       return;
     }

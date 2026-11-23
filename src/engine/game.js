@@ -119,7 +119,7 @@ export function createGame({ mode = '1v1', players, seed = Date.now(), first = n
     if (src.deck) {
       pl.library = shuffle(src.deck.map((c) => ({ ...c, uid: s.nextId++ })), rnd);
       for (let k = 0; k < 7; k++) drawCard(s, pl);
-      if (pl.isBot) botMulligan(s, pl, rnd);
+      if (pl.isBot) botMulligan(s, pl, rnd, s.players.length > 2);
     }
     if (commander && src.commander) setCommander(s, pl, src.commander);
   });
@@ -131,12 +131,17 @@ export function createGame({ mode = '1v1', players, seed = Date.now(), first = n
 }
 
 /** Mulligan de Londres para los bots: si la mano no tiene 2-5 tierras, otra vez (una vez). */
-function botMulligan(s, pl, rnd) {
+function botMulligan(s, pl, rnd, free = false) {
   const lands = pl.hand.filter((c) => c.isLand).length;
   if (lands >= 2 && lands <= 5) return;
   pl.library.push(...pl.hand.splice(0));
   shuffle(pl.library, rnd);
   for (let k = 0; k < 7; k++) drawCard(s, pl);
+  // 103.5c: en multijugador el primer mulligan es gratis (no se pone ninguna carta al fondo).
+  if (free) {
+    pushEvent(s, 'info', `${pl.name} hace mulligan (el primero es gratis en multijugador).`);
+    return;
+  }
   // pone al fondo la carta peor (la más cara si sobran hechizos, una tierra si sobran tierras)
   const l2 = pl.hand.filter((c) => c.isLand).length;
   const pick = l2 > 4 ? pl.hand.find((c) => c.isLand) : [...pl.hand].filter((c) => !c.isLand).sort((a, b) => b.cmc - a.cmc)[0] || pl.hand[0];
@@ -178,6 +183,37 @@ export function toughness(perm) {
 const isPlaneswalker = (perm) => /Planeswalker/.test(perm.card.typeLine);
 const firstStriker = (perm) => has(perm, 'first strike') || has(perm, 'double strike');
 
+const COLOR_WORDS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+
+/** Colores (o 'everything') de los que tiene protección. Regla 702.16. */
+export function protections(perm) {
+  const out = new Set();
+  for (const m of (perm.card.oracle || '').matchAll(/[Pp]rotection from ([a-z, ]+?)(?:\.|\n|$|\()/g)) {
+    for (const w of m[1].split(/,| and | or /)) {
+      const k = w.trim().replace(/^and /, '');
+      if (COLOR_WORDS[k]) out.add(COLOR_WORDS[k]);
+      else if (k === 'everything') out.add('everything');
+      else if (k === 'creatures') out.add('creatures');
+    }
+  }
+  return out;
+}
+/** ¿Lo protege su protección de algo con estos colores? */
+export function protectedFrom(perm, colors = [], isCreature = false) {
+  const pr = protections(perm);
+  if (!pr.size) return false;
+  if (pr.has('everything')) return true;
+  if (isCreature && pr.has('creatures')) return true;
+  return colors.some((c) => pr.has(c));
+}
+const unblockable = (perm) => /can[’']t be blocked(?! except| by)/i.test(perm.card.oracle || '');
+
+/** Jugador defensor de un objetivo de ataque (un jugador o 'pw:uid'). */
+export function defenderOf(s, target) {
+  if (typeof target === 'string' && target.startsWith('pw:')) return findPerm(s, +target.slice(3))?.owner.id || null;
+  return target;
+}
+
 export function canAttack(s, perm) {
   if (!perm.card.isCreature || perm.tapped) return false;
   if (has(perm, 'defender') || /can.t attack/i.test(perm.card.oracle)) return false;
@@ -189,13 +225,16 @@ export function canBlock(perm, attacker) {
   if (!perm.card.isCreature || perm.tapped) return false;
   if (/can.t block/i.test(perm.card.oracle)) return false;
   if (has(attacker, 'flying') && !has(perm, 'flying') && !has(perm, 'reach')) return false;
+  if (unblockable(attacker)) return false;
+  if (protectedFrom(attacker, perm.card.colors, true)) return false;
   return true;
 }
 
 /** ¿Puede `caster` hacer objetivo a este permanente? (antimaleficio, velo) */
-export function canTarget(s, casterId, perm, owner) {
+export function canTarget(s, casterId, perm, owner, source = null) {
   if (has(perm, 'shroud')) return false;
   if (has(perm, 'hexproof') && owner.id !== casterId) return false;
+  if (source && protectedFrom(perm, source.colors || [], source.isCreature)) return false;
   return true;
 }
 
@@ -328,7 +367,7 @@ export function waitingOn(s) {
 /** Jugadores (humanos) que aún no han dicho "seguimos" tras los bloqueos. */
 export function combatReadyPending(s) {
   if (s.step !== 'block' || pendingDefenders(s).length) return [];
-  const defenders = [...new Set(Object.values(s.combat.attackers))];
+  const defenders = [...new Set(Object.values(s.combat.attackers).map((t) => defenderOf(s, t)).filter(Boolean))];
   return defenders.filter((id) => !s.combat.ready.includes(id) && !player(s, id).eliminated && !player(s, id).isBot);
 }
 
@@ -438,8 +477,9 @@ const HANDLERS = {
       for (const t of a.targets || []) {
         if (t.uid == null) continue;
         const f = findPerm(s, t.uid);
-        if (f && !canTarget(s, pl.id, f.perm, f.owner)) {
-          return illegal(s, pl.id, `${displayName(f.perm.card)} tiene ${has(f.perm, 'shroud') ? 'velo' : 'antimaleficio'}: no puedes hacerla objetivo.`, a);
+        if (f && !canTarget(s, pl.id, f.perm, f.owner, card)) {
+          const why = has(f.perm, 'shroud') ? 'velo' : has(f.perm, 'hexproof') && f.owner.id !== pl.id ? 'antimaleficio' : 'protección contra ese color';
+          return illegal(s, pl.id, `${displayName(f.perm.card)} tiene ${why}: no puedes hacerla objetivo con ${displayName(card)}.`, a);
         }
       }
     }
@@ -592,7 +632,11 @@ const HANDLERS = {
       const why = f.perm.tapped ? 'está girada' : f.perm.sick ? 'acaba de entrar y está mareada (necesita prisa para atacar este turno)' : 'no puede atacar (defensor)';
       return illegal(s, pl.id, `${displayName(f.perm.card)} no puede atacar: ${why}.`);
     }
-    const target = a.target && player(s, a.target) && !player(s, a.target).eliminated ? a.target : opponents(s, pl.id)[0]?.id;
+    let target = opponents(s, pl.id)[0]?.id;
+    if (typeof a.target === 'string' && a.target.startsWith('pw:')) {
+      const pw = findPerm(s, +a.target.slice(3));
+      if (pw && pw.owner.id !== pl.id && isPlaneswalker(pw.perm)) target = a.target;
+    } else if (a.target && player(s, a.target) && !player(s, a.target).eliminated && a.target !== pl.id) target = a.target;
     s.combat.attackers[a.uid] = target;
   },
 
@@ -614,7 +658,7 @@ const HANDLERS = {
     }
     if (a.attacker == null) return s;
     const af = findPerm(s, a.attacker);
-    if (!af || s.combat.attackers[a.attacker] !== pl.id) return s;
+    if (!af || defenderOf(s, s.combat.attackers[a.attacker]) !== pl.id) return s;
     if (!canBlock(bf.perm, af.perm)) {
       const why = bf.perm.tapped ? 'está girada' : has(af.perm, 'flying') ? 'el atacante tiene vuela (sólo lo bloquean criaturas con vuela o alcance)' : 'no puede bloquear';
       return illegal(s, pl.id, `${displayName(bf.perm.card)} no puede bloquear: ${why}.`);
@@ -626,7 +670,7 @@ const HANDLERS = {
     if (s.step !== 'block' || s.combat.confirmed.includes(pl.id)) return s;
     // Amenaza: necesita dos o más bloqueadores (regla 702.110).
     for (const [att, target] of Object.entries(s.combat.attackers)) {
-      if (target !== pl.id) continue;
+      if (defenderOf(s, target) !== pl.id) continue;
       const f = findPerm(s, +att);
       const n = (s.combat.blocks[att] || []).length;
       if (f && has(f.perm, 'menace') && n === 1) {
@@ -672,7 +716,7 @@ const HANDLERS = {
 };
 
 export function pendingDefenders(s) {
-  const defenders = [...new Set(Object.values(s.combat.attackers))];
+  const defenders = [...new Set(Object.values(s.combat.attackers).map((t) => defenderOf(s, t)).filter(Boolean))];
   return defenders.filter((id) => !s.combat.confirmed.includes(id) && !player(s, id).eliminated);
 }
 
@@ -756,7 +800,9 @@ function enterStep(s, step) {
     }
     pl.landsPlayed = 0;
   } else if (step === 'draw') {
-    if (s.turn > 1) {
+    // 103.8a: en partidas de dos jugadores, quien empieza no roba en su primer turno.
+    // 103.8c: en el resto de multijugador, todos roban.
+    if (s.turn > 1 || s.players.length > 2) {
       if (pl.isBot && pl.library.length) drawCard(s, pl);
       else if (pl.isBot && !pl.library.length) eliminate(s, pl, 'tiene que robar y no le quedan cartas');
       if (!pl.isBot) pushEvent(s, 'draw', 'Paso de robar: roba una carta de tu mazo.', { to: pl.id, amount: 1 });
@@ -781,10 +827,15 @@ function enterStep(s, step) {
 
 // ---------------------------------------------------------------- combate
 
-function dealDamageToPerm(s, perm, amount, src) {
+function dealDamageToPerm(s, perm, amount, src, srcCard = null) {
   if (amount <= 0) return;
+  const card = src ? src.card : srcCard;
+  // Protección: se previene el daño de fuentes de ese color (regla 702.16e).
+  if (card && protectedFrom(perm, card.colors || [], card.isCreature)) return;
   if (isPlaneswalker(perm) && !perm.card.isCreature) {
     perm.loyalty = (perm.loyalty || 0) - amount;
+  } else if (src && (has(src, 'infect') || has(src, 'wither'))) {
+    perm.counters -= amount; // infectar/marchitar: contadores -1/-1 (702.90, 702.80)
   } else {
     perm.damage += amount;
     if (src && has(src, 'deathtouch')) perm.deathtouched = true;
@@ -840,12 +891,27 @@ function resolveCombat(s, phase) {
   }
 
   for (const [perm, amt, src] of dealt) dealDamageToPerm(s, perm, amt, src);
-  for (const [pid, amt, src] of toPlayer) {
-    const t = player(s, pid);
-    t.life -= amt;
+  for (const [target, amt, src] of toPlayer) {
+    // Atacando a un planeswalker: el daño le quita lealtad.
+    if (typeof target === 'string' && target.startsWith('pw:')) {
+      const f = findPerm(s, +target.slice(3));
+      if (f) {
+        dealDamageToPerm(s, f.perm, amt, src);
+        pushEvent(s, 'hit', `${displayName(src.card)} hace ${amt} de daño a ${displayName(f.perm.card)} (lealtad ${f.perm.loyalty}).`, { uid: f.perm.uid });
+      }
+      continue;
+    }
+    const t = player(s, target);
+    if (!t || t.eliminated) continue;
+    if (has(src, 'infect')) {
+      t.poison += amt;
+      pushEvent(s, 'life', `${t.name} recibe ${amt} contador${amt > 1 ? 'es' : ''} de veneno de ${displayName(src.card)} (${t.poison}/10).`, { target: t.id, delta: 0, uid: src.uid });
+    } else {
+      t.life -= amt;
+      pushEvent(s, 'life', `${t.name} recibe ${amt} de daño de ${displayName(src.card)} (${t.life}).`, { target: t.id, delta: -amt, uid: src.uid });
+    }
     if (src.isCommander) t.cmdDamage[src.ownerId] = (t.cmdDamage[src.ownerId] || 0) + amt;
     if (has(src, 'lifelink')) player(s, src.ownerId).life += amt;
-    pushEvent(s, 'life', `${t.name} recibe ${amt} de daño de ${displayName(src.card)} (${t.life}).`, { target: pid, delta: -amt, uid: src.uid });
   }
   if (phase === 'first') s.combat.firstDone = true;
   s.combat.result = results;
@@ -878,7 +944,7 @@ function resolveEffects(s, pl, card, fx, targets, source) {
         if (e.target === 'opponents') {
           for (const o of opponents(s, pl.id)) hurtPlayer(s, o, e.amount, name);
         } else if (perm) {
-          dealDamageToPerm(s, perm.perm, e.amount, null);
+          dealDamageToPerm(s, perm.perm, e.amount, null, card);
           pushEvent(s, 'hit', `${name} hace ${e.amount} de daño a ${displayName(perm.perm.card)}.`, { uid: perm.perm.uid });
         } else if (target) hurtPlayer(s, target, e.amount, name);
         break;
@@ -1024,7 +1090,7 @@ function eliminate(s, p, why) {
   p.eliminated = true;
   p.battlefield = [];
   pushEvent(s, 'out', `${p.name} ${why} y queda eliminado.`, { player: p.id });
-  for (const k of Object.keys(s.combat.attackers)) if (s.combat.attackers[k] === p.id) delete s.combat.attackers[k];
+  for (const k of Object.keys(s.combat.attackers)) if (defenderOf(s, s.combat.attackers[k]) === p.id || defenderOf(s, s.combat.attackers[k]) == null) delete s.combat.attackers[k];
   for (const it of s.stack) it.waiting = it.waiting.filter((id) => id !== p.id);
   s.stack = s.stack.filter((it) => it.by !== p.id);
   const alive = alivePlayers(s);

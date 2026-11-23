@@ -176,7 +176,7 @@ function calibrateFromMenu() {
   const state = createGame({ mode: '1v1', players: [{ id: 'me', name: myName() }, botPlayer(0, 'G', '1v1')] });
   const session = new Session({ role: 'local', state, me: 'me' });
   session.pauseBots(true);
-  const table = mountTable(app, session, { calibrate: true, onExit: menu, onCalibrated: () => table.exit() });
+  const table = mountTable(app, session, { calibrate: true, intro: false, onExit: menu, onCalibrated: () => table.exit() });
 }
 
 // ------------------------------------------------------------- online

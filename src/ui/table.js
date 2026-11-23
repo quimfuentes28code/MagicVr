@@ -669,12 +669,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const m = manaAvailable(p);
     const orbs = ['W', 'U', 'B', 'R', 'G', 'C'].filter((c) => m[c]).map((c) => h('span', { class: 'orb orb-' + c }, m[c]));
     if (m.any) orbs.push(h('span', { class: 'orb orb-any' }, m.any));
-    return h('div', { class: 'mana-orbs', title: 'Maná disponible (tierras enderezadas)' }, orbs.length ? orbs : h('span', { class: 'orb orb-none' }, '0'));
+    return h('div', { class: 'mana-orbs', title: 'Maná disponible: tierras sin girar + maná en tu reserva' },
+      orbs.length ? orbs : h('span', { class: 'orb orb-none' }, '0'),
+      m.pool ? h('span', { class: 'pool-tag' }, `${m.pool} en reserva`) : null);
   }
 
   function manaHint(p) {
-    const n = manaSources(p).length;
-    return `Tienes ${n} maná disponible.` + (p.landsPlayed ? ' Ya jugaste tierra este turno.' : ' Aún puedes jugar una tierra.');
+    const m = manaAvailable(p);
+    return `Tienes ${m.total} maná disponible${m.pool ? ` (${m.pool} ya en tu reserva)` : ''}: la app gira tus tierras al pagar, o tócalas para girarlas tú.` + (p.landsPlayed ? ' Ya jugaste tierra este turno.' : ' Aún puedes jugar una tierra.');
   }
 
   // ------------------------------------------------------------ eventos
@@ -702,6 +704,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         toast(e.text, 'warn', 4000);
       } else if (e.kind === 'start') {
         // (la tirada se muestra al montar la mesa)
+      } else if (e.kind === 'mana') {
+        const el = ui.els.get(e.uid);
+        if (el) floatText(el, '+1 maná', 'gain');
       } else if (e.kind === 'emote') {
         showEmote(e);
       } else if (e.kind === 'death' && e.uid) {
@@ -780,6 +785,13 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     }
     if (s.step === 'block' && owner.id === me() && perm.card.isCreature && pendingDefenders(s).includes(me())) {
       blockSheet(perm);
+      return;
+    }
+    // Un toque en una tierra tuya la gira (su maná va a tu reserva) o la endereza.
+    if (owner.id === me() && perm.card.isLand) {
+      buzz(15);
+      sfx('click');
+      session.dispatch({ t: 'tap', uid });
       return;
     }
     permSheet(perm, owner);

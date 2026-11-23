@@ -198,3 +198,25 @@ test('combate: dañar primero, amenaza, indestructible, regla de leyendas y anti
   s = apply(s, { t: 'confirmBlocks', by: 'b' });
   assert.equal(s.events.at(-1).kind, 'illegal', 'amenaza necesita dos bloqueadores');
 });
+
+test('reserva de maná: girar tierras a mano y luego lanzar la carta', () => {
+  let s = createGame({ mode: '1v1', seed: 9, first: 0, players: [{ id: 'h', name: 'Yo' }, { id: 'b', name: 'Bot', isBot: true, deck: buildBotDeck('B') }] });
+  s = act(s, { t: 'play', by: 'h', card: BASICS.B, force: true });
+  s = act(s, { t: 'play', by: 'h', card: BASICS.B, force: true });
+  const [sw1, sw2] = s.players[0].battlefield;
+  // el jugador gira sus dos pantanos a mano (como en la mesa real)
+  s = apply(s, { t: 'tap', by: 'h', uid: sw1.uid });
+  s = apply(s, { t: 'tap', by: 'h', uid: sw2.uid });
+  assert.equal(s.players[0].manaPool.length, 2);
+  const sentries = { ...localCard('Walking Corpse'), name: 'Front Porch Sentries', manaCost: '{1}{B}', cmc: 2 };
+  s = act(s, { t: 'play', by: 'h', card: sentries });
+  assert.notEqual(s.events.filter((e) => e.kind !== 'resolve' && e.kind !== 'play').at(-1)?.kind, 'illegal');
+  assert.ok(s.players[0].battlefield.some((p) => p.card.name === 'Front Porch Sentries'), 'la criatura entra pagando con la reserva');
+  assert.equal(s.players[0].manaPool.length, 0);
+  // el maná sobrante se pierde al cambiar de paso
+  s = act(s, { t: 'play', by: 'h', card: BASICS.B, force: true });
+  s = apply(s, { t: 'tap', by: 'h', uid: s.players[0].battlefield.at(-1).uid });
+  assert.equal(s.players[0].manaPool.length, 1);
+  s = apply(s, { t: 'next', by: 'h' });
+  assert.equal(s.players[0].manaPool.length, 0);
+});

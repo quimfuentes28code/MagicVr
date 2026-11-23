@@ -99,6 +99,7 @@ export function createGame({ mode = '1v1', players, seed = Date.now(), first = n
     commanderTax: 0,
     commanderInZone: false,
     landsPlayed: 0,
+    manaPool: [], // maná ya sacado al girar tierras a mano: [['B'], ['W','U'], ...]
     eliminated: false,
   }));
 
@@ -255,10 +256,10 @@ export function manaSources(pl) {
 
 /** Maná disponible por color (para mostrarlo como en los juegos digitales). */
 export function manaAvailable(pl) {
-  const out = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0, any: 0, total: 0 };
-  for (const p of manaSources(pl)) {
+  const out = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0, any: 0, total: 0, pool: (pl.manaPool || []).length };
+  const all = [...manaSources(pl).map((p) => p.card.produces), ...(pl.manaPool || [])];
+  for (const c of all) {
     out.total++;
-    const c = p.card.produces;
     if (c.length >= 5) out.any++;
     else if (c.length === 1) out[c[0]]++;
     else out[c[0]]++; // tierras duales: se cuentan por su primer color
@@ -271,8 +272,12 @@ export function manaAvailable(pl) {
  * o null si no alcanza. Cada fuente produce 1 maná.
  */
 export function planPayment(pl, cost, extraGeneric = 0) {
-  // Preferimos girar tierras antes que criaturas (que podrían atacar).
-  const sources = manaSources(pl).map((p) => ({ uid: p.uid, colors: p.card.produces, w: (p.card.isCreature ? 10 : 0) + p.card.produces.length }));
+  // Primero el maná que ya está en la reserva (tierras giradas a mano); luego
+  // tierras enderezadas, y las criaturas de maná en último lugar.
+  const sources = [
+    ...(pl.manaPool || []).map((colors, i) => ({ uid: 'pool:' + i, colors, w: -10 + colors.length })),
+    ...manaSources(pl).map((p) => ({ uid: p.uid, colors: p.card.produces, w: (p.card.isCreature ? 10 : 0) + p.card.produces.length })),
+  ];
   const byCost = (a, b) => a.w - b.w;
   const used = new Set();
   let generic = extraGeneric;
@@ -298,6 +303,8 @@ export function planPayment(pl, cost, extraGeneric = 0) {
 
 function tapForPayment(pl, uids) {
   for (const p of pl.battlefield) if (uids.includes(p.uid)) p.tapped = true;
+  const used = uids.filter((u) => typeof u === 'string' && u.startsWith('pool:')).map((u) => +u.slice(5));
+  if (used.length) pl.manaPool = pl.manaPool.filter((_, i) => !used.includes(i));
 }
 
 const isMain = (s) => s.step === 'main1' || s.step === 'main2';
@@ -440,7 +447,8 @@ const HANDLERS = {
       const plan = planPayment(pl, card.manaCost);
       if (plan) tapForPayment(pl, plan);
       else if (!a.force) {
-        return illegal(s, pl.id, `No tienes suficiente maná enderezado para pagar ${card.manaCost || '0'} (${card.cmc} en total). Gira tierras que produzcan el color correcto.`, a);
+        const m = manaAvailable(pl);
+        return illegal(s, pl.id, `No te llega el maná para ${displayName(card)}: cuesta ${card.manaCost || '0'} (${card.cmc} en total) y tienes ${m.total} disponible${m.total === 1 ? '' : 's'} (${m.pool} en la reserva + ${m.total - m.pool} en tierras sin girar)${m.total >= card.cmc ? ', pero no del color necesario' : ''}. Recuerda: la app gira tus tierras sola al pagar; si las giras tú a mano, su maná va a tu reserva hasta que cambie la fase.`, a);
       }
     }
     if (fromHand >= 0) pl.hand.splice(fromHand, 1);
@@ -487,9 +495,25 @@ const HANDLERS = {
     resolveReady(s);
   },
 
-  tap(s, a) {
+  /** Girar/enderezar a mano. Girar una tierra (o fuente de maná) añade su maná a la reserva. */
+  tap(s, a, pl) {
     const f = findPerm(s, a.uid);
-    if (f) f.perm.tapped = a.value ?? !f.perm.tapped;
+    if (!f) return s;
+    const perm = f.perm;
+    const nowTapped = a.value ?? !perm.tapped;
+    const source = perm.card.produces.length > 0 && (perm.card.isLand || !perm.card.isCreature || !perm.sick);
+    if (source && f.owner.id === (pl?.id ?? f.owner.id)) {
+      const pool = (f.owner.manaPool ||= []);
+      if (nowTapped && !perm.tapped) {
+        pool.push([...perm.card.produces]);
+        pushEvent(s, 'mana', `${f.owner.name} gira ${displayName(perm.card)}: +1 maná ${perm.card.produces.map((c) => '{' + c + '}').join('/')} en su reserva.`, { by: f.owner.id, uid: perm.uid });
+      } else if (!nowTapped && perm.tapped) {
+        // deshacer: quita ese maná de la reserva si sigue ahí
+        const i = pool.findIndex((c) => c.join() === perm.card.produces.join());
+        if (i >= 0) pool.splice(i, 1);
+      }
+    }
+    perm.tapped = nowTapped;
   },
 
   move(s, a) {
@@ -722,6 +746,8 @@ function cleanup(s) {
 
 function enterStep(s, step) {
   s.step = step;
+  // El maná que no se usa se pierde al cambiar de paso (regla 500.4).
+  for (const p of s.players) p.manaPool = [];
   const pl = activePlayer(s);
   if (step === 'untap') {
     for (const perm of pl.battlefield) {

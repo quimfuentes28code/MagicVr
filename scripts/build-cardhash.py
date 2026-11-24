@@ -11,8 +11,8 @@ carpeta de trabajo): la lista de ilustraciones únicas, todas las impresiones
 La huella debe calcularse EXACTAMENTE igual que en src/recognize.js.
 
 Formato (little-endian):
-  'MVH1'  n:u32  words:u32  noracle:u32
-  hashes      n * words * u32
+  'MVH2'  n:u32  words:u32  noracle:u32
+  hashes      n * 2*words * u32  (por entrada: huella clásica y huella de paso alto)
   oracle_idx  n * u16
   image_id    n * 16 bytes (uuid de Scryfall de la imagen a mostrar)
   flags       n * u8   (bit0: cara trasera, bit1: impresión en español)
@@ -43,12 +43,17 @@ def card_hash(im):
     box = (INNER[0] * w, INNER[1] * h, INNER[2] * w, INNER[3] * h)
     a = np.asarray(im.convert('RGB').resize((NW, NH), Image.BILINEAR, box=box), np.float32)
     g = a[..., 0] * 0.299 + a[..., 1] * 0.587 + a[..., 2] * 0.114
-    cell = g.reshape(GH, NH // GH, GW, NW // GW).sum(axis=(1, 3))
-    bits = (cell[:, 1:] > cell[:, :-1]).ravel()  # 15 x 22 = 330
-    words = (len(bits) + 31) // 32
-    out = np.zeros(words, np.uint32)
-    for b in np.nonzero(bits)[0]:
-        out[b >> 5] |= np.uint32(1 << (b & 31))
+    cell = g.reshape(GH, NH // GH, GW, NW // GW).sum(axis=(1, 3)).astype(np.float64)
+    # paso alto: restar la media 3x3 de alrededor (bordes replicados)
+    p = np.pad(cell, 1, mode='edge')
+    blur = sum(p[1 + dy:1 + dy + GH, 1 + dx:1 + dx + GW] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9
+    hp = cell - blur
+    words = (15 * 22 + 31) // 32
+    out = np.zeros(2 * words, np.uint32)
+    for k, src in enumerate((cell, hp)):  # 1) clásica  2) paso alto
+        bits = (src[:, 1:] > src[:, :-1]).ravel()  # 15 x 22 = 330
+        for b in np.nonzero(bits)[0]:
+            out[k * words + (b >> 5)] |= np.uint32(1 << (b & 31))
     return out
 
 
@@ -146,13 +151,13 @@ def main():
     assert len(oracles) < 65536
     n = len(entries)
     words = (15 * 22 + 31) // 32
-    hashes = np.zeros((n, words), np.uint32)
+    hashes = np.zeros((n, 2 * words), np.uint32)
     for i, fn in enumerate(files):
         hashes[i] = card_hash(Image.open(fn))
         if i % 5000 == 0:
             print('huellas', i, flush=True)
     with open(OUT, 'wb') as f:
-        f.write(b'MVH1' + struct.pack('<III', n, words, len(oracles)))
+        f.write(b'MVH2' + struct.pack('<III', n, words, len(oracles)))
         f.write(hashes.astype('<u4').tobytes())
         f.write(np.array([oidx[e['oracle']] for e in entries], '<u2').tobytes())
         flags = bytearray()

@@ -1,6 +1,6 @@
 {
-  "name": "MagicVR – Mesa aumentada",
-  "short_name": "MagicVR",
+  "name": "Magic AR – Realidad aumentada",
+  "short_name": "Magic AR",
   "description": "Aprende y juega a Magic con tus cartas físicas y la cámara del móvil.",
   "start_url": "./",
   "scope": "./",

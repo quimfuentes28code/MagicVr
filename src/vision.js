@@ -293,9 +293,14 @@ export class CardWatcher {
     if (!present) {
       this.last = null;
       this.ocrHelp = 0;
+      this.seenSince = 0;
       this.onState({ phase: 'idle', text: 'Coloca una carta en el círculo' });
       return;
     }
+    // Si lleva un rato viendo una carta sin reconocerla, damos una pista.
+    this.seenSince ||= Date.now();
+    const stuck = Date.now() - this.seenSince > 4000;
+    const readingText = stuck ? 'No la veo bien: céntrala, evita reflejos o búscala en el grimorio' : 'Leyendo…';
     if (sure) {
       const key = res.oracle;
       const count = this.last && this.last.key === key ? this.last.count + 1 : 1;
@@ -306,11 +311,11 @@ export class CardWatcher {
         const card = cardFromResult(res);
         if (card) return this.accept(card, key);
       }
-      this.onState({ phase: 'reading', text: 'Leyendo…' });
+      this.onState({ phase: 'reading', text: readingText });
       return;
     }
     // Hay carta pero la imagen duda: el OCR del nombre decide (cada pocas lecturas).
-    this.onState({ phase: 'reading', text: 'Leyendo…' });
+    this.onState({ phase: 'reading', text: readingText });
     // (la imagen casi siempre basta: el OCR sólo entra si tras ~1,5 s sigue sin saberse,
     // p. ej. una carta más nueva que la base de huellas)
     this.ocrHelp = (this.ocrHelp || 0) + 1;
@@ -408,6 +413,7 @@ export class CardWatcher {
   }
 
   accept(card, oracle = null) {
+    this.seenSince = 0;
     this.acceptScale = this.scale || 1;
     this.accepted = norm(card.name);
     this.acceptedOracle = oracle || card.id || null;

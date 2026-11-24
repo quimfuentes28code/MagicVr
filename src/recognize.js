@@ -421,6 +421,7 @@ export function parseCardHash(buf) {
     image: (i) => hex(imageIds, i * 16),
     back: (i) => !!(flags[i] & 1),
     spanish: (i) => !!(flags[i] & 2),
+    fullArt: (i) => !!(flags[i] & 4),
   };
 }
 
@@ -438,6 +439,11 @@ const HYP = [
   [0.95, 0, 0], // con funda: el borde exterior es algo mayor que la carta
   [0.925, 0, 0],
   [0.97, 0, 0],
+  // marcos antiguos (borde negro grueso y marco biselado): lo encontrado puede ser
+  // sólo el bloque interior de la carta
+  [1.22, 0, 0.03],
+  [1.32, 0, 0.035],
+  [1.45, 0, 0.04],
 ];
 
 const hashAt = (source, p) => hashFromInner(innerGray(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1));
@@ -593,7 +599,9 @@ export function processFrame(rgba, w, h, opts, db = hashDb) {
     res.image = db.image(res.i);
     res.back = db.back(res.i);
     res.spanish = db.spanish(res.i);
-    if (res.loc && res.d > (opts.encAbove ?? Infinity)) {
+    res.fullArt = db.fullArt(res.i);
+    // sólo una carta de arte completo puede confundirse con la ilustración de otra carta
+    if (res.fullArt && res.loc && res.d > (opts.encAbove ?? Infinity)) {
       enclosed = enclosedRatio(small.g, small.W, small.H, { cx: res.loc.cx / k - 0.5, cy: res.loc.cy / k - 0.5, h: res.loc.h / k, ang: res.loc.ang });
     }
   }

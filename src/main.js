@@ -18,6 +18,7 @@ import { preloadVision } from './vision.js';
 import { loadCardDb, cardDbCount, cardDbReady, searchNames, cardByName } from './carddb.js';
 import { manaColor } from './ui/dom.js';
 import { startMusic, musicOn, setMusic } from './ui/music.js';
+import { openLibrary } from './ui/library.js';
 
 const app = document.getElementById('app');
 const COLORS = Object.keys(BOT_DECKS);
@@ -111,6 +112,7 @@ function menu() {
       dbLine(),
     ),
     h('div', { class: 'menu-right' },
+      tarot('chest', 'Biblioteca', 'Tus mazos y tu colección', '#b07a2a', () => openLibrary({ app, subScreen, onBack: menu })),
       tarot('hat', 'Aprendiz', 'Tutorial guiado contra un golem', '#2e9a5b', startTutorialGame),
       tarot('swords', 'Duelo', '1 contra 1 · 20 vidas', '#b3262f', () => modeMenu('1v1')),
       tarot('crown', 'Commander', 'Multijugador · 40 vidas', '#7b3fc4', () => modeMenu('commander')),

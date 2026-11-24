@@ -21,6 +21,7 @@ const P = {
   heart: '<path d="M12 21s-8-5.5-8-11a4.5 4.5 0 018-2.8A4.5 4.5 0 0120 10c0 5.5-8 11-8 11z"/>',
   flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
   door: '<path d="M6 21V4a1 1 0 011-1h10a1 1 0 011 1v17M4 21h16"/><circle cx="14.5" cy="12" r=".8"/>',
+  chest: '<path d="M3 10a4 4 0 014-4h10a4 4 0 014 4v9H3v-9z"/><path d="M3 12h18M10 12v3h4v-3"/><path d="M7 6V5M17 6V5"/>',
   cards: '<rect x="3" y="6" width="11" height="15" rx="1.5" transform="rotate(-8 8 13)"/><rect x="10" y="3" width="11" height="15" rx="1.5" transform="rotate(8 15 10)"/>',
 };
 

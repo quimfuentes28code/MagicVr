@@ -12,6 +12,7 @@ import { targetsFor, describeEffect } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
+import { rectToQuad, applyH, invertH, cssMatrix } from '../homography.js';
 import { hologram } from './hologram.js';
 import { tokenImage } from './tokens.js';
 import { apply as applyAction } from '../engine/game.js';
@@ -26,7 +27,7 @@ import {
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
-const DEFAULTS = { tilt: 0, zoom: 1, camera: true, layout: null, camZoom: 1 };
+const DEFAULTS = { tilt: 0, zoom: 1, camera: true, layout: null, camZoom: 1, persp: null };
 function loadSettings() {
   let st;
   try { st = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { st = { ...DEFAULTS }; }
@@ -109,11 +110,66 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   // del tamaño de tus cartas de verdad.
   const myZones = h('div', { class: 'zones-free' });
   const oppAvatar = h('div', { class: 'avatar opp' });
-  const mid = h('div', { class: 'table-mid' }, board, myZones, summon, oppAvatar);
+  // «Plano» de la mesa: tablero, casillas y círculo. Si la cámara mira la mesa en
+  // ángulo, el plano se dibuja en perspectiva pegado a la mesa (ui.settings.persp).
+  const plane = h('div', { class: 'plane' }, board, myZones, summon);
+  const mid = h('div', { class: 'table-mid' }, plane, oppAvatar);
   const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, stackPanel, banner, targetBar, arrows, fx);
   const layout = () => ({ ...LAYOUT_DEFAULTS, tilt: ui.settings.tilt, ...(ui.settings.layout || {}) });
   applyLayout(mid, layout());
   clear(root).append(screen);
+
+  // ------------------------------------------------- perspectiva de la mesa
+  // persp: 4 esquinas (fracciones de la zona central) donde se ve la mesa: arriba-izq, arriba-der, abajo-der, abajo-izq.
+  const planeH = () => {
+    const p = ui.settings.persp;
+    const W = mid.clientWidth;
+    const Hh = mid.clientHeight;
+    if (!p || !W) return null;
+    return rectToQuad(W, Hh, [[p[0] * W, p[1] * Hh], [p[2] * W, p[3] * Hh], [p[4] * W, p[5] * Hh], [p[6] * W, p[7] * Hh]]);
+  };
+  function applyPerspective() {
+    const H = planeH();
+    plane.style.transform = H ? cssMatrix(H) : '';
+    screen.classList.toggle('persp', !!H);
+  }
+  window.addEventListener('resize', applyPerspective);
+  requestAnimationFrame(applyPerspective);
+  /** Punto de pantalla → coordenadas del plano (sin perspectiva). */
+  const toLocal = (cx, cy) => {
+    const r = mid.getBoundingClientRect();
+    const H = planeH();
+    const x = cx - r.left;
+    const y = cy - r.top;
+    if (!H) return { x, y };
+    const [u, v] = applyH(invertH(H), x, y);
+    return { x: u, y: v };
+  };
+  /**
+   * Las 4 esquinas (relativas al vídeo, 0..1) de la zona que lee el círculo, ampliada
+   * un margen m y desplazada (ox, oy), teniendo en cuenta la perspectiva de la mesa.
+   */
+  const summonQuad = (m = 0, ox = 0, oy = 0) => {
+    // posición del círculo dentro del plano (sin transformar): centro y alto según la distribución
+    const pv = (k) => parseFloat(mid.style.getPropertyValue(k)) / 100;
+    const hh = pv('--sh') * mid.clientHeight;
+    const w = hh * 63 / 88;
+    const x = pv('--sx') * mid.clientWidth - w / 2;
+    const y = pv('--sy') * mid.clientHeight - hh / 2;
+    const x0 = x - w * m + w * ox;
+    const y0 = y - hh * m + hh * oy;
+    const x1 = x0 + w * (1 + 2 * m);
+    const y1 = y0 + hh * (1 + 2 * m);
+    const H = planeH();
+    const r = mid.getBoundingClientRect();
+    const v = video.getBoundingClientRect();
+    const q = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([px, py]) => {
+      const [sx, sy] = H ? applyH(H, px, py) : [px, py];
+      return [(r.left + sx - v.left) / v.width, (r.top + sy - v.top) / v.height];
+    });
+    q.aspect = w / hh; // proporción de la zona sin perspectiva
+    return q;
+  };
   startMusic();
   try {
     if (localStorage.getItem('mtgvr-debug')) {
@@ -134,6 +190,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   };
   const watcher = new CardWatcher(video, {
     getRegion: regionOfSummon,
+    getQuad: (...a) => { watcher.perspSet = !!ui.settings.persp; return summonQuad(...a); },
     onState: ({ phase, text }) => {
       summon.dataset.phase = phase;
       summonStatus.textContent = text;
@@ -220,14 +277,67 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   }
 
   /** Abre «Ajustar mesa» sobre la partida. */
+  /**
+   * Editor de perspectiva: 4 esquinas que arrastras sobre la imagen de la cámara
+   * hasta las esquinas de tu zona de juego; el tablero se adapta al momento.
+   */
+  function perspectiveEditor() {
+    const W = () => mid.clientWidth;
+    const Hh = () => mid.clientHeight;
+    const P = ui.settings.persp ? [...ui.settings.persp] : [0.06, 0.06, 0.94, 0.06, 0.94, 0.94, 0.06, 0.94];
+    const layer = h('div', { class: 'persp-editor' });
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'persp-lines');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    svg.append(poly);
+    layer.append(svg);
+    const names = ['Arriba izq.', 'Arriba der.', 'Abajo der.', 'Abajo izq.'];
+    const handles = names.map((n, i) => {
+      const hd = h('div', { class: 'persp-handle', title: n }, h('span', {}, i + 1));
+      hd.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        hd.setPointerCapture(e.pointerId);
+        const mv = (ev) => {
+          const r = mid.getBoundingClientRect();
+          P[i * 2] = Math.max(-0.2, Math.min(1.2, (ev.clientX - r.left) / r.width));
+          P[i * 2 + 1] = Math.max(-0.2, Math.min(1.2, (ev.clientY - r.top) / r.height));
+          paint();
+        };
+        const up = () => { hd.removeEventListener('pointermove', mv); hd.removeEventListener('pointerup', up); };
+        hd.addEventListener('pointermove', mv);
+        hd.addEventListener('pointerup', up);
+      });
+      layer.append(hd);
+      return hd;
+    });
+    const paint = () => {
+      handles.forEach((hd, i) => { hd.style.left = P[i * 2] * 100 + '%'; hd.style.top = P[i * 2 + 1] * 100 + '%'; });
+      poly.setAttribute('points', [0, 1, 2, 3].map((i) => `${P[i * 2] * W()},${P[i * 2 + 1] * Hh()}`).join(' '));
+      ui.settings.persp = P;
+      applyPerspective();
+    };
+    const close = () => { layer.remove(); bar.remove(); saveSettings(ui.settings); };
+    const bar = h('div', { class: 'persp-bar parchment' },
+      h('b', {}, 'Perspectiva de la mesa'),
+      h('span', {}, 'Arrastra las 4 esquinas (1-2-3-4) a las esquinas de tu zona de juego tal y como la ve la cámara. El tablero y el círculo se adaptan solos, y el reconocimiento endereza las cartas.'),
+      h('div', { class: 'row-btns' },
+        h('button', { class: 'act', onClick: () => { ui.settings.persp = null; applyPerspective(); layer.remove(); bar.remove(); saveSettings(ui.settings); } }, 'Sin perspectiva (cámara cenital)'),
+        h('button', { class: 'act primary', onClick: close }, 'Hecho')));
+    mid.append(layer);
+    screen.append(bar);
+    paint();
+  }
+
   function calibrateTable(firstTime = false) {
     watcher.pause(true);
     session.pauseBots(true);
     const zoomSlider = h('label', { class: 'slider' }, h('span', {}, 'Zoom cámara ', zoomLabel),
       h('input', { type: 'range', min: 1, max: 4, step: 0.25, value: ui.settings.camZoom || 1, onInput: (e) => { ui.settings.camZoom = +e.target.value; saveSettings(ui.settings); applyZoom(); } }));
+    const perspBtn = h('button', { class: 'act', onClick: () => perspectiveEditor() }, '⬚ Perspectiva de la mesa');
     openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
       firstTime,
-      extra: zoomSlider,
+      toLocal,
+      extra: h('div', { class: 'cal-extra' }, zoomSlider, perspBtn),
       onChange: () => applyZoom(),
       onDone: (L) => {
         ui.settings.layout = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };

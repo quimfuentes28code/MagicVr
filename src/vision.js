@@ -4,6 +4,7 @@
 
 import { grabFrame, titleBar, stretchContrast, deskew, regionToVideo, videoToScreen } from './camera.js';
 import { loadCardHash, cardHashReady, processFrame } from './recognize.js';
+import { applyH, invertH, rectToQuad } from './homography.js';
 
 // ------------------------------------------------ Web Worker del reconocimiento
 let recWorker = null;
@@ -162,8 +163,9 @@ export class CardWatcher {
    * video: <video> con la cámara. getRegion(): rect 0..1 de la zona a leer.
    * onCard(card): carta reconocida. onState({ phase, text }): estado para la UI.
    */
-  constructor(video, { getRegion, onCard, onState, onOutline }) {
+  constructor(video, { getRegion, getQuad, onCard, onState, onOutline }) {
     this.video = video;
+    this.getQuad = getQuad || null;
     this.onOutline = onOutline || (() => {});
     this.getRegion = getRegion;
     this.onCard = onCard;
@@ -231,10 +233,45 @@ export class CardWatcher {
     // Zona algo mayor que el círculo (la carta puede sobresalir). Si la carta no se
     // reconoce, cada lectura prueba un encuadre distinto: con la imagen quieta,
     // repetir lo mismo daría siempre el mismo resultado.
-    const V = [[0.2, 200, 0, 0], [0.12, 230, 0, 0], [0.3, 190, 0, 0], [0.2, 240, 0.03, 0.02], [0.16, 210, -0.03, -0.02], [0.25, 220, 0, 0.03]];
+    // [margen, alto, desplazamiento x, y, inclinación supuesta]. Las últimas «enderezan» suponiendo
+    // que la cámara mira la mesa en ángulo (el lado lejano se ve más estrecho), por si no se ha
+    // ajustado la perspectiva de la mesa.
+    // [margen, alto, desplazamiento x, y, inclinación supuesta de la cámara (0 = cenital)]
+    const V = [[0.2, 200, 0, 0, 0], [0.12, 230, 0, 0, 0], [0.3, 210, 0, 0, 0.2], [0.3, 190, 0, 0, 0], [0.2, 240, 0.03, 0.02, 0],
+      [0.3, 210, 0, 0, 0.35], [0.16, 210, -0.03, -0.02, 0], [0.35, 220, 0, 0, 0.5], [0.3, 220, 0, 0.03, 0.12]];
     if (!this.hint) this.variant = ((this.variant || 0) + 1) % V.length;
-    const [m, gh, ox, oy] = this.hint ? V[0] : V[this.variant];
-    const rect = { x: region.x - region.w * m + region.w * ox, y: region.y - region.h * m + region.h * oy, w: region.w * (1 + 2 * m), h: region.h * (1 + 2 * m) };
+    const vv = this.hint ? (this.hintV || V[0]) : V[this.variant];
+    const [m, gh, ox, oy] = vv;
+    this.curV = vv;
+    // Zona a leer: con la mesa en perspectiva es un cuadrilátero (se endereza antes de reconocer).
+    let q = this.getQuad ? this.getQuad(m, ox, oy) : null;
+    const tilt = vv[4] || 0;
+    if (tilt && !this.perspSet) {
+      // Sin perspectiva ajustada: suponemos la cámara inclinada (el fondo de la imagen se ve más
+      // estrecho) y calculamos qué forma tendría ahí una carta: el rectángulo de la zona se pasa
+      // al «plano de la mesa», se cuadra y se vuelve a proyectar (sale inclinado y achatado según
+      // dónde esté el círculo en la imagen).
+      const base = q || [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, w]) => [region.x - region.w * m + region.w * (ox + u * (1 + 2 * m)), region.y - region.h * m + region.h * (oy + w * (1 + 2 * m))]);
+      const Hc = rectToQuad(1, 1, [[tilt / 2, 0], [1 - tilt / 2, 0], [1, 1], [0, 1]]);
+      const Hi = invertH(Hc);
+      const pl = base.map(([x, y]) => applyH(Hi, x, y));
+      const cxp = pl.reduce((a, p) => a + p[0], 0) / 4;
+      const cyp = pl.reduce((a, p) => a + p[1], 0) / 4;
+      const wp = (Math.hypot(pl[1][0] - pl[0][0], pl[1][1] - pl[0][1]) + Math.hypot(pl[2][0] - pl[3][0], pl[2][1] - pl[3][1])) / 2;
+      const aspect = (q && q.aspect) || 63 / 88;
+      const hp = wp / aspect;
+      q = [[cxp - wp / 2, cyp - hp / 2], [cxp + wp / 2, cyp - hp / 2], [cxp + wp / 2, cyp + hp / 2], [cxp - wp / 2, cyp + hp / 2]].map(([x, y]) => applyH(Hc, x, y));
+      q.aspect = aspect;
+      q.forceWarp = true;
+    }
+    let rect;
+    if (q) {
+      const xs = q.map((p) => p[0]);
+      const ys = q.map((p) => p[1]);
+      rect = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+    } else {
+      rect = { x: region.x - region.w * m + region.w * ox, y: region.y - region.h * m + region.h * oy, w: region.w * (1 + 2 * m), h: region.h * (1 + 2 * m) };
+    }
     // Recorte de la zona (≤ 560 px de alto) → al worker
     const r = regionToVideo(this.video, rect);
     if (!r.sw || !r.sh) return;
@@ -248,11 +285,23 @@ export class CardWatcher {
     const img = cctx.getImageData(0, 0, crop.width, crop.height);
     // propuestas alternativas repartidas entre lecturas (2 por lectura)
     this.altTurn = ((this.altTurn || 0) + 2) % 8;
+    // esquinas de la zona en píxeles del recorte, y proporción de la zona enderezada
+    let quad = null;
+    let aspect = null;
+    if (q) {
+      const vr = regionToVideo(this.video, { x: 0, y: 0, w: 1, h: 1 });
+      quad = q.map(([x, y]) => [((vr.sx + x * vr.sw) - r.sx) * ck, ((vr.sy + y * vr.sh) - r.sy) * ck]);
+      aspect = q.aspect || 63 / 88;
+      // ¿hay perspectiva de verdad? (si es casi un rectángulo, no hace falta enderezar)
+      const skew = Math.abs(quad[0][1] - quad[1][1]) + Math.abs(quad[3][1] - quad[2][1]) + Math.abs(quad[0][0] - quad[3][0]) + Math.abs(quad[1][0] - quad[2][0]);
+      if (skew < 4 && !q.forceWarp) quad = null;
+    }
     const out = await analyze(img, {
-      gh, hint: this.hint, altFrom: this.hint ? 0 : this.altTurn, altCount: this.hint ? 0 : 2, encAbove: IMG.instant,
+      gh, hint: this.hint, altFrom: this.hint ? 0 : this.altTurn, altCount: this.hint ? 0 : 2, encAbove: IMG.instant, quad, aspect, debug: !!window.__visionDebugImg,
     });
+    if (out && out.dbg && window.__visionDebugImg) window.__visionDebugImg({ ...out.dbg, v: vv, quad });
     if (!out) return;
-    const { loc, k, enclosed } = out;
+    const { loc, k, enclosed, hq } = out;
     const res0 = out.res;
     // del recorte a píxeles del vídeo
     const res = res0 && res0.loc
@@ -266,17 +315,25 @@ export class CardWatcher {
     if (sure && res.d > IMG.instant && res.margin < 80 && enclosed > IMG.enclosed) sure = false;
     // contorno de la carta en pantalla (esquinas en coordenadas relativas)
     if (present && res.loc) {
-      const { cx, cy, h, ang } = res.loc;
+      // esquinas de la carta en la imagen analizada (enderezada si hay perspectiva) → vídeo → pantalla
+      const { cx, cy, h, ang } = res0.loc;
       const w = h * 63 / 88;
       const c = Math.cos(ang);
       const sn = Math.sin(ang);
       const pts = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]
-        .map(([x, y]) => videoToScreen(this.video, cx + x * c - y * sn, cy + x * sn + y * c));
+        .map(([x, y]) => {
+          let px = cx + x * c - y * sn;
+          let py = cy + x * sn + y * c;
+          if (hq) [px, py] = applyH(hq, px, py);
+          return videoToScreen(this.video, r.sx + px / ck, r.sy + py / ck);
+        });
       this.onOutline({ pts, state: this.accepted && res.oracle === this.acceptedOracle ? 'found' : sure ? 'sure' : 'reading' });
     } else this.onOutline(null);
     // la próxima lectura busca cerca del encuadre ajustado (mucho más rápido)
     // (sólo si está segura: si no, conviene seguir probando encuadres y propuestas distintas)
     const tracking = sure || (present && this.accepted && res.oracle === this.acceptedOracle);
+    if (tracking && !this.hint) this.hintV = vv;
+    if (!tracking) this.hintV = null;
     this.hint = tracking && res0.loc
       ? { cx: res0.loc.cx / k - 0.5, cy: res0.loc.cy / k - 0.5, h: res0.loc.h / k, ang: res0.loc.ang, score: loc.score }
       : null;

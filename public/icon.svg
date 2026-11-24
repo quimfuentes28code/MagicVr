@@ -1,12 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <radialGradient id="g" cx="50%" cy="42%" r="70%"><stop offset="0" stop-color="#3d2466"/><stop offset="1" stop-color="#07060c"/></radialGradient>
+    <radialGradient id="g" cx="50%" cy="38%" r="72%"><stop offset="0" stop-color="#3d2466"/><stop offset="1" stop-color="#07060c"/></radialGradient>
     <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".55" stop-color="#d9ad55"/><stop offset="1" stop-color="#8a6326"/></linearGradient>
+    <linearGradient id="ar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#9be8ff"/><stop offset="1" stop-color="#7a5cff"/></linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   </defs>
   <rect width="512" height="512" rx="110" fill="url(#g)"/>
-  <g fill="none" stroke="url(#gold)" stroke-width="6">
-    <circle cx="256" cy="256" r="190"/><circle cx="256" cy="256" r="165" stroke-dasharray="8 14" stroke-width="4"/>
+  <circle cx="256" cy="230" r="176" fill="none" stroke="url(#gold)" stroke-width="4" stroke-dasharray="6 12" opacity=".7"/>
+  <!-- M biselada -->
+  <path d="M112 330 L150 318 L150 150 L132 140 L132 124 L200 124 L256 250 L312 124 L380 124 L380 140 L362 150 L362 318 L400 330 L400 346 L296 346 L296 330 L322 318 L322 196 L264 330 L248 330 L190 196 L190 318 L216 330 L216 346 L112 346 Z"
+        fill="url(#gold)" stroke="#3a2410" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M150 150 L150 318 M362 150 L362 318" stroke="#fff6d6" stroke-width="3" opacity=".55"/>
+  <!-- emblema AR -->
+  <g transform="translate(256 412)">
+    <rect x="-86" y="-46" width="172" height="92" rx="16" fill="#0b0718" stroke="#9be8ff" stroke-width="4" filter="url(#glow)"/>
+    <g fill="none" stroke="#bff1ff" stroke-width="6" stroke-linecap="square">
+      <path d="M-72 -18 V-32 H-58 M58 -32 H72 V-18 M72 18 V32 H58 M-58 32 H-72 V18"/>
+    </g>
+    <text x="0" y="22" text-anchor="middle" font-family="Cinzel, Georgia, 'Times New Roman', serif" font-weight="900" font-size="64" fill="url(#ar)" letter-spacing="4" filter="url(#glow)">AR</text>
   </g>
-  <path d="M256 88 L285 225 L424 256 L285 287 L256 424 L227 287 L88 256 L227 225 Z" fill="url(#gold)"/>
-  <circle cx="256" cy="256" r="26" fill="#07060c" stroke="url(#gold)" stroke-width="6"/>
 </svg>

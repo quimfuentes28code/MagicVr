@@ -54,6 +54,14 @@ function subScreen(title, onBack, ...kids) {
     h('div', { class: 'sub-head' }, h('button', { class: 'rune-btn', onClick: onBack }, icon('back')), h('h2', {}, title)),
     h('div', { class: 'content' }, ...kids));
 }
+/** Logotipo: «Magic» dorado + emblema «AR» (realidad aumentada) con esquinas de escáner. */
+function logo(small = false) {
+  return h('div', { class: 'logo' + (small ? ' small' : '') },
+    h('span', { class: 'logo-title' }, 'Magic'),
+    h('span', { class: 'logo-ar', title: 'Realidad aumentada' },
+      h('i', { class: 'k tl' }), h('i', { class: 'k tr' }), h('i', { class: 'k bl' }), h('i', { class: 'k br' }),
+      h('b', {}, 'AR'), h('i', { class: 'scan' })));
+}
 function tarot(iconName, title, sub, tint, onClick) {
   return h('button', { class: 'tarot', style: { '--tint': tint }, onClick },
     h('div', { class: 'medal' }, icon(iconName)),
@@ -84,8 +92,8 @@ function dbLine() {
 function splash() {
   clear(app).append(screenEl('splash', h('div', { class: 'content', onClick: enter },
     h('div', { class: 'sigil', html: SIGIL }),
-    h('div', { class: 'logo-title' }, 'MagicVR'),
-    h('div', { class: 'logo-sub' }, 'La mesa arcana · aprende a jugar con tus cartas'),
+    logo(),
+    h('div', { class: 'logo-sub' }, 'Realidad aumentada para tus cartas · aprende y juega en tu mesa'),
     h('div', { class: 'tap-start' }, 'TOCA PARA EMPEZAR'),
     dbLine(),
   )));
@@ -102,7 +110,7 @@ function menu() {
   const nameInput = h('input', { class: 'field-input', placeholder: 'Tu nombre de Planeswalker', value: getName(), maxLength: 18, onInput: (e) => setName(e.target.value.trim()) });
   clear(app).append(screenEl('menu', h('div', { class: 'content' },
     h('div', { class: 'menu-left' },
-      h('div', { class: 'logo-title' }, 'MagicVR'),
+      logo(true),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
       h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), nameInput),
       h('div', { class: 'menu-btns' },
@@ -289,7 +297,7 @@ function joinScreen() {
 }
 
 function share(code) {
-  const text = `¡Únete a mi partida de MagicVR! Código del portal: ${code}\n${location.href}`;
+  const text = `¡Únete a mi partida de Magic AR! Código del portal: ${code}\n${location.href}`;
   if (navigator.share) navigator.share({ text }).catch(() => {});
   else navigator.clipboard?.writeText(text).then(() => toast('Código copiado'));
 }

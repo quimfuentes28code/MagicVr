@@ -2,10 +2,11 @@
 // Lee sin parar el nombre de la carta que hay dentro del círculo de invocación
 // y avisa cuando reconoce una carta con seguridad. Sin botones.
 
-import { grabFrame, titleBar, stretchContrast, deskew } from './camera.js';
+import { grabFrame, titleBar, stretchContrast, deskew, grabGray, videoToScreen } from './camera.js';
+import { loadCardHash, cardHashReady, locateCard, identify } from './recognize.js';
 import { LOCAL_CARDS, localCard } from './engine/cards.js';
 import { findCard, knownCards } from './scryfall.js';
-import { cardDbReady, candidates, recordToCard } from './carddb.js';
+import { cardDbReady, candidates, recordToCard, cardByOracle, imageUrl } from './carddb.js';
 
 let workerPromise = null;
 
@@ -31,7 +32,21 @@ function ocrWorker(onProgress) {
 
 /** Precarga el OCR en segundo plano (para que la primera lectura sea rápida). */
 export function preloadVision() {
+  loadCardHash().catch(() => {});
   ocrWorker().catch(() => {});
+}
+
+// Umbrales del reconocimiento por imagen (calibrados con el banco de pruebas).
+// d: bits distintos de 330 (aciertos ≤ ~65, fallos ≥ ~84 en el banco de pruebas).
+export const IMG = { present: 100, sure: 75, bigMargin: 28, instant: 52, instantMargin: 12 };
+
+/** Carta (con la imagen de SU edición) a partir de una entrada de la base de huellas. */
+function cardFromHash(db, i) {
+  const base = cardByOracle(db.oracle(i));
+  if (!base) return null;
+  const id = db.image(i);
+  const url = imageUrl(id).replace('/front/', db.back(i) ? '/back/' : '/front/');
+  return { ...base, image: url, edition: id, editionSpanish: db.spanish(i) };
 }
 
 export const norm = (s) =>
@@ -111,8 +126,9 @@ export class CardWatcher {
    * video: <video> con la cámara. getRegion(): rect 0..1 de la zona a leer.
    * onCard(card): carta reconocida. onState({ phase, text }): estado para la UI.
    */
-  constructor(video, { getRegion, onCard, onState }) {
+  constructor(video, { getRegion, onCard, onState, onOutline }) {
     this.video = video;
+    this.onOutline = onOutline || (() => {});
     this.getRegion = getRegion;
     this.onCard = onCard;
     this.onState = onState || (() => {});
@@ -145,9 +161,17 @@ export class CardWatcher {
         continue;
       }
       try {
+        if (cardHashReady() && cardDbReady()) {
+          const t0 = performance.now();
+          await this.imageTick(worker);
+          // a unos 8 por segundo como mucho (deja respirar al móvil)
+          await sleep(Math.max(30, 120 - (performance.now() - t0)));
+          continue;
+        }
         await this.tick(worker);
       } catch (e) {
-        await sleep(500);
+        if (window.__visionDebug) window.__visionDebug({ error: String(e && e.stack || e) });
+        await sleep(300);
       }
       await sleep(120);
     }
@@ -158,6 +182,84 @@ export class CardWatcher {
 
   /** Empieza de cero (p. ej. al pedir el comandante). La carta que siga en el círculo no se repite. */
   forget() { this.last = null; }
+
+  /**
+   * Reconocimiento por imagen: localiza la carta, la endereza y busca su huella.
+   * Si la imagen no basta (carta muy nueva, reflejo fuerte…), pide ayuda al OCR.
+   */
+  async imageTick(worker) {
+    const region = this.getRegion();
+    // Zona algo mayor que el círculo (la carta puede sobresalir). Si la carta no se
+    // reconoce, cada lectura prueba un encuadre distinto: con la imagen quieta,
+    // repetir lo mismo daría siempre el mismo resultado.
+    const V = [[0.2, 200, 0, 0], [0.12, 230, 0, 0], [0.3, 190, 0, 0], [0.2, 240, 0.03, 0.02], [0.16, 210, -0.03, -0.02], [0.25, 220, 0, 0.03]];
+    if (!this.hint) this.variant = ((this.variant || 0) + 1) % V.length;
+    const [m, gh, ox, oy] = this.hint ? V[0] : V[this.variant];
+    const rect = { x: region.x - region.w * m + region.w * ox, y: region.y - region.h * m + region.h * oy, w: region.w * (1 + 2 * m), h: region.h * (1 + 2 * m) };
+    const shot = grabGray(this.video, rect, gh);
+    if (!shot) return;
+    const { g, W, H, r } = shot;
+    let loc = locateCard(g, W, H, this.hint);
+    if (this.hint && loc.score < this.hint.score * 0.6) loc = locateCard(g, W, H, null);
+    const k = r.sh / H; // de la imagen pequeña a píxeles del vídeo
+    const toVideo = (l) => ({ cx: r.sx + l.cx * k, cy: r.sy + l.cy * k, h: l.h * k, ang: l.ang });
+    const vloc = { ...toVideo(loc), alts: (loc.alts || []).map(toVideo) };
+    const db = await loadCardHash();
+    const res = identify(this.video, vloc, db);
+    if (window.__visionDebug) window.__visionDebug({ image: true, loc, res });
+    const present = res && res.d <= IMG.present;
+    const sure = present && (res.d <= IMG.sure || (res.d <= IMG.present && res.margin >= IMG.bigMargin));
+    // contorno de la carta en pantalla (esquinas en coordenadas relativas)
+    if (present && res.loc) {
+      const { cx, cy, h, ang } = res.loc;
+      const w = h * 63 / 88;
+      const c = Math.cos(ang);
+      const sn = Math.sin(ang);
+      const pts = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]
+        .map(([x, y]) => videoToScreen(this.video, cx + x * c - y * sn, cy + x * sn + y * c));
+      this.onOutline({ pts, state: this.accepted && res.oracle === this.acceptedOracle ? 'found' : sure ? 'sure' : 'reading' });
+    } else this.onOutline(null);
+    // la próxima lectura busca cerca del encuadre ajustado (mucho más rápido)
+    this.hint = present && res.loc
+      ? { cx: (res.loc.cx - r.sx) / k, cy: (res.loc.cy - r.sy) / k, h: res.loc.h / k, ang: res.loc.ang, score: loc.score }
+      : null;
+
+    // ¿Sigue en el círculo la carta ya aceptada?
+    if (this.accepted) {
+      if (present && res.oracle === this.acceptedOracle) { this.missing = 0; return; }
+      if (sure && res.oracle !== this.acceptedOracle) this.missing = 3; // otra carta distinta
+      else if (++this.missing < 4) return;
+      this.accepted = null;
+      this.acceptedOracle = null;
+      this.onState({ phase: 'idle', text: 'Coloca una carta en el círculo' });
+    }
+    if (Date.now() - this.lastAccept < 1200) return;
+    if (!present) {
+      this.last = null;
+      this.ocrHelp = 0;
+      this.onState({ phase: 'idle', text: 'Coloca una carta en el círculo' });
+      return;
+    }
+    if (sure) {
+      const key = res.oracle;
+      const count = this.last && this.last.key === key ? this.last.count + 1 : 1;
+      this.last = { key, count };
+      const again = Date.now() - (this.recent.get(key) || 0) < 2500;
+      // muy clara: a la primera; si no, dos lecturas seguidas iguales
+      if ((count >= 2 || (res.d <= IMG.instant && res.margin >= IMG.instantMargin)) && !again) {
+        const card = cardFromHash(db, res.i);
+        if (card) return this.accept(card, key);
+      }
+      this.onState({ phase: 'reading', text: 'Leyendo…' });
+      return;
+    }
+    // Hay carta pero la imagen duda: el OCR del nombre decide (cada pocas lecturas).
+    this.onState({ phase: 'reading', text: 'Leyendo…' });
+    // (la imagen casi siempre basta: el OCR sólo entra si tras ~1,5 s sigue sin saberse,
+    // p. ej. una carta más nueva que la base de huellas)
+    this.ocrHelp = (this.ocrHelp || 0) + 1;
+    if (this.ocrHelp > 10 && this.ocrHelp % 4 === 0) await this.tick(worker);
+  }
 
   async tick(worker) {
     // 1º la franja del nombre (una línea, rápido y fiable); 2º la mitad superior.
@@ -249,14 +351,16 @@ export class CardWatcher {
     }
   }
 
-  accept(card) {
+  accept(card, oracle = null) {
     this.acceptScale = this.scale || 1;
     this.accepted = norm(card.name);
+    this.acceptedOracle = oracle || card.id || null;
     this.missing = 0;
     this.last = null;
     this.lastAccept = Date.now();
     this.recent.set(this.accepted, this.lastAccept);
     this.onState({ phase: 'found', text: card.printedName || card.name });
+    if (window.__visionDebug) window.__visionDebug({ accepted: card.name, image: card.image });
     this.onCard(card);
   }
 }

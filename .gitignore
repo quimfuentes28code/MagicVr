@@ -3,3 +3,5 @@ dist
 .DS_Store
 public/ocr
 public/carddb.json
+__pycache__
+.cardhash-cache

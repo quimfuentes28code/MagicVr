@@ -136,7 +136,23 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       summonStatus.textContent = text;
     },
     onCard: (card) => onCardSeen(card),
+    onOutline: (o) => drawOutline(o),
   });
+
+  // Contorno de la carta que está viendo el círculo (ámbar: leyendo; verde: reconocida).
+  const outline = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  outline.setAttribute('class', 'card-outline');
+  const outlinePoly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  outline.append(outlinePoly);
+  screen.append(outline);
+  function drawOutline(o) {
+    if (!o) { outline.classList.remove('show'); return; }
+    const v = video.getBoundingClientRect();
+    const sr = screen.getBoundingClientRect();
+    outlinePoly.setAttribute('points', o.pts.map((p) => `${v.left - sr.left + p.x * v.width},${v.top - sr.top + p.y * v.height}`).join(' '));
+    outline.dataset.state = o.state;
+    outline.classList.add('show');
+  }
 
   const applySettings = () => {
     mat.style.setProperty('--tilt', ui.settings.tilt + 'deg');
@@ -265,7 +281,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   function dispatchPlay(card, targets) {
     const before = S().eventSeq;
-    card = withPreferredEdition(card);
+    if (!card.edition) card = withPreferredEdition(card);
     session.dispatch({ t: 'play', card, targets });
     findEdition(card);
     // Aviso con opción de deshacer por si la cámara leyó mal.

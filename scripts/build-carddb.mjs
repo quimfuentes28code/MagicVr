@@ -101,7 +101,7 @@ for await (const c of lines(await bulkUrl('all_cards'))) {
   rec.ex = c.printed_text || front.printed_text || null;
   rec.eScan = scan;
   rec.eDate = c.released_at;
-  if (scan) rec.ei = imageOf(c);
+  if (!/missing|placeholder/.test(c.image_status || '')) rec.ei = imageOf(c);
 }
 console.log(`   ${es} cartas con nombre en español.`);
 

@@ -10,7 +10,9 @@ import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, s
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
-import { sfx, soundOn, setSound } from './sfx.js';
+import { sfx, soundOn, setSound, magicSound } from './sfx.js';
+import { castMagic } from './magic.js';
+import { musicOn, setMusic, musicVolume, setMusicVolume, startMusic, duckMusic } from './music.js';
 import { openEditionPicker, autoMatchEdition, withPreferredEdition, rememberEdition } from './editions.js';
 import {
   STEPS, PHASES, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
@@ -106,6 +108,12 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const layout = () => ({ ...LAYOUT_DEFAULTS, tilt: ui.settings.tilt, ...(ui.settings.layout || {}) });
   applyLayout(mid, layout());
   clear(root).append(screen);
+  startMusic();
+  try {
+    if (localStorage.getItem('mtgvr-debug')) {
+      window.__mtg = { session, spell: (e) => spellVisual(S(), { id: 0, ...e }, new Set()) };
+    }
+  } catch { /* */ }
 
   // --------------------------------------------------------- cámara + ojo
   const regionOfSummon = () => {
@@ -742,7 +750,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const fresh = s.events.filter((e) => e.id > ui.lastEvent);
     if (!fresh.length) return;
     ui.lastEvent = fresh[fresh.length - 1].id;
+    const cast = new Set();
     for (const e of fresh) {
+      if (e.spell && spellVisual(s, e, cast)) continue;
       if (e.kind === 'play' && e.uid) {
         sfx(findPerm(s, e.uid)?.perm.card.isLand ? 'land' : 'play');
         const el = ui.els.get(e.uid);
@@ -774,19 +784,11 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         const el = ui.els.get(e.uid);
         if (el) {
           ui.els.delete(e.uid);
-          const r = el.getBoundingClientRect();
-          if (r.width) {
-            const ghost = el.cloneNode(true);
-            ghost.className = 'perm ghost';
-            Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px' });
-            ghost.style.setProperty('--card-w', r.width + 'px');
-            fx.append(ghost);
-            setTimeout(() => ghost.remove(), 950);
-          }
+          deathGhost(el, el.getBoundingClientRect());
         }
       } else if (e.kind === 'life') {
         floatText(document.querySelector(`[data-life="${e.target}"]`), (e.delta > 0 ? '+' : '') + e.delta, e.delta > 0 ? 'gain' : 'loss');
-        if (e.delta < 0 && e.uid) explode(document.querySelector(`[data-life="${e.target}"]`), true);
+        if (e.delta < 0 && e.uid) explode(document.querySelector(`[data-life="${e.target}"]`), true, colorOf(s, e.uid));
         sfx(e.delta > 0 ? 'gain' : 'loss');
         if (e.delta < 0 && e.target === me()) { screen.classList.add('hurt'); buzz(120); setTimeout(() => screen.classList.remove('hurt'), 500); }
       } else if (e.kind === 'turn') {
@@ -807,8 +809,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       } else if (e.kind === 'combat') {
         // Impacto: explosión en cada criatura que combate y donde recibe el golpe el jugador.
         sfx('explosion');
+        duckMusic();
         buzz(150);
-        for (const u of e.uids || []) explode(ui.els.get(u));
+        for (const u of e.uids || []) explode(ui.els.get(u), false, colorOf(s, u));
       } else if (e.kind === 'illegal' && e.to === me()) {
         illegalSheet(e);
       } else if (e.kind === 'out' || e.kind === 'win') {
@@ -825,8 +828,64 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     for (const [uid, el] of ui.els) if (!findPerm(s, uid)) { el.remove(); ui.els.delete(uid); }
   }
 
+  function colorOf(s, uid) {
+    const f = findPerm(s, uid);
+    return (f && f.perm.card.colors[0]) || 'R';
+  }
+
+  function deathGhost(el, r) {
+    if (!r.width) return;
+    const ghost = el.cloneNode(true);
+    ghost.className = 'perm ghost';
+    Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px' });
+    ghost.style.setProperty('--card-w', r.width + 'px');
+    fx.append(ghost);
+    setTimeout(() => ghost.remove(), 950);
+  }
+
+  /**
+   * Efecto de un hechizo: su magia (según el color) vuela hasta el objetivo y,
+   * al impactar, se ve el resultado. Devuelve true si se ha encargado del evento.
+   */
+  function spellVisual(s, e, cast) {
+    const kinds = ['hit', 'pump', 'life', 'death'];
+    if (!kinds.includes(e.kind)) return false;
+    const colors = e.spell.colors;
+    const main = colors[0];
+    let target = null;
+    if (e.kind === 'life') target = document.querySelector(`[data-life="${e.target}"]`);
+    else target = ui.els.get(e.uid);
+    if (!target) return false;
+    const from = (e.spell.src != null && ui.els.get(e.spell.src))
+      || (e.spell.by === me() ? summon : topbar.querySelector(`[data-player="${e.spell.by}"]`));
+    const key = e.kind + ':' + (e.uid ?? e.target);
+    if (!cast.has('snd')) { magicSound(main, 'cast'); duckMusic(1100); cast.add('snd'); }
+    cast.add(key);
+    let ghostRect = null;
+    if (e.kind === 'death') {
+      ui.els.delete(e.uid);
+      ghostRect = target.getBoundingClientRect();
+    }
+    castMagic(fx, colors, from, target, () => {
+      magicSound(main, 'impact');
+      if (e.kind === 'life') {
+        const lifeEl = document.querySelector(`[data-life="${e.target}"]`);
+        floatText(lifeEl, (e.delta > 0 ? '+' : '') + e.delta, e.delta > 0 ? 'gain' : 'loss');
+        if (e.delta < 0 && e.target === me()) { screen.classList.add('hurt'); buzz(120); setTimeout(() => screen.classList.remove('hurt'), 500); }
+        if (lifeEl) { lifeEl.classList.remove('shake'); void lifeEl.offsetWidth; lifeEl.classList.add('shake'); setTimeout(() => lifeEl.classList.remove('shake'), 600); }
+      } else if (e.kind === 'death') {
+        sfx('death');
+        deathGhost(target, ghostRect);
+      } else {
+        const el = ui.els.get(e.uid);
+        if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 600); }
+      }
+    });
+    return true;
+  }
+
   /** Explosión de impacto (destello, onda expansiva y chispas). */
-  function explode(target, big = false) {
+  function explode(target, big = false, color = 'R') {
     if (!target || !target.isConnected) return;
     const r = target.getBoundingClientRect();
     const sr = screen.getBoundingClientRect();
@@ -834,7 +893,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const boom = h('div', { class: 'boom', style: { left: r.left - sr.left + r.width / 2 + 'px', top: r.top - sr.top + r.height / 2 + 'px', width: size + 'px', height: size + 'px' } },
       h('i', { class: 'flash' }), h('i', { class: 'ring' }));
     fx.append(boom);
-    burst(target, 'R', big ? 30 : 20);
+    burst(target, color, big ? 30 : 20);
     setTimeout(() => burst(target, 'C', 12), 80);
     target.classList.remove('shake');
     void target.offsetWidth;
@@ -1027,6 +1086,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       slider('Tamaño', 'zoom', 0.7, 1.15, 0.05),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: st.camera, onChange: (e) => { st.camera = e.target.checked; saveSettings(st); applySettings(); } }), 'Usar la cámara'),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: soundOn(), onChange: (e) => setSound(e.target.checked) }), 'Efectos de sonido'),
+      h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: musicOn(), onChange: (e) => setMusic(e.target.checked) }), 'Música de fondo'),
+      h('label', { class: 'slider' }, h('span', {}, 'Volumen música'), h('input', { type: 'range', min: 0.05, max: 1, step: 0.05, value: musicVolume(), onInput: (e) => setMusicVolume(+e.target.value) })),
       h('div', { class: 'actions' },
         h('button', { class: 'act', onClick: () => { close(); openLog(); } }, 'Crónica de la partida'),
         h('button', { class: 'act', onClick: () => { close(); playCard(); } }, 'Grimorio'),

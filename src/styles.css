@@ -617,3 +617,39 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .shake { animation: shake 0.45s; }
 @keyframes shake { 0%, 100% { translate: 0 0; } 20% { translate: -5px 2px; } 40% { translate: 5px -2px; } 60% { translate: -3px 1px; } 80% { translate: 3px -1px; } }
 .edition-toast { top: auto; bottom: max(64px, calc(env(safe-area-inset-bottom) + 60px)); }
+
+/* ---------- magia por color (src/ui/magic.js) ---------- */
+.mg-beam, .mg-orb, .mg-trail, .mg-impact { position: fixed; pointer-events: none; z-index: 45; }
+.mg-beam { height: 14px; margin-top: -7px; transform-origin: 0 50%; border-radius: 8px;
+  background: var(--grad); box-shadow: 0 0 18px 6px var(--deep), 0 0 40px 10px var(--deep); filter: saturate(1.4); }
+.mg-beam::after { content: ''; position: absolute; inset: 4px 0; border-radius: 4px; background: var(--light); filter: blur(1px); }
+.mg-beam-B { background: repeating-linear-gradient(90deg, #3b0a5e 0 18px, #8a2be2 18px 30px, #c77dff 30px 36px); animation: beamJitter 0.08s steps(2) infinite; }
+.mg-beam-W { height: 26px; margin-top: -13px; box-shadow: 0 0 30px 12px #ffd76a, 0 0 70px 20px #fff2b0; }
+@keyframes beamJitter { 50% { margin-top: -9px; } }
+.mg-orb { left: 0; top: 0; width: 50px; height: 50px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #fff 0 12%, var(--light) 30%, var(--deep) 70%, transparent 72%);
+  box-shadow: 0 0 22px 8px var(--deep); }
+.mg-orb-R { width: 64px; height: 64px; box-shadow: 0 0 26px 12px #ff4d1a, 0 0 60px 20px #ff9a1a; animation: flicker 0.1s infinite alternate; }
+.mg-orb-U { border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; box-shadow: 0 0 20px 8px #2f8cff, 0 0 40px 14px #7fd4ff; }
+.mg-orb-G { border-radius: 0 60% 0 60%; box-shadow: 0 0 18px 6px #3fbf3f; }
+.mg-orb-C { border-radius: 4px; box-shadow: 0 0 16px 6px #a9b4c8; }
+@keyframes flicker { to { filter: brightness(1.35) hue-rotate(-10deg); } }
+.mg-trail { width: 18px; height: 18px; margin: -9px 0 0 -9px; animation: trailOut 0.7s ease-out forwards; }
+.mg-trail.big { width: 22px; height: 22px; margin: -11px 0 0 -11px; animation-duration: 0.8s; }
+.mg-trail-mote { border-radius: 50%; background: var(--light); box-shadow: 0 0 10px 4px var(--deep); }
+.mg-trail-flame { border-radius: 50% 50% 50% 50% / 70% 70% 30% 30%; background: radial-gradient(circle at 50% 70%, #fff3a0, #ff9a1a 45%, #ff3a10 75%); box-shadow: 0 0 12px 4px #ff5a1a; }
+.mg-trail-drop { border-radius: 50% 0 50% 50%; background: linear-gradient(135deg, #e6f7ff, #2f8cff); box-shadow: 0 0 8px 2px #4aa8ff; }
+.mg-trail-leaf { border-radius: 0 80% 0 80%; background: linear-gradient(135deg, #b6ff8a, #2e9e2e); box-shadow: 0 0 6px 1px #3fbf3f; }
+.mg-trail-shard { width: 8px; height: 16px; border-radius: 1px; background: linear-gradient(#ffffff, #8f9bb3); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+@keyframes trailOut {
+  from { transform: translate(0, 0) rotate(var(--rot, 0deg)) scale(1); opacity: 1; }
+  to { transform: translate(var(--dx), var(--dy)) rotate(calc(var(--rot, 0deg) + 160deg)) scale(0.2); opacity: 0; }
+}
+.mg-impact { transform: translate(-50%, -50%); border-radius: 50%; }
+.mg-impact::before { content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 10%, var(--light) 25%, var(--deep) 50%, transparent 70%); animation: boomFlash 0.6s ease-out forwards; }
+.mg-impact::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 5px solid var(--light); box-shadow: 0 0 20px var(--deep); animation: boomRing 0.8s ease-out forwards; }
+.mg-impact-B::before { background: radial-gradient(circle, #f3d9ff 0 8%, #8a2be2 30%, #2a0040 55%, transparent 70%); }
+.mg-impact-U::after { border-style: dashed; }
+.mg-impact-G::after { border-style: dotted; border-width: 7px; }
+.menu-btns { display: flex; gap: 8px; flex-wrap: wrap; }

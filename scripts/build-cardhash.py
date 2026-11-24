@@ -15,7 +15,7 @@ Formato (little-endian):
   hashes      n * 2*words * u32  (por entrada: huella clásica y huella de paso alto)
   oracle_idx  n * u16
   image_id    n * 16 bytes (uuid de Scryfall de la imagen a mostrar)
-  flags       n * u8   (bit0: cara trasera, bit1: impresión en español)
+  flags       n * u8   (bit0: cara trasera, bit1: impresión en español, bit2: arte completo/sin borde)
 Cada ilustración aparece dos veces si tiene impresión en español: la huella de la
 imagen inglesa y la de la española (el texto cambia la huella; así una carta en
 español se compara con su imagen en español).
@@ -92,7 +92,8 @@ def main():
             oracle = c.get('oracle_id') or f.get('oracle_id')
             if not iu.get('small') or not oracle:
                 continue
-            entries.append({'id': c['id'], 'face': fi, 'oracle': oracle, 'ill': f.get('illustration_id') or c.get('illustration_id'), 'url': iu['small']})
+            fa = bool(c.get('full_art')) or c.get('border_color') == 'borderless' or c.get('type_line', '').startswith('Basic Land')
+            entries.append({'id': c['id'], 'face': fi, 'oracle': oracle, 'ill': f.get('illustration_id') or c.get('illustration_id'), 'url': iu['small'], 'fa': fa})
     print('ilustraciones', len(entries), flush=True)
 
     # impresión en español más reciente de cada ilustración
@@ -132,7 +133,7 @@ def main():
             continue
         seen.add((sp[1], sp[2]))
         sid, face = sp[1], sp[2]
-        extra.append({'id': sid, 'face': face, 'oracle': e['oracle'], 'ill': e['ill'], 'es': True,
+        extra.append({'id': sid, 'face': face, 'oracle': e['oracle'], 'ill': e['ill'], 'es': True, 'fa': e['fa'],
                       'url': f"https://cards.scryfall.io/small/{'back' if face else 'front'}/{sid[0]}/{sid[1]}/{sid}.jpg"})
 
     def fetch_es(e):
@@ -164,7 +165,7 @@ def main():
         for e in entries:
             # la imagen a mostrar es la de esa misma entrada (la edición reconocida)
             f.write(uuid.UUID(e['id']).bytes)
-            flags.append((1 if e['face'] else 0) | (2 if e.get('es') else 0))
+            flags.append((1 if e['face'] else 0) | (2 if e.get('es') else 0) | (4 if e.get('fa') else 0))
         f.write(bytes(flags))
         for o in oracles:
             f.write(uuid.UUID(o).bytes)

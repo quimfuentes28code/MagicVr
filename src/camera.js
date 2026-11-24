@@ -233,3 +233,64 @@ export function stretchContrast(src) {
   ctx.putImageData(img, 0, 0);
   return src;
 }
+
+/**
+ * Endereza el recorte si la carta está algo girada (hasta ±10°): busca el
+ * ángulo en el que las filas de texto quedan más horizontales (el perfil de
+ * filas tiene más contraste) y gira la imagen ese ángulo.
+ */
+export function deskew(src) {
+  const sw = 220;
+  const sh = Math.max(20, Math.round((src.height / src.width) * sw));
+  const small = document.createElement('canvas');
+  small.width = sw;
+  small.height = sh;
+  const sctx = small.getContext('2d', { willReadFrequently: true });
+  const work = document.createElement('canvas');
+  work.width = sw;
+  work.height = sh;
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  sctx.drawImage(src, 0, 0, sw, sh);
+  const score = (deg) => {
+    wctx.setTransform(1, 0, 0, 1, 0, 0);
+    wctx.fillStyle = '#808080';
+    wctx.fillRect(0, 0, sw, sh);
+    wctx.translate(sw / 2, sh / 2);
+    wctx.rotate((deg * Math.PI) / 180);
+    wctx.drawImage(small, -sw / 2, -sh / 2);
+    const d = wctx.getImageData(0, 0, sw, sh).data;
+    // energía de los cambios verticales entre filas (texto horizontal = filas muy distintas)
+    const rows = new Float64Array(sh);
+    for (let y = 0; y < sh; y++) {
+      let s = 0;
+      for (let x = Math.round(sw * 0.1); x < sw * 0.9; x++) s += d[(y * sw + x) * 4];
+      rows[y] = s;
+    }
+    let e = 0;
+    for (let y = 1; y < sh; y++) e += (rows[y] - rows[y - 1]) ** 2;
+    return e;
+  };
+  let best = 0;
+  let bestScore = score(0);
+  for (const deg of [-10, -8, -6, -4, -3, -2, -1, 1, 2, 3, 4, 6, 8, 10]) {
+    const s = score(deg);
+    if (s > bestScore * 1.04) { bestScore = s; best = deg; }
+  }
+  // afinamos en medios grados
+  for (const deg of [best - 0.5, best + 0.5]) {
+    const s = score(deg);
+    if (s > bestScore) { bestScore = s; best = deg; }
+  }
+  if (!best) return src;
+  const out = document.createElement('canvas');
+  out.width = src.width;
+  out.height = src.height;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((best * Math.PI) / 180);
+  ctx.drawImage(src, -src.width / 2, -src.height / 2);
+  out.deskewed = best;
+  return out;
+}

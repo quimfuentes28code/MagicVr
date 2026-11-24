@@ -164,6 +164,8 @@ export class CardWatcher {
         if (cardHashReady() && cardDbReady()) {
           const t0 = performance.now();
           await this.imageTick(worker);
+          this.tickMs = performance.now() - t0;
+          if (window.__visionDebug) window.__visionDebug({ tickMs: this.tickMs });
           // a unos 8 por segundo como mucho (deja respirar al móvil)
           await sleep(Math.max(30, 120 - (performance.now() - t0)));
           continue;
@@ -202,12 +204,25 @@ export class CardWatcher {
     let loc = locateCard(g, W, H, this.hint);
     if (this.hint && loc.score < this.hint.score * 0.6) loc = locateCard(g, W, H, null);
     const k = r.sh / H; // de la imagen pequeña a píxeles del vídeo
-    const toVideo = (l) => ({ cx: r.sx + l.cx * k, cy: r.sy + l.cy * k, h: l.h * k, ang: l.ang });
-    const vloc = { ...toVideo(loc), alts: (loc.alts || []).map(toVideo) };
+    // Recorte de la zona una sola vez (≤ 560 px de alto): todos los enderezados
+    // salen de aquí y no del fotograma entero (mucho más rápido en el móvil).
+    const ck = Math.min(1, 560 / r.sh);
+    const crop = this.crop || (this.crop = document.createElement('canvas'));
+    crop.width = Math.max(8, Math.round(r.sw * ck));
+    crop.height = Math.max(8, Math.round(r.sh * ck));
+    const cctx = crop.getContext('2d');
+    cctx.imageSmoothingQuality = 'high';
+    cctx.drawImage(this.video, r.sx, r.sy, r.sw, r.sh, 0, 0, crop.width, crop.height);
+    const kc = k * ck; // de la imagen pequeña al recorte
+    const toCrop = (l) => ({ cx: l.cx * kc, cy: l.cy * kc, h: l.h * kc, ang: l.ang });
+    const vloc = { ...toCrop(loc), alts: (loc.alts || []).map(toCrop) };
     const db = await loadCardHash();
     // propuestas alternativas repartidas entre lecturas (2 por lectura)
     this.altTurn = ((this.altTurn || 0) + 2) % 8;
-    const res = identify(this.video, vloc, db, { altFrom: this.hint ? 0 : this.altTurn, altCount: this.hint ? 0 : 2 });
+    const res0 = identify(crop, vloc, db, { altFrom: this.hint ? 0 : this.altTurn, altCount: this.hint ? 0 : 2 });
+    const res = res0 && res0.loc
+      ? { ...res0, loc: { ...res0.loc, cx: r.sx + res0.loc.cx / ck, cy: r.sy + res0.loc.cy / ck, h: res0.loc.h / ck } }
+      : res0;
     if (window.__visionDebug) window.__visionDebug({ image: true, loc, res });
     const present = res && res.d <= IMG.present;
     let sure = present && (res.d <= IMG.sure || (res.d <= IMG.present && res.margin >= IMG.bigMargin));

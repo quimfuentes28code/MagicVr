@@ -209,8 +209,8 @@ export function hashFromInner(gray) {
  * Endereza la carta localizada (en coordenadas de `source`) y devuelve su
  * interior en gris NW×NH. dx, dy, ds: pequeños desplazamientos (fracción) para tolerar errores.
  */
-export function innerGray(source, cx, cy, h, ang, dx = 0, dy = 0, ds = 1) {
-  const w = h * ASPECT;
+export function innerGray(source, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, ax = 1) {
+  const w = h * ASPECT * ax;
   const c = document.createElement('canvas');
   c.width = NW;
   c.height = NH;
@@ -330,7 +330,7 @@ const HYP = [
   [0.95, 0, 0], // con funda: el borde exterior es algo mayor que la carta
 ];
 
-const hashAt = (source, p) => hashFromInner(innerGray(source, p[0], p[1], p[2], p[3]));
+const hashAt = (source, p) => hashFromInner(innerGray(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1));
 
 function hamming(db, i, q) {
   let d = 0;
@@ -364,7 +364,7 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
       const [ds, ex, ey] = HYP[hi];
       const h = st.h * ds;
       const w = h * ASPECT;
-      const p = [st.cx + ex * w * c0 - ey * h * s0, st.cy + ex * w * s0 + ey * h * c0, h, st.ang];
+      const p = [st.cx + ex * w * c0 - ey * h * s0, st.cy + ex * w * s0 + ey * h * c0, h, st.ang, 1];
       const q = hashAt(source, p);
       for (const [d, i] of nearest(db, q, 12)) {
         if (!short.has(i)) short.set(i, true);
@@ -395,7 +395,8 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
             [0, 0, 0, 0.035 * k], [0, 0, 0, -0.035 * k],
           ];
           for (const st2 of steps) {
-            const p2 = [p[0] + st2[0], p[1] + st2[1], p[2] + st2[2], p[3] + st2[3]];
+            const p2 = [p[0] + st2[0], p[1] + st2[1], p[2] + st2[2], p[3] + st2[3], p[4] + (st2[4] || 0)];
+            if (Math.abs(p2[4] - 1) > 0.08) continue;
             // sin alejarse demasiado del punto de partida (evita «derivar» hacia otra cosa)
             if (Math.hypot(p2[0] - bestP[0], p2[1] - bestP[1]) > 0.08 * bestP[2] || Math.abs(p2[2] / bestP[2] - 1) > 0.12 || Math.abs(p2[3] - bestP[3]) > 0.1) continue;
             const d2 = score(p2);
@@ -413,8 +414,8 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
   const o = db.oracleIdx[i];
   const other = list.find(([, j]) => db.oracleIdx[j] !== o);
   const d2 = other ? other[0] : BITS;
-  const [cx, cy, h, ang] = bestRun.p;
-  return { i, d, d2, margin: d2 - d, oracle: db.oracle(i), loc: { cx, cy, h, ang } };
+  const [cx, cy, h, ang, ax] = bestRun.p;
+  return { i, d, d2, margin: d2 - d, oracle: db.oracle(i), loc: { cx, cy, h, ang, ax } };
 }
 
 try {

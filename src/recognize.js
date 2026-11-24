@@ -149,7 +149,7 @@ export function locateCard(g, W, H, hint = null) {
     scored.sort((a, b) => b[0] - a[0]);
     const picked = [];
     for (const [, p] of scored) {
-      if (picked.length >= 4) break;
+      if (picked.length >= 7) break;
       const differs = (q) => Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.06 * H || Math.abs(p[2] - q[2]) > 0.08 * q[2] || Math.abs(p[3] - q[3]) > 0.05;
       const far = picked.every(differs);
       const notFirst = differs(starts[0][0]);
@@ -157,9 +157,11 @@ export function locateCard(g, W, H, hint = null) {
     }
     for (const p of picked) starts.push([p]);
   }
-  const results = starts.map((top) => {
+  const results = starts.map((top, si) => {
     let sc = null;
-    for (const [dp, dhf, da] of [[4, 0.02, 1.5], [1.5, 0.008, 0.5], [0.6, 0.003, 0.2]]) {
+    // la propuesta principal se ajusta a fondo; las alternativas, más por encima (más rápido)
+    const stages = si === 0 ? [[4, 0.02, 1.5], [1.5, 0.008, 0.5], [0.6, 0.003, 0.2]] : [[3, 0.015, 1.2], [1, 0.005, 0.4]];
+    for (const [dp, dhf, da] of stages) {
       const dh = dhf * H;
       const rad = (da * Math.PI) / 180;
       const cs = [];
@@ -344,9 +346,9 @@ function hamming(db, i, q) {
  * posición) para que la huella encaje mejor con las candidatas; 3) búsqueda final.
  * Devuelve { i, d, d2, margin, oracle, loc } o null.
  */
-export function identify(source, loc, db = hashDb, { refine = true } = {}) {
+export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0, altCount = 99 } = {}) {
   if (!db) return null;
-  const starts = [loc, ...(loc.alts || [])];
+  const starts = [loc, ...(loc.alts || []).slice(altFrom, altFrom + altCount)];
   let bestRun = null;
   for (const st of starts) {
     // si ya hay una coincidencia clara, no hace falta probar más propuestas
@@ -356,7 +358,10 @@ export function identify(source, loc, db = hashDb, { refine = true } = {}) {
     let bestD = Infinity;
     const c0 = Math.cos(st.ang);
     const s0 = Math.sin(st.ang);
-    for (const [ds, ex, ey] of HYP) {
+    for (let hi = 0; hi < HYP.length; hi++) {
+      // con las dos primeras hipótesis suele bastar
+      if (hi >= 2 && bestD <= 45) break;
+      const [ds, ex, ey] = HYP[hi];
       const h = st.h * ds;
       const w = h * ASPECT;
       const p = [st.cx + ex * w * c0 - ey * h * s0, st.cy + ex * w * s0 + ey * h * c0, h, st.ang];
@@ -413,5 +418,32 @@ export function identify(source, loc, db = hashDb, { refine = true } = {}) {
 }
 
 try {
-  if (localStorage.getItem('mtgvr-debug')) window.__rec = { locateCard, identify, loadCardHash, hashFromInner, innerGray, nearest };
+  if (localStorage.getItem('mtgvr-debug')) window.__rec = { locateCard, identify, loadCardHash, hashFromInner, innerGray, nearest, enclosedRatio };
 } catch { /* */ }
+
+/**
+ * ¿Hay un rectángulo de carta claro alrededor de `loc` (en píxeles de g)?
+ * Si lo hay, lo encontrado podría ser sólo la ilustración de otra carta.
+ * Devuelve la puntuación del mejor rectángulo mayor dividida por la de `loc`.
+ */
+export function enclosedRatio(g, W, H, loc) {
+  const { gx, gy } = sobel(g, W, H);
+  const gm = new Float32Array(W * H);
+  for (let i = 0; i < gm.length; i++) gm[i] = Math.hypot(gx[i], gy[i]);
+  const F = { gx, gy, gm, W, H };
+  const own = rectScore(F, loc.cx, loc.cy, loc.h, loc.ang);
+  let best = 0;
+  const c = Math.cos(loc.ang);
+  const s = Math.sin(loc.ang);
+  for (const sc of [1.2, 1.3, 1.4, 1.5, 1.6]) {
+    for (const ey of [-0.06, -0.03, 0, 0.03, 0.06]) {
+      for (const ex of [-0.04, 0, 0.04]) {
+        const h = loc.h * sc;
+        const cx = loc.cx + ex * h * c - ey * h * s;
+        const cy = loc.cy + ex * h * s + ey * h * c;
+        best = Math.max(best, rectScore(F, cx, cy, h, loc.ang));
+      }
+    }
+  }
+  return own > 0 ? best / own : 0;
+}

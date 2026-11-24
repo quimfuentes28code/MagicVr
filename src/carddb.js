@@ -120,6 +120,17 @@ export function recordToCard(r) {
   return c;
 }
 
+/** Carta por su oracle id (identificador de Scryfall común a todas sus impresiones). */
+export function cardByOracle(oracle) {
+  if (!db) return null;
+  if (!db.byOracle) {
+    db.byOracle = new Map();
+    db.records.forEach((r, i) => db.byOracle.set(r.o, i));
+  }
+  const i = db.byOracle.get(oracle);
+  return i == null ? null : recordToCard(db.records[i]);
+}
+
 /** Carta por nombre exacto (inglés o español, sin importar tildes/mayúsculas). */
 export function cardByName(name) {
   if (!db) return null;

@@ -695,3 +695,8 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
   70% { transform: translate(-50%, -120%) scale(1); opacity: 1; } 100% { transform: translate(-50%, -170%) scale(0.9); opacity: 0; } }
 .table-screen.quake { animation: quake 0.42s; }
 @keyframes quake { 0%, 100% { translate: 0 0; } 15% { translate: -7px 4px; } 30% { translate: 6px -5px; } 45% { translate: -5px 3px; } 60% { translate: 4px -2px; } 80% { translate: -2px 1px; } }
+.card-outline { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 24; pointer-events: none; opacity: 0; transition: opacity 0.25s; }
+.card-outline.show { opacity: 1; }
+.card-outline polygon { fill: none; stroke: #ffc94a; stroke-width: 3; stroke-linejoin: round; filter: drop-shadow(0 0 6px #ffb300); transition: stroke 0.2s; }
+.card-outline[data-state="sure"] polygon { stroke: #b8ff7a; filter: drop-shadow(0 0 8px #7dff3a); }
+.card-outline[data-state="found"] polygon { stroke: #5dffa0; stroke-width: 4; filter: drop-shadow(0 0 10px #22ff88); }

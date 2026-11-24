@@ -294,3 +294,47 @@ export function deskew(src) {
   out.deskewed = best;
   return out;
 }
+
+/** Rectángulo relativo (0..1 de lo que se ve en pantalla) → píxeles del vídeo. */
+export function regionToVideo(video, rect) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const ew = video.clientWidth;
+  const eh = video.clientHeight;
+  const scale = Math.max(ew / vw, eh / vh);
+  const visW = ew / scale;
+  const visH = eh / scale;
+  const offX = (vw - visW) / 2;
+  const offY = (vh - visH) / 2;
+  return { sx: offX + rect.x * visW, sy: offY + rect.y * visH, sw: rect.w * visW, sh: rect.h * visH };
+}
+
+/** Recorte del vídeo en gris (Float32Array) con `height` píxeles de alto. */
+export function grabGray(video, rect, height = 200) {
+  const r = regionToVideo(video, rect);
+  if (!r.sw || !r.sh) return null;
+  const H = height;
+  const W = Math.max(8, Math.round((r.sw / r.sh) * H));
+  const c = grabGray.canvas || (grabGray.canvas = document.createElement('canvas'));
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(video, r.sx, r.sy, r.sw, r.sh, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const g = new Float32Array(W * H);
+  for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+  return { g, W, H, r };
+}
+
+/** Píxeles del vídeo → posición relativa (0..1) en lo que se ve en pantalla. */
+export function videoToScreen(video, x, y) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const ew = video.clientWidth;
+  const eh = video.clientHeight;
+  const scale = Math.max(ew / vw, eh / vh);
+  const visW = ew / scale;
+  const visH = eh / scale;
+  return { x: (x - (vw - visW) / 2) / visW, y: (y - (vh - visH) / 2) / visH };
+}

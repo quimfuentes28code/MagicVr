@@ -427,7 +427,11 @@ function resolveItem(s, item) {
   } else {
     pushEvent(s, 'resolve', `${name} se resuelve.`, { by: pl.id, card: stripCard(card), color: card.colors[0] || 'C' });
     if (fx.length) resolveEffects(s, pl, card, fx, item.targets || [], null);
-    pl.graveyard.push(stripCard(card));
+    if (card.adventureOf) {
+      // Aventura (regla 715.4): se exilia y luego se puede lanzar la criatura desde el exilio.
+      pl.exile.push({ ...stripCard(card.adventureOf), onAdventure: true });
+      pushEvent(s, 'info', `${displayName(card.adventureOf)} se va de aventura: queda exiliada y más adelante puedes lanzar la criatura desde el exilio (pon la carta en el círculo y elige la criatura).`, { to: pl.id });
+    } else pl.graveyard.push(stripCard(card));
   }
 }
 
@@ -494,7 +498,11 @@ const HANDLERS = {
       }
     }
     if (fromHand >= 0) pl.hand.splice(fromHand, 1);
-    else if (!pl.isBot && !a.fromCommand && pl.handCount > 0) pl.handCount -= 1;
+    else if (card.fromAdventure) {
+      // lanzada desde el exilio tras su aventura: sale del exilio (no de la mano)
+      const i = pl.exile.findIndex((c) => c.onAdventure && c.id === card.id);
+      if (i >= 0) pl.exile.splice(i, 1);
+    } else if (!pl.isBot && !a.fromCommand && pl.handCount > 0) pl.handCount -= 1;
 
     // Las tierras no usan la pila (regla 305.1).
     if (card.isLand) {

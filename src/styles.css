@@ -843,3 +843,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 @keyframes holoPortal { 0% { opacity: 0; transform: scale(0.2) rotate(0deg); } 12% { opacity: 1; transform: scale(1) rotate(40deg); } 80% { opacity: 1; transform: scale(1.05) rotate(220deg); } 100% { opacity: 0; transform: scale(0.4) rotate(300deg); } }
 .holo-mote { position: absolute; width: 5px; height: 5px; border-radius: 50%; opacity: 0; box-shadow: 0 0 8px 2px var(--hd); animation: holoMote 1.4s ease-out forwards; }
 @keyframes holoMote { 0% { opacity: 0; transform: translate(0, 0) scale(1); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.3); } }
+.face-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.face-choice { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; padding: 10px 14px; }
+.face-choice b { font-family: var(--title); font-size: 16px; }
+.face-choice span { font-size: 14px; opacity: .85; font-style: italic; }

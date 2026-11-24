@@ -273,7 +273,38 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     return card.isLand || !!planPayment(player(s, me()), card.manaCost);
   }
 
+  /** Cartas de dos caras/mitades (aventura, doble cara modal, partidas): eliges cuál jugar. */
+  const CHOOSE_LAYOUTS = ['adventure', 'modal_dfc', 'split'];
+  function chooseFace(card, then) {
+    const faces = card.faces || [];
+    const onAdv = player(S(), me()).exile.find((c) => c.onAdventure && c.id === card.id);
+    const opts = [];
+    if (card.layout === 'adventure') {
+      const [cre, adv] = faces;
+      if (onAdv) opts.push({ label: `${displayName(card)} desde el exilio`, sub: 'Criatura que volvió de su aventura', card: { ...cre, ...pick(card), fromAdventure: true }, primary: true });
+      opts.push({ label: displayName(card), sub: `Criatura · ${cre.manaCost || 'sin coste'}`, card: { ...cre, ...pick(card) } });
+      opts.push({ label: adv.name, sub: `Aventura (${/Instant/.test(adv.typeLine) ? 'instantáneo' : 'conjuro'}) · ${adv.manaCost}: ${adv.oracle.replace(/\([^)]*\)/g, '').trim()}`, card: { ...adv, image: card.image, adventureOf: { ...cre, ...pick(card) } } });
+    } else {
+      faces.forEach((f, i) => opts.push({ label: f.name, sub: `${card.layout === 'split' ? (i ? 'Mitad derecha' : 'Mitad izquierda') : (i ? 'Cara trasera' : 'Cara delantera')} · ${f.manaCost || 'sin coste'} · ${f.typeLine}`, card: { ...f, image: i && f.image ? f.image : card.image } }));
+    }
+    let close;
+    close = sheet(h('div', {},
+      h('h3', {}, `¿Cómo juegas ${displayName(card)}?`),
+      h('p', { class: 'muted' }, card.layout === 'adventure'
+        ? 'Es una carta con aventura: puedes lanzar la criatura, o lanzar primero la aventura (el hechizo); entonces la carta queda exiliada y más tarde puedes lanzar la criatura desde el exilio.'
+        : 'Esta carta tiene dos partes: elige cuál juegas.'),
+      h('div', { class: 'face-choices' }, opts.map((o) => h('button', { class: 'act face-choice' + (o.primary ? ' primary' : ''), onClick: () => { close(); then(o.card); } },
+        h('b', {}, o.label), h('span', {}, o.sub)))),
+    ));
+  }
+  // lo que la cara elegida conserva de la carta reconocida (edición, nombre en español…)
+  const pick = (card) => ({ image: card.image, edition: card.edition, printedName: card.printedName, printedText: card.printedText, printedType: card.printedType, id: card.id });
+
   function playRecognized(card) {
+    if (card.faces && card.faces.length > 1 && CHOOSE_LAYOUTS.includes(card.layout) && !card.faceIndex && card.faceIndex !== 0) {
+      chooseFace(card, (face) => playRecognized(face));
+      return;
+    }
     const wanted = targetsFor(card);
     if (wanted.length && canPlayNow(card)) {
       startTargeting(card, wanted, (targets) => dispatchPlay(card, targets));

@@ -262,7 +262,8 @@ export class CardWatcher {
     const present = res && res.d <= IMG.present;
     let sure = present && (res.d <= IMG.sure || (res.d <= IMG.present && res.margin >= IMG.bigMargin));
     // ¿lo encontrado es sólo la ilustración de una carta mayor? (p. ej. parece una tierra de arte completo)
-    if (sure && res.d > IMG.instant && enclosed > IMG.enclosed) sure = false;
+    // (con un margen grande sobre la siguiente carta no hay confusión posible)
+    if (sure && res.d > IMG.instant && res.margin < 80 && enclosed > IMG.enclosed) sure = false;
     // contorno de la carta en pantalla (esquinas en coordenadas relativas)
     if (present && res.loc) {
       const { cx, cy, h, ang } = res.loc;

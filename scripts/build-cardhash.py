@@ -92,7 +92,7 @@ def main():
             oracle = c.get('oracle_id') or f.get('oracle_id')
             if not iu.get('small') or not oracle:
                 continue
-            fa = bool(c.get('full_art')) or c.get('border_color') == 'borderless' or c.get('type_line', '').startswith('Basic Land')
+            fa = bool(c.get('full_art')) or c.get('border_color') == 'borderless'
             entries.append({'id': c['id'], 'face': fi, 'oracle': oracle, 'ill': f.get('illustration_id') or c.get('illustration_id'), 'url': iu['small'], 'fa': fa})
     print('ilustraciones', len(entries), flush=True)
 

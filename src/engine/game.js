@@ -94,6 +94,8 @@ export function createGame({ mode = '1v1', players, seed = Date.now(), first = n
     graveyard: [],
     exile: [],
     hand: [],
+    // cartas en la mano física de un jugador humano (estimación que la app lleva sola)
+    handCount: p.isBot ? 0 : 7,
     library: [],
     commander: null,
     commanderTax: 0,
@@ -492,6 +494,7 @@ const HANDLERS = {
       }
     }
     if (fromHand >= 0) pl.hand.splice(fromHand, 1);
+    else if (!pl.isBot && !a.fromCommand && pl.handCount > 0) pl.handCount -= 1;
 
     // Las tierras no usan la pila (regla 305.1).
     if (card.isLand) {
@@ -568,6 +571,13 @@ const HANDLERS = {
     t.life += a.delta;
     pushEvent(s, 'life', `${t.name} ${a.delta >= 0 ? 'gana' : 'pierde'} ${Math.abs(a.delta)} vida${Math.abs(a.delta) === 1 ? '' : 's'} (${t.life}).`, { target: t.id, delta: a.delta });
     stateBased(s);
+  },
+
+  /** Ajustar a mano cuántas cartas tienes en la mano (física). */
+  hand(s, a, pl) {
+    const t = player(s, a.target || pl.id);
+    if (!t || t.isBot) return s;
+    t.handCount = Math.max(0, a.set != null ? a.set : (t.handCount || 0) + (a.delta || 0));
   },
 
   poison(s, a) {
@@ -805,7 +815,7 @@ function enterStep(s, step) {
     if (s.turn > 1 || s.players.length > 2) {
       if (pl.isBot && pl.library.length) drawCard(s, pl);
       else if (pl.isBot && !pl.library.length) eliminate(s, pl, 'tiene que robar y no le quedan cartas');
-      if (!pl.isBot) pushEvent(s, 'draw', 'Paso de robar: roba una carta de tu mazo.', { to: pl.id, amount: 1 });
+      if (!pl.isBot) { pl.handCount += 1; pushEvent(s, 'draw', 'Paso de robar: roba una carta de tu mazo.', { to: pl.id, amount: 1 }); }
     }
   } else if (step === 'block') {
     s.combat.confirmed = [];
@@ -1016,6 +1026,7 @@ function resolveEffectsInner(s, pl, card, fx, targets, name) {
         break;
       case 'draw':
         if (pl.isBot) for (let i = 0; i < e.amount; i++) drawCard(s, pl);
+        else pl.handCount += e.amount;
         pushEvent(s, 'draw', pl.isBot ? `${pl.name} roba ${e.amount} carta${e.amount > 1 ? 's' : ''}.` : `${name}: roba ${e.amount} carta${e.amount > 1 ? 's' : ''} de tu mazo.`, { to: pl.id, amount: e.amount });
         break;
       case 'token':
@@ -1031,6 +1042,7 @@ function resolveEffectsInner(s, pl, card, fx, targets, name) {
           const [c, i] = idx;
           pl.graveyard.splice(i, 1);
           if (pl.isBot) pl.hand.push({ ...c, uid: s.nextId++ });
+          else pl.handCount += 1;
           pushEvent(s, 'info', pl.isBot ? `${pl.name} recupera ${displayName(c)} de su cementerio.` : `${name}: coge ${displayName(c)} de tu cementerio y ponla en tu mano.`, { to: pl.id });
         }
         break;
@@ -1089,6 +1101,7 @@ function leaveBattlefield(s, owner, perm, to, verb) {
   if (to === 'graveyard') owner.graveyard.push(perm.card);
   else if (to === 'exile') owner.exile.push(perm.card);
   else if (to === 'hand' && owner.isBot) owner.hand.push({ ...perm.card, uid: perm.uid });
+  else if (to === 'hand' && !perm.card.isToken) owner.handCount = (owner.handCount || 0) + 1;
   else if (to === 'library' && owner.isBot) owner.library.unshift({ ...perm.card, uid: perm.uid });
   const where = { graveyard: 'al cementerio', exile: 'al exilio', hand: 'a la mano', library: 'a la biblioteca' }[to];
   pushEvent(s, 'death', `${name} ${verb ? verb + ' y va' : 'va'} ${where}.`, { uid: perm.uid, to });

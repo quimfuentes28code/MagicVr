@@ -2,7 +2,7 @@
 // Lee sin parar el nombre de la carta que hay dentro del círculo de invocación
 // y avisa cuando reconoce una carta con seguridad. Sin botones.
 
-import { grabFrame, titleBar, stretchContrast } from './camera.js';
+import { grabFrame, titleBar, stretchContrast, deskew } from './camera.js';
 import { LOCAL_CARDS, localCard } from './engine/cards.js';
 import { findCard, knownCards } from './scryfall.js';
 import { cardDbReady, candidates, recordToCard } from './carddb.js';
@@ -161,7 +161,13 @@ export class CardWatcher {
 
   async tick(worker) {
     // 1º la franja del nombre (una línea, rápido y fiable); 2º la mitad superior.
-    const r = this.getRegion();
+    const region = this.getRegion();
+    // La carta puede ser más pequeña que el círculo (cámara lejos): cada lectura
+    // prueba también un encuadre centrado más pequeño, hasta dar con ella.
+    const SCALES = [1, 0.78, 0.62];
+    this.n = (this.n || 0) + 1;
+    const sc = this.accepted ? (this.acceptScale || 1) : (this.scale && this.hold > 0 ? this.scale : SCALES[this.n % SCALES.length]);
+    const r = { x: region.x + (region.w * (1 - sc)) / 2, y: region.y + (region.h * (1 - sc)) / 2, w: region.w * sc, h: region.h * sc };
     let text = '';
     let best = null;
     let lines = [];
@@ -170,7 +176,7 @@ export class CardWatcher {
     // Con la carta quieta, cada intento usa un encuadre algo distinto (como si
     // la movieras un poco): así no se queda atascado en un recorte que no lee.
     const J = [[0, 0, 1], [0, 0.04, 1], [0.03, -0.02, 0.94], [-0.03, 0.02, 0.94], [0, 0.07, 0.9], [0.02, 0.01, 1.06]];
-    const [jx, jy, js] = J[(this.jitter = ((this.jitter || 0) + 1) % J.length)];
+    const [jx, jy, js] = J[(this.jitter = (Math.floor(this.n / SCALES.length)) % J.length)];
     const PASSES = [
       { x: 0, w: 1, y: 0, h: 0.3, psm: '7', bar: true },
       { x: 0.07, w: 0.8, y: 0.02, h: 0.2, psm: '6' },
@@ -184,6 +190,7 @@ export class CardWatcher {
       canvas = grabFrame(this.video, { x, y, w, h: hgt });
       if (!canvas) return;
       stretchContrast(canvas);
+      canvas = deskew(canvas);
       if (pass.bar) {
         canvas = titleBar(canvas);
         if (!canvas) continue;
@@ -205,10 +212,12 @@ export class CardWatcher {
       this.accepted = null;
       this.onState({ phase: 'idle', text: 'Coloca una carta en el círculo' });
     }
+    if (this.hold > 0) this.hold--;
     // Pausa mínima entre dos cartas.
     if (Date.now() - this.lastAccept < 2000) return;
 
     if (best) {
+      this.scale = sc; this.hold = 2; // confirmamos con el mismo encuadre
       const key = norm(best.card.name);
       const count = this.last && this.last.key === key ? this.last.count + 1 : 1;
       this.last = { key, count };
@@ -241,6 +250,7 @@ export class CardWatcher {
   }
 
   accept(card) {
+    this.acceptScale = this.scale || 1;
     this.accepted = norm(card.name);
     this.missing = 0;
     this.last = null;

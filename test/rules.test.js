@@ -377,3 +377,16 @@ test('el maná sobrante se pierde al cambiar de paso y sólo se endereza el juga
   assert.equal(perm(s, theirs).tapped, false);
   assert.equal(perm(s, land).tapped, true);
 });
+
+test('mano física: la app lleva la cuenta de tus cartas en mano', () => {
+  let s = duel();
+  const a = s.players.find((p) => p.id === 'a');
+  assert.equal(a.handCount, 7);
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: BASICS.Forest || Object.values(BASICS)[0] });
+  assert.equal(s.players.find((p) => p.id === 'a').handCount, 6, 'jugar una carta la quita de la mano');
+  s = apply(s, { t: 'hand', by: 'a', delta: 2 });
+  assert.equal(s.players.find((p) => p.id === 'a').handCount, 8, 'se puede corregir a mano');
+  s = apply(s, { t: 'hand', by: 'a', set: 5 });
+  assert.equal(s.players.find((p) => p.id === 'a').handCount, 5);
+});

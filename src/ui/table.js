@@ -12,6 +12,7 @@ import { targetsFor, describeEffect } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
+import { hologram } from './hologram.js';
 import { apply as applyAction } from '../engine/game.js';
 import { normalize as normalizeCard } from '../engine/cards.js';
 import { warCry, strike, impactFlash, damageNumber } from './combatfx.js';
@@ -106,7 +107,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   // Tus casillas de mazo, cementerio y exilio: se colocan donde las ajustes,
   // del tamaño de tus cartas de verdad.
   const myZones = h('div', { class: 'zones-free' });
-  const mid = h('div', { class: 'table-mid' }, board, myZones, summon);
+  const oppAvatar = h('div', { class: 'avatar opp' });
+  const mid = h('div', { class: 'table-mid' }, board, myZones, summon, oppAvatar);
   const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, stackPanel, banner, targetBar, arrows, fx);
   const layout = () => ({ ...LAYOUT_DEFAULTS, tilt: ui.settings.tilt, ...(ui.settings.layout || {}) });
   applyLayout(mid, layout());
@@ -397,6 +399,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       ui.viewOpp = (opps.find((p) => !p.eliminated) || opps[0])?.id;
     }
     renderTop(s, opps);
+    renderAvatar(oppAvatar, s, player(s, ui.viewOpp), false);
     renderSide(oppRow, s, player(s, ui.viewOpp), 'opp');
     renderSide(meRow, s, myP, 'me');
     const act = activePlayer(s);
@@ -536,7 +539,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           ),
         ),
         h('div', { class: 'row-btns' },
-          h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; const bottom = ui.mulligans - (S().players.length > 2 ? 1 : 0); toast(bottom > 0 ? `Mulligan ${ui.mulligans}: baraja tu mazo, roba 7 cartas y pon ${bottom} carta${bottom > 1 ? 's' : ''} de tu mano debajo del mazo.` : 'Mulligan gratis: baraja tu mazo y roba 7 cartas (no pones ninguna debajo).', 'info', 7000); } }, 'Hago mulligan'),
+          h('button', { class: 'act', onClick: () => { ui.mulligans = (ui.mulligans || 0) + 1; const bottom = ui.mulligans - (S().players.length > 2 ? 1 : 0); session.dispatch({ t: 'hand', target: me(), set: 7 - Math.max(0, bottom) }); toast(bottom > 0 ? `Mulligan ${ui.mulligans}: baraja tu mazo, roba 7 cartas y pon ${bottom} carta${bottom > 1 ? 's' : ''} de tu mano debajo del mazo.` : 'Mulligan gratis: baraja tu mazo y roba 7 cartas (no pones ninguna debajo).', 'info', 7000); } }, 'Hago mulligan'),
           h('button', { class: 'act primary', onClick: () => { box.remove(); ui.holdVision = false; if (!screen.classList.contains('calibrating')) { session.pauseBots(false); watcher.pause(false); } } }, 'Me quedo la mano'),
         ),
       ));
@@ -561,11 +564,53 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     setTimeout(() => b.remove(), 3200);
   }
 
+  /** Retrato al estilo de las mesas digitales: cara, vidas en un escudo y la mano en abanico. */
+  function portraitOf(s, p) {
+    const cmd = p.commander;
+    if (cmd && cmd.image) return h('span', { class: 'av-face', style: { backgroundImage: `url(${cmd.image.replace('/normal/', '/art_crop/')})` } });
+    return h('span', { class: 'av-face icon-face' }, icon(p.isBot ? 'golem' : 'person'));
+  }
+  function handFan(n, onClick) {
+    const k = Math.min(n, 8);
+    return h('button', { class: 'av-hand', title: `${n} cartas en la mano`, onClick },
+      Array.from({ length: k }, (_, i) => h('i', { style: { '--i': i - (k - 1) / 2 } })),
+      h('b', {}, n));
+  }
+  function renderAvatar(el, s, p, mine) {
+    if (!p) { clear(el); return; }
+    const myTurn = activePlayer(s).id === p.id;
+    const hand = p.isBot ? p.hand.length : (p.handCount || 0);
+    el.classList.toggle('turn', myTurn);
+    el.classList.toggle('out', !!p.eliminated);
+    clear(el).append(
+      h('button', { class: 'av-portrait', onClick: () => playerSheet(p) }, h('span', { class: 'av-ring' }), portraitOf(s, p)),
+      h('div', { class: 'av-life' },
+        mine ? h('button', { class: 'pm', onClick: () => session.dispatch({ t: 'life', target: p.id, delta: -1 }) }, '−') : null,
+        h('button', { class: 'av-shield', 'data-life': p.id, onClick: () => playerSheet(p) }, p.life),
+        mine ? h('button', { class: 'pm', onClick: () => session.dispatch({ t: 'life', target: p.id, delta: 1 }) }, '+') : null),
+      h('div', { class: 'av-name' }, p.name, p.poison ? h('span', { class: 'av-poison' }, ` ☠${p.poison}`) : null),
+      handFan(hand, () => handSheet(p)),
+    );
+  }
+  function handSheet(p) {
+    if (p.isBot) { toast(`${p.name} tiene ${p.hand.length} cartas en la mano y ${p.library.length} en el mazo.`, 'info'); return; }
+    let close;
+    const d = (a) => () => { session.dispatch(a); close(); handSheet(player(S(), p.id)); };
+    close = sheet(h('div', {},
+      h('h3', {}, 'Cartas en tu mano'),
+      h('p', { class: 'muted' }, 'La app lleva la cuenta sola (roba, juegas, vuelven a la mano…). Si no coincide con tu mano real, corrígela aquí.'),
+      h('div', { class: 'life-ctl' },
+        h('button', { class: 'act', onClick: d({ t: 'hand', target: p.id, delta: -1 }) }, '−1'),
+        h('span', { class: 'life-big' }, p.handCount || 0),
+        h('button', { class: 'act', onClick: d({ t: 'hand', target: p.id, delta: 1 }) }, '+1')),
+      h('button', { class: 'act primary', onClick: () => close() }, 'Hecho')));
+  }
+
   function renderTop(s, opps) {
     const stepIdx = STEPS.indexOf(s.step);
     clear(topbar).append(
       h('div', { class: 'foes' },
-        opps.map((p) => h('button', {
+        opps.length < 2 ? null : opps.map((p) => h('button', {
           class: 'foe' + (p.id === ui.viewOpp ? ' on' : '') + (p.eliminated ? ' out' : ''),
           'data-player': p.id,
           onClick: () => { ui.viewOpp = p.id; render(S()); },
@@ -576,7 +621,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           h('div', { class: 'foe-meta' }, p.isBot ? `${p.hand.length} en mano · ${p.library.length} en mazo` : (activePlayer(s).id === p.id ? 'jugando…' : 'esperando')),
         ),
         activePlayer(s).id === p.id ? h('span', { class: 'turn-dot' }) : null,
-        h('span', { class: 'life-gem', 'data-life': p.id }, p.life),
+        h('span', { class: 'life-gem', 'data-life': p.id === ui.viewOpp ? null : p.id }, p.life),
         )),
       ),
       h('div', { class: 'phase-runes', title: 'Fases del turno' },
@@ -696,11 +741,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   // ---------------------------------------------------------------- HUD
   function renderHud(s, myP) {
     clear(hud);
-    const lifePlate = h('div', { class: 'me-plate' },
-      h('button', { class: 'pm', onClick: () => session.dispatch({ t: 'life', target: me(), delta: -1 }) }, '−'),
-      h('button', { class: 'life-gem', 'data-life': me(), onClick: () => playerSheet(myP) }, myP.life),
-      h('button', { class: 'pm', onClick: () => session.dispatch({ t: 'life', target: me(), delta: 1 }) }, '+'),
-    );
+    const lifePlate = h('div', { class: 'avatar me' });
+    renderAvatar(lifePlate, s, myP, true);
     const oracle = (text) => h('div', { class: 'oracle parchment' }, icon('eye'), h('div', { class: 'txt' }, text));
 
     if (s.winner) {
@@ -800,6 +842,12 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           clearTimeout(el.__enterT);
           el.__enterT = setTimeout(() => el.classList.remove('enter'), 1100);
           setTimeout(() => burst(el, e.color, 22), 650);
+          // el personaje de la carta sale en 2,5D (criaturas y planeswalkers)
+          const pc = findPerm(s, e.uid)?.perm.card;
+          if (pc && (pc.isCreature || pc.isPlaneswalker) && !pc.isToken) {
+            const big = pc.isLegendary || pc.rarity === 'mythic' || pc.rarity === 'm' || pc.cmc >= 6;
+            setTimeout(() => hologram(fx, ui.els.get(e.uid), pc, { big }), 350);
+          }
         }
       } else if (e.kind === 'cast') {
         sfx('cast');

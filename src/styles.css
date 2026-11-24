@@ -776,3 +776,70 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .logo.small .logo-ar { height: clamp(30px, 6.5vh, 52px); }
 .logo.small .logo-ar b { font-size: clamp(20px, 4.8vh, 38px); }
 .splash .logo { margin-top: 4px; }
+
+/* ---------- retratos de jugador (vidas y mano) ---------- */
+.avatar { position: relative; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.avatar > * { pointer-events: auto; }
+.avatar.opp { position: absolute; z-index: 6; left: 50%; top: 2px; transform: translateX(-50%); }
+.avatar.me { flex: none; margin: -34px 50px 0 30px; align-self: flex-end; }
+.av-portrait { position: relative; width: clamp(48px, 13vh, 72px); aspect-ratio: 1; border-radius: 50%; padding: 0;
+  box-shadow: 0 0 0 2px var(--gold), 0 0 0 4px #120a04, 0 0 0 5px var(--gold-lo), 0 6px 14px rgba(0,0,0,.7); }
+.av-face { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #4a2f78, #0d0805 75%) center / cover; display: flex; align-items: center; justify-content: center; color: var(--gold-hi); font-size: clamp(22px, 6vh, 34px); overflow: hidden; }
+.av-face:not(.icon-face) { background-size: 180% auto; background-position: 50% 30%; }
+.av-ring { position: absolute; inset: -7px; border-radius: 50%; border: 2px solid transparent; z-index: 1; pointer-events: none; }
+.avatar.turn .av-ring { border-color: #9be8ff; box-shadow: 0 0 14px 3px rgba(120, 210, 255, 0.75), inset 0 0 10px rgba(120, 210, 255, 0.5); animation: avPulse 1.8s ease-in-out infinite; }
+@keyframes avPulse { 50% { box-shadow: 0 0 22px 6px rgba(120, 210, 255, 0.95), inset 0 0 14px rgba(120, 210, 255, 0.7); } }
+.avatar.out { filter: grayscale(1) brightness(0.6); }
+.av-life { display: flex; align-items: center; gap: 4px; margin-top: -12px; z-index: 2; }
+.av-shield { min-width: clamp(44px, 11vh, 58px); height: clamp(30px, 8vh, 40px); padding: 0 8px 4px; font-family: var(--title); font-weight: 900; font-size: clamp(18px, 5vh, 26px); color: #fff6e0;
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%); background: linear-gradient(180deg, #3a2a1a, #120a04 70%);
+  box-shadow: inset 0 0 0 2px var(--gold); text-shadow: 0 2px 3px #000; display: flex; align-items: center; justify-content: center;
+  filter: drop-shadow(0 0 1.5px var(--gold)) drop-shadow(0 3px 4px rgba(0,0,0,.7)); }
+.av-life .pm { width: 26px; height: 26px; border-radius: 50%; font-size: 18px; color: var(--gold-hi); display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #3a2614, #120a04); box-shadow: inset 0 0 0 1px var(--gold-lo); margin-top: -6px; }
+.av-name { font-family: var(--title); font-size: 11px; letter-spacing: 0.04em; color: var(--gold-hi); text-shadow: 0 1px 3px #000; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+.av-poison { color: #7dff6a; }
+.av-hand { position: absolute; top: 18%; left: calc(100% + 6px); width: 46px; height: 44px; padding: 0; background: none; }
+.avatar.me .av-hand { left: calc(100% + 4px); top: 4%; }
+.av-hand i { position: absolute; left: 12px; top: 4px; width: 22px; height: 31px; border-radius: 3px; transform-origin: 50% 120%;
+  transform: rotate(calc(var(--i) * 9deg)) translateX(calc(var(--i) * 2px));
+  background: repeating-linear-gradient(45deg, #3b1d6e 0 4px, #2a1352 4px 8px); box-shadow: 0 0 0 1px var(--gold-lo), 0 2px 4px rgba(0,0,0,.6); }
+.av-hand b { position: absolute; right: -2px; bottom: -2px; min-width: 20px; height: 20px; border-radius: 10px; padding: 0 5px; font-family: var(--title); font-size: 12px; color: #fff4dc; background: #6b0d12; box-shadow: 0 0 0 1.5px var(--gold); display: flex; align-items: center; justify-content: center; }
+
+/* ---------- invocación en 2,5D (src/ui/hologram.js) ---------- */
+.holo { position: fixed; z-index: 44; pointer-events: none; perspective: 700px; }
+.holo-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+.holo-fig { position: absolute; inset: 0; transform-style: preserve-3d; transform-origin: 50% 100%; opacity: 0;
+  animation: holoLife var(--dur) cubic-bezier(.2,.8,.3,1) forwards; }
+.holo.ready .holo-fig { animation-play-state: running; }
+.holo:not(.ready) .holo-fig { animation-play-state: paused; }
+.holo-layer { position: absolute; inset: 0; background: var(--art) center 35% / cover; border-radius: 10px; }
+/* capa de fondo: toda la ilustración, difuminada en los bordes */
+.holo-layer.back { -webkit-mask-image: radial-gradient(ellipse 62% 66% at 50% 52%, #000 45%, transparent 100%); mask-image: radial-gradient(ellipse 62% 66% at 50% 52%, #000 45%, transparent 100%);
+  filter: saturate(1.15) brightness(0.85); transform: translateZ(-40px) scale(1.06); }
+/* capa delantera: el centro (donde suele estar el personaje), más cerca → parallax al girar */
+.holo-layer.front { -webkit-mask-image: radial-gradient(ellipse 36% 46% at 50% 46%, #000 55%, transparent 100%); mask-image: radial-gradient(ellipse 36% 46% at 50% 46%, #000 55%, transparent 100%);
+  filter: saturate(1.3) contrast(1.08) drop-shadow(0 0 12px var(--hd)); transform: translateZ(60px) scale(0.93); }
+.holo-scan { position: absolute; inset: 0; border-radius: 10px; mix-blend-mode: screen; opacity: .35;
+  background: repeating-linear-gradient(180deg, transparent 0 3px, color-mix(in srgb, var(--hl) 40%, transparent) 3px 4px);
+  -webkit-mask-image: radial-gradient(ellipse 60% 64% at 50% 52%, #000 40%, transparent 100%); mask-image: radial-gradient(ellipse 60% 64% at 50% 52%, #000 40%, transparent 100%);
+  animation: holoScan 1.4s linear infinite; }
+@keyframes holoScan { to { background-position: 0 24px; } }
+@keyframes holoLife {
+  0% { opacity: 0; transform: translateY(42%) rotateX(70deg) scaleY(0.15); filter: brightness(3) blur(4px); }
+  16% { opacity: 1; transform: translateY(0) rotateX(8deg) scaleY(1.04); filter: brightness(1.4) blur(0); }
+  24% { transform: translateY(-2%) rotateX(4deg) rotateY(-14deg); filter: none; }
+  44% { transform: translateY(1%) rotateX(4deg) rotateY(13deg); }
+  64% { transform: translateY(-2%) rotateX(4deg) rotateY(-10deg); }
+  80% { opacity: 1; transform: translateY(0) rotateX(6deg) rotateY(6deg); filter: brightness(1); }
+  100% { opacity: 0; transform: translateY(40%) rotateX(72deg) scaleY(0.1); filter: brightness(3) blur(6px); }
+}
+.holo-portal { position: absolute; width: 0; height: 0; }
+.holo-portal i { position: absolute; left: -70px; top: -18px; width: 140px; height: 36px; border-radius: 50%;
+  border: 3px solid var(--hl); box-shadow: 0 0 18px 4px var(--hd), inset 0 0 14px var(--hd);
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--hl) 50%, transparent), transparent 70%);
+  animation: holoPortal var(--dur) ease-out forwards; }
+.holo-portal i.r2 { border-style: dashed; border-width: 2px; animation-delay: 0.08s; transform: scale(0.7); }
+.holo.big .holo-portal i { left: -100px; width: 200px; top: -24px; height: 48px; }
+@keyframes holoPortal { 0% { opacity: 0; transform: scale(0.2) rotate(0deg); } 12% { opacity: 1; transform: scale(1) rotate(40deg); } 80% { opacity: 1; transform: scale(1.05) rotate(220deg); } 100% { opacity: 0; transform: scale(0.4) rotate(300deg); } }
+.holo-mote { position: absolute; width: 5px; height: 5px; border-radius: 50%; opacity: 0; box-shadow: 0 0 8px 2px var(--hd); animation: holoMote 1.4s ease-out forwards; }
+@keyframes holoMote { 0% { opacity: 0; transform: translate(0, 0) scale(1); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.3); } }

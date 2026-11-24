@@ -26,7 +26,7 @@ export function applyLayout(mid, L) {
  * Abre el editor sobre la mesa. elements: { screen, mid, board, summon, mat }.
  * onChange(layout) en cada cambio; onDone(layout) al pulsar «Listo».
  */
-export function openCalibrator({ screen, mid, board, summon, mat, zones }, layout, { onChange, onDone, firstTime = false, extra = null }) {
+export function openCalibrator({ screen, mid, board, summon, mat, zones }, layout, { onChange, onDone, firstTime = false, extra = null, toLocal = null }) {
   const L = { ...LAYOUT_DEFAULTS, ...layout };
   const update = () => {
     applyLayout(mid, L);
@@ -38,21 +38,28 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
   const leftHandle = h('div', { class: 'cal-handle cal-v cal-left', title: 'Borde izquierdo del tablero' }, h('span', {}, '⇔'));
   const rightHandle = h('div', { class: 'cal-handle cal-v cal-right', title: 'Borde derecho del tablero' }, h('span', {}, '⇔'));
   board.append(leftHandle, rightHandle);
-  const midRect = () => mid.getBoundingClientRect();
+  // Posición del puntero en el plano de la mesa (que puede estar en perspectiva).
+  const size = () => ({ w: mid.clientWidth, h: mid.clientHeight });
+  const loc = (ev) => {
+    if (toLocal) return toLocal(ev.clientX, ev.clientY);
+    const r = mid.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  };
+  const midRect = () => size();
   const drag = (el, onMove) => {
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
       el.setPointerCapture(e.pointerId);
-      const move = (ev) => { onMove(ev, midRect()); update(); };
+      const move = (ev) => { onMove(loc(ev), midRect()); update(); };
       const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
     });
   };
-  drag(leftHandle, (ev, r) => { L.bl = clamp(((ev.clientX - r.left) / r.width) * 100, 0, L.br - 25); });
-  drag(rightHandle, (ev, r) => { L.br = clamp(((ev.clientX - r.left) / r.width) * 100, L.bl + 25, 100); });
+  drag(leftHandle, (p, r) => { L.bl = clamp((p.x / r.w) * 100, 0, L.br - 25); });
+  drag(rightHandle, (p, r) => { L.br = clamp((p.x / r.w) * 100, L.bl + 25, 100); });
 
   // Elementos que se pueden mover (arrastrando) y redimensionar (esquina ⤡):
   // el círculo de invocación y las casillas de mazo / cementerio / exilio.
@@ -62,23 +69,25 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
     const size = h('div', { class: 'cal-handle cal-size', title: 'Tamaño' }, '⤡');
     const hint = h('div', { class: 'cal-move' }, icon('portal'), label);
     el.append(size, hint);
-    drag(size, (ev, r) => {
-      const cy = r.top + (L[ky] / 100) * r.height;
-      L[kh] = clamp(((ev.clientY - cy) * 2 / r.height) * 100, minH, 100);
+    drag(size, (p, r) => {
+      const cy = (L[ky] / 100) * r.h;
+      L[kh] = clamp(((p.y - cy) * 2 / r.h) * 100, minH, 100);
     });
     let grab = null;
     const down = (e) => {
       if (e.target === size) return;
       e.preventDefault();
       const r = midRect();
-      grab = { dx: e.clientX - (r.left + (L[kx] / 100) * r.width), dy: e.clientY - (r.top + (L[ky] / 100) * r.height) };
+      const p = loc(e);
+      grab = { dx: p.x - (L[kx] / 100) * r.w, dy: p.y - (L[ky] / 100) * r.h };
       el.setPointerCapture(e.pointerId);
     };
     const move = (e) => {
       if (!grab) return;
       const r = midRect();
-      L[kx] = clamp(((e.clientX - grab.dx - r.left) / r.width) * 100, 5, 95);
-      L[ky] = clamp(((e.clientY - grab.dy - r.top) / r.height) * 100, 10, 90);
+      const p = loc(e);
+      L[kx] = clamp(((p.x - grab.dx) / r.w) * 100, 5, 95);
+      L[ky] = clamp(((p.y - grab.dy) / r.h) * 100, 10, 90);
       update();
     };
     const up = () => { grab = null; };
@@ -100,7 +109,8 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
   const panel = h('div', { class: 'cal-panel parchment' },
     h('div', { class: 'cal-text' },
       h('h3', {}, firstTime ? 'Antes de empezar: ajusta tu mesa' : 'Ajustar la mesa'),
-      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' y las casillas de ', h('b', {}, 'mazo, cementerio y exilio'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. Con el ', h('b', {}, 'zoom'), ', haz que tus cartas encajen.'),
+      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' y las casillas de ', h('b', {}, 'mazo, cementerio y exilio'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. Con el ', h('b', {}, 'zoom'), ', haz que tus cartas encajen. ',
+        '¿La cámara mira la mesa en ángulo? Pulsa ', h('b', {}, 'Perspectiva de la mesa'), ': el tablero se pega a tu mesa y las cartas se leen mucho mejor.'),
     ),
     extra,
     h('label', { class: 'slider' }, h('span', {}, 'Inclinación'), tilt),

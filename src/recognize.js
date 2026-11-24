@@ -1,3 +1,4 @@
+import { rectToQuad, applyH } from './homography.js';
 // Reconocimiento de cartas por imagen (sin OCR):
 //  1) localiza el rectángulo de la carta dentro del círculo por sus bordes,
 //  2) la endereza,
@@ -362,7 +363,7 @@ const SS = 1;
 // densidad del muestreo propio: 8x8 muestras por zona de la huella (128x176)
 export const SW = 128;
 export const SH = 176;
-export function innerGraySampled(src0, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, ax = 1) {
+export function innerGraySampled(src0, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, ax = 1, sh = 0) {
   // pirámide: muestreamos del nivel en el que la carta mide entre 1 y 2 veces la huella
   // (si no, el muestreo simple «pierde» detalle de forma irregular)
   let src = src0;
@@ -393,8 +394,9 @@ export function innerGraySampled(src0, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, a
       let acc = 0;
       for (let k = 0; k < SS * SS; k++) {
         // posición en la carta (centrada) → rotación → imagen (SS×SS muestras por píxel)
-        const px = ((u + (1 + 2 * (k % SS)) / (2 * SS)) * su) - iw / 2 + ox;
         const py = ((v + (1 + 2 * Math.floor(k / SS)) / (2 * SS)) * sv) - ih / 2 + oy;
+        // sh: lados inclinados (carta vista en ángulo, a un lado de la imagen)
+        const px = ((u + (1 + 2 * (k % SS)) / (2 * SS)) * su) - iw / 2 + ox + sh * py;
         // (coordenadas de imagen: el centro del píxel i está en i + 0,5)
         acc += bil(g, W, H, cx + px * c - py * s - 0.5, cy + px * s + py * c - 0.5);
       }
@@ -539,7 +541,7 @@ const HYP = [
 ];
 
 const hashAt = (source, p) => (source && source.g
-  ? hashFromInner(innerGraySampled(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1), SW, SH)
+  ? hashFromInner(innerGraySampled(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1, p[5] || 0), SW, SH)
   : hashFromInner(innerGray(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1)));
 
 function hamming(db, i, q, words = WORDS) {
@@ -574,11 +576,25 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
       const [ds, ex, ey] = HYP[hi];
       const h = st.h * ds;
       const w = h * ASPECT;
-      const p = [st.cx + ex * w * c0 - ey * h * s0, st.cy + ex * w * s0 + ey * h * c0, h, st.ang, 1];
+      const p = [st.cx + ex * w * c0 - ey * h * s0, st.cy + ex * w * s0 + ey * h * c0, h, st.ang, 1, 0];
       const q = hashAt(source, p);
       for (const [d, i] of nearest(db, q, 12, 'base')) {
         if (!short.has(i)) short.set(i, true);
         if (d < bestD) { bestD = d; bestP = p; }
+      }
+    }
+    // carta vista en ángulo: lados inclinados (sólo si lo normal no ha dado algo claro)
+    if (bestD > 70 && source && source.g) {
+      for (const shv of [-0.14, 0.14, -0.26, 0.26]) {
+        for (const [ds, ex, ey] of HYP.slice(0, 2)) {
+          const h = st.h * ds;
+          const w = h * ASPECT;
+          const p = [st.cx + ex * w * c0 - ey * h * s0, st.cy + ex * w * s0 + ey * h * c0, h, st.ang, 1, shv];
+          for (const [d, i] of nearest(db, hashAt(source, p), 12, 'base')) {
+            if (!short.has(i)) short.set(i, true);
+            if (d < bestD) { bestD = d; bestP = p; }
+          }
+        }
       }
     }
     const cand = [...short.keys()];
@@ -603,10 +619,11 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
             [0, 0.012 * p[2] * k, 0, 0], [0, -0.012 * p[2] * k, 0, 0],
             [0, 0, 0.02 * p[2] * k, 0], [0, 0, -0.02 * p[2] * k, 0],
             [0, 0, 0, 0.035 * k], [0, 0, 0, -0.035 * k],
+            [0, 0, 0, 0, 0, 0.05 * k], [0, 0, 0, 0, 0, -0.05 * k], // lados inclinados
           ];
           for (const st2 of steps) {
-            const p2 = [p[0] + st2[0], p[1] + st2[1], p[2] + st2[2], p[3] + st2[3], p[4] + (st2[4] || 0)];
-            if (Math.abs(p2[4] - 1) > 0.08) continue;
+            const p2 = [p[0] + st2[0], p[1] + st2[1], p[2] + st2[2], p[3] + st2[3], p[4] + (st2[4] || 0), (p[5] || 0) + (st2[5] || 0)];
+            if (Math.abs(p2[4] - 1) > 0.08 || Math.abs(p2[5]) > 0.4) continue;
             // sin alejarse demasiado del punto de partida (evita «derivar» hacia otra cosa)
             if (Math.hypot(p2[0] - bestP[0], p2[1] - bestP[1]) > 0.08 * bestP[2] || Math.abs(p2[2] / bestP[2] - 1) > 0.12 || Math.abs(p2[3] - bestP[3]) > 0.1) continue;
             const d2 = score(p2);
@@ -624,8 +641,8 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
   const o = db.oracleIdx[i];
   const other = list.find(([, j]) => db.oracleIdx[j] !== o);
   const d2 = other ? other[0] : 2 * BITS;
-  const [cx, cy, h, ang, ax] = bestRun.p;
-  return { i, d, d2, margin: d2 - d, oracle: db.oracle(i), loc: { cx, cy, h, ang, ax } };
+  const [cx, cy, h, ang, ax, sh] = bestRun.p;
+  return { i, d, d2, margin: d2 - d, oracle: db.oracle(i), loc: { cx, cy, h, ang, ax, sh } };
 }
 
 try {
@@ -668,7 +685,27 @@ export function enclosedRatio(g, W, H, loc) {
  */
 export function processFrame(rgba, w, h, opts, db = hashDb) {
   const T0 = Date.now();
-  const full = { g: grayFromRGBA(rgba, w, h), W: w, H: h };
+  let full = { g: grayFromRGBA(rgba, w, h), W: w, H: h };
+  // Mesa en perspectiva: enderezamos la zona (cuadrilátero → rectángulo) antes de nada.
+  let hq = null;
+  if (opts.quad) {
+    const q = opts.quad;
+    const side = (a, b) => Math.hypot(q[a][0] - q[b][0], q[a][1] - q[b][1]);
+    const Ho = Math.round(Math.max(160, Math.min(560, (side(0, 3) + side(1, 2)) / 2)));
+    const Wo = Math.max(16, Math.round(Ho * (opts.aspect || 63 / 88)));
+    hq = rectToQuad(Wo, Ho, q);
+    const out = new Float32Array(Wo * Ho);
+    for (let y = 0; y < Ho; y++) {
+      for (let x = 0; x < Wo; x++) {
+        const [u, v] = applyH(hq, x + 0.5, y + 0.5);
+        out[y * Wo + x] = bil(full.g, w, h, u - 0.5, v - 0.5);
+      }
+    }
+    full = { g: out, W: Wo, H: Ho };
+    w = Wo;
+    h = Ho;
+  }
+  const dbg = opts.debug ? { g: Array.from(full.g.filter((_, i) => (i % w) % 2 === 0 && Math.floor(i / w) % 2 === 0)).map(Math.round), w: Math.ceil(w / 2), h: Math.ceil(h / 2) } : null;
   const small = downscaleGray(full.g, w, h, opts.gh || 200);
   // suavizado ligero (como el reescalado de calidad del navegador, con el que se ajustó el localizador)
   {
@@ -703,5 +740,5 @@ export function processFrame(rgba, w, h, opts, db = hashDb) {
     }
   }
   const T3 = Date.now();
-  return { res, loc: { cx: loc.cx, cy: loc.cy, h: loc.h, ang: loc.ang, score: loc.score }, k, enclosed, times: [T1 - T0, T2 - T1, T3 - T2] };
+  return { dbg, res, loc: { cx: loc.cx, cy: loc.cy, h: loc.h, ang: loc.ang, score: loc.score }, k, enclosed, hq, times: [T1 - T0, T2 - T1, T3 - T2] };
 }

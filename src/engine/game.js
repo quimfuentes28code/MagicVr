@@ -915,7 +915,14 @@ function resolveCombat(s, phase) {
   }
   if (phase === 'first') s.combat.firstDone = true;
   s.combat.result = results;
-  if (dealt.length || toPlayer.length) pushEvent(s, 'combat', (phase === 'first' ? 'Dañar primero: ' : '') + results.join(' '), { uids: Object.keys(s.combat.attackers).map(Number) });
+  // Golpes para la animación: quién golpea a quién y cuánto.
+  const hits = [
+    ...dealt.map(([perm, amt, src]) => ({ src: src.uid, to: perm.uid, amt })),
+    ...toPlayer.map(([target, amt, src]) => (typeof target === 'string' && target.startsWith('pw:')
+      ? { src: src.uid, to: +target.slice(3), amt }
+      : { src: src.uid, player: target, amt })),
+  ];
+  if (dealt.length || toPlayer.length) pushEvent(s, 'combat', (phase === 'first' ? 'Dañar primero: ' : '') + results.join(' '), { uids: Object.keys(s.combat.attackers).map(Number), hits });
   stateBased(s);
 }
 

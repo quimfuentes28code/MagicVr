@@ -653,3 +653,45 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .mg-impact-U::after { border-style: dashed; }
 .mg-impact-G::after { border-style: dotted; border-width: 7px; }
 .menu-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- combate (src/ui/combatfx.js) ---------- */
+.perm.ghost.hold { animation: none; }
+.perm.ghost.tapped { rotate: 90deg; transform: none; }
+.perm.war-cry .card { animation: warCry 1.2s cubic-bezier(.2,.9,.3,1.1); }
+@keyframes warCry {
+  0% { transform: none; }
+  25% { transform: translateY(-14%) scale(1.14); box-shadow: 0 0 0 3px var(--aura-l), 0 0 34px 10px var(--aura-d); filter: brightness(1.35) saturate(1.3); }
+  45% { transform: translateY(-10%) scale(1.1) rotate(-2deg); box-shadow: 0 0 0 2px var(--aura-l), 0 0 26px 8px var(--aura-d); }
+  60% { transform: translateY(-12%) scale(1.12) rotate(2deg); }
+  100% { transform: none; box-shadow: 0 0 0 2px var(--aura-l), 0 0 12px 2px var(--aura-d); }
+}
+.dust { position: fixed; z-index: 44; width: 9px; height: 9px; border-radius: 50%; pointer-events: none; opacity: 0.7; filter: blur(2px);
+  animation: dust 0.9s ease-out forwards; }
+@keyframes dust { to { transform: translate(var(--dx), var(--dy)) scale(2.6); opacity: 0; } }
+.card.striking { opacity: 0.25; transition: opacity 0.1s; }
+.strike-ghost { position: fixed; z-index: 46; pointer-events: none; border-radius: 6%;
+  filter: drop-shadow(0 0 14px var(--aura-d)) drop-shadow(0 12px 18px rgba(0,0,0,.6)); will-change: transform; }
+.strike-ghost .card { box-shadow: 0 0 0 2px var(--aura-l), 0 0 26px 6px var(--aura-d) !important; }
+.strike-trail { position: fixed; z-index: 45; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; pointer-events: none;
+  animation: strikeTrail 0.5s ease-out forwards; }
+@keyframes strikeTrail { to { transform: scale(0.1); opacity: 0; } }
+.strike-impact { position: fixed; z-index: 47; transform: translate(-50%, -50%); pointer-events: none; }
+.strike-impact i { position: absolute; inset: 0; border-radius: 50%; }
+.strike-impact .core { background: radial-gradient(circle, #fff 0 12%, var(--aura-l) 26%, var(--aura-d) 48%, transparent 68%); animation: impCore 0.55s ease-out forwards; }
+.strike-impact .ring { border: 6px solid var(--aura-l); box-shadow: 0 0 24px var(--aura-d), inset 0 0 18px var(--aura-d); animation: impRing 0.7s ease-out forwards; }
+.strike-impact .ring.r2 { border-width: 3px; animation-delay: 0.08s; opacity: 0; animation-duration: 0.85s; }
+.strike-impact .slash { inset: 45% -10%; border-radius: 40%; background: linear-gradient(90deg, transparent, #fff 45%, var(--aura-l) 55%, transparent);
+  rotate: -35deg; animation: impSlash 0.4s ease-out forwards; }
+@keyframes impCore { 0% { transform: scale(0.2); opacity: 1; } 35% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.25); opacity: 0; } }
+@keyframes impRing { 0% { transform: scale(0.25); opacity: 1; } 100% { transform: scale(1.7); opacity: 0; border-width: 1px; } }
+@keyframes impSlash { 0% { transform: scaleX(0); opacity: 1; } 60% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1.1); opacity: 0; } }
+.strike-spark { position: fixed; z-index: 47; width: 5px; height: 5px; margin: -2px 0 0 -2px; border-radius: 2px; pointer-events: none;
+  animation: strikeSpark 0.75s cubic-bezier(.1,.8,.3,1) forwards; }
+@keyframes strikeSpark { to { transform: translate(var(--dx), var(--dy)) scale(0.3); opacity: 0; } }
+.dmg-number { position: fixed; z-index: 48; transform: translate(-50%, -50%); pointer-events: none;
+  font-family: var(--title); font-weight: 900; font-size: clamp(26px, 5vh, 46px); color: #fff3e0;
+  -webkit-text-stroke: 2px #7a0d0d; text-shadow: 0 0 12px #ff3b1a, 0 4px 0 #3a0505; animation: dmgNum 1.25s cubic-bezier(.2,1.4,.4,1) forwards; }
+@keyframes dmgNum { 0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; } 18% { transform: translate(-50%, -90%) scale(1.35); opacity: 1; }
+  70% { transform: translate(-50%, -120%) scale(1); opacity: 1; } 100% { transform: translate(-50%, -170%) scale(0.9); opacity: 0; } }
+.table-screen.quake { animation: quake 0.42s; }
+@keyframes quake { 0%, 100% { translate: 0 0; } 15% { translate: -7px 4px; } 30% { translate: 6px -5px; } 45% { translate: -5px 3px; } 60% { translate: 4px -2px; } 80% { translate: -2px 1px; } }

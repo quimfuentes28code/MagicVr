@@ -56,9 +56,19 @@ const SIDES = [
   [0.5, 0, 0, 1, 'h', -1, 0],
 ];
 
-function rectScore(F, cx, cy, h, ang, T = T20, BAND = BAND3) {
+// muestreo al píxel más cercano (para la búsqueda gruesa, mucho más barata)
+function nn(img, W, H, x, y) {
+  let xi = (x + 0.5) | 0;
+  let yi = (y + 0.5) | 0;
+  if (xi < 0) xi = 0; else if (xi >= W) xi = W - 1;
+  if (yi < 0) yi = 0; else if (yi >= H) yi = H - 1;
+  return img[yi * W + xi];
+}
+
+function rectScore(F, cx, cy, h, ang, T = T20, BAND = BAND3, fast = false) {
   const { gx, gy, gm, W, H } = F;
   const NT = T.length;
+  const sample = fast ? nn : bil;
   const w = h * ASPECT;
   const c = Math.cos(ang);
   const s = Math.sin(ang);
@@ -78,13 +88,13 @@ function rectScore(F, cx, cy, h, ang, T = T20, BAND = BAND3) {
       const py = my * h + ay * tt;
       const X = cx + px * c - py * s;
       const Y = cy + px * s + py * c;
-      edge += Math.abs(bil(gx, W, H, X, Y) * NX + bil(gy, W, H, X, Y) * NY);
+      edge += Math.abs(sample(gx, W, H, X, Y) * NX + sample(gy, W, H, X, Y) * NY);
       // franja lisa por dentro del borde (el marco de la carta)
       for (const f of BAND) {
         const d = f * h;
         const qx = px + inx * d;
         const qy = py + iny * d;
-        band += bil(gm, W, H, cx + qx * c - qy * s, cy + qx * s + qy * c);
+        band += sample(gm, W, H, cx + qx * c - qy * s, cy + qx * s + qy * c);
       }
     }
     edge /= NT;
@@ -94,6 +104,81 @@ function rectScore(F, cx, cy, h, ang, T = T20, BAND = BAND3) {
   const e = Math.exp(logSum / 4);
   const b = bandSum / 4;
   return e / (1 + b / (e + 1e-3));
+}
+
+/**
+ * Búsqueda gruesa rápida (misma puntuación que rectScore con T10/BAND1, al píxel
+ * más cercano): para cada ángulo precalcula la imagen de «borde en esa dirección».
+ * cands: [cx, cy, h, ang] en píxeles de F. Devuelve las puntuaciones.
+ */
+function coarseScores(F, cands) {
+  const { gx, gy, gm, W, H } = F;
+  const n = W * H;
+  const out = new Float64Array(cands.length);
+  const byAng = new Map();
+  cands.forEach((p, i) => { const k = p[3].toFixed(5); if (!byAng.has(k)) byAng.set(k, []); byAng.get(k).push(i); });
+  for (const idxs of byAng.values()) {
+    const ang = cands[idxs[0]][3];
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    // |gradiente · normal| para lados arriba/abajo y izquierda/derecha
+    const Dtb = new Float32Array(n);
+    const Dlr = new Float32Array(n);
+    for (let i = 0; i < n; i++) { Dtb[i] = Math.abs(-s * gx[i] + c * gy[i]); Dlr[i] = Math.abs(c * gx[i] + s * gy[i]); }
+    const offCache = new Map();
+    for (const ci of idxs) {
+      const [cx, cy, h] = cands[ci];
+      let off = offCache.get(h);
+      if (!off) {
+        // desplazamientos de las muestras (borde y franja interior) para este tamaño
+        const w = h * ASPECT;
+        off = SIDES.map(([mx, my, ax, ay, L, inx, iny]) => {
+          const len = L === 'w' ? w : h;
+          const e = [];
+          const b = [];
+          for (const t of T10) {
+            const tt = (t - 0.5) * len;
+            const px = mx * w + ax * tt;
+            const py = my * h + ay * tt;
+            e.push(px * c - py * s, px * s + py * c);
+            const d = BAND1[0] * h;
+            const qx = px + inx * d;
+            const qy = py + iny * d;
+            b.push(qx * c - qy * s, qx * s + qy * c);
+          }
+          return { e, b, D: ay === 0 ? Dtb : Dlr };
+        });
+        offCache.set(h, off);
+      }
+      let logSum = 0;
+      let bandSum = 0;
+      const W1 = W - 1;
+      const H1 = H - 1;
+      for (const { e, b, D } of off) {
+        let es = 0;
+        let bs = 0;
+        for (let k = 0; k < e.length; k += 2) {
+          let xi = (cx + e[k] + 0.5) | 0;
+          let yi = (cy + e[k + 1] + 0.5) | 0;
+          xi = xi < 0 ? 0 : xi > W1 ? W1 : xi;
+          yi = yi < 0 ? 0 : yi > H1 ? H1 : yi;
+          es += D[yi * W + xi];
+          xi = (cx + b[k] + 0.5) | 0;
+          yi = (cy + b[k + 1] + 0.5) | 0;
+          xi = xi < 0 ? 0 : xi > W1 ? W1 : xi;
+          yi = yi < 0 ? 0 : yi > H1 ? H1 : yi;
+          bs += gm[yi * W + xi];
+        }
+        es /= e.length / 2;
+        logSum += Math.log(es + 1e-3);
+        bandSum += bs / (b.length / 2);
+      }
+      const ee = Math.exp(logSum / 4);
+      const bb = bandSum / 4;
+      out[ci] = ee / (1 + bb / (ee + 1e-3));
+    }
+  }
+  return out;
 }
 
 /**
@@ -135,7 +220,11 @@ export function locateCard(g, W, H, hint = null) {
   }
   let scored = hint
     ? cands.map((p) => [rectScore(F, ...p), p])
-    : cands.map((p) => [rectScore(F2, p[0] / 2, p[1] / 2, p[2] / 2, p[3], T10, BAND1), p]);
+    : (() => {
+      const half = cands.map((p) => [p[0] / 2, p[1] / 2, p[2] / 2, p[3]]);
+      const sc = coarseScores(F2, half);
+      return cands.map((p, i) => [sc[i], p]);
+    })();
   const max = Math.max(...scored.map((x) => x[0]));
   const starts = [];
   if (hint) {
@@ -186,14 +275,14 @@ export function locateCard(g, W, H, hint = null) {
 // ------------------------------------------------------------- huella
 
 /** Huella a partir del interior normalizado de la carta (gris NW×NH). */
-export function hashFromInner(gray) {
-  const bw = NW / GW;
-  const bh = NH / GH;
+export function hashFromInner(gray, NWg = NW, NHg = NH) {
+  const bw = NWg / GW;
+  const bh = NHg / GH;
   const cell = new Float32Array(GW * GH);
   for (let gyi = 0; gyi < GH; gyi++) {
     for (let gxi = 0; gxi < GW; gxi++) {
       let s = 0;
-      for (let y = gyi * bh; y < (gyi + 1) * bh; y++) for (let x = gxi * bw; x < (gxi + 1) * bw; x++) s += gray[y * NW + x];
+      for (let y = gyi * bh; y < (gyi + 1) * bh; y++) for (let x = gxi * bw; x < (gxi + 1) * bw; x++) s += gray[y * NWg + x];
       cell[gyi * GW + gxi] = s;
     }
   }
@@ -270,12 +359,15 @@ function half(g, W, H) {
 }
 
 const SS = 1;
+// densidad del muestreo propio: 8x8 muestras por zona de la huella (128x176)
+export const SW = 128;
+export const SH = 176;
 export function innerGraySampled(src0, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, ax = 1) {
   // pirámide: muestreamos del nivel en el que la carta mide entre 1 y 2 veces la huella
   // (si no, el muestreo simple «pierde» detalle de forma irregular)
   let src = src0;
   let f = 1;
-  const need = ((INNER[3] - INNER[1]) * h * ds) / NH;
+  const need = ((INNER[3] - INNER[1]) * h * ds) / SH;
   src0.levels ||= [src0];
   let li = 0;
   while (need / f >= 2 && src.W >= 64) {
@@ -293,11 +385,11 @@ export function innerGraySampled(src0, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, a
   const oy = ((INNER[1] + INNER[3]) / 2 - 0.5) * h + dy * h;
   const c = Math.cos(ang);
   const s = Math.sin(ang);
-  const out = new Float32Array(NW * NH);
-  const su = iw / NW;
-  const sv = ih / NH;
-  for (let v = 0; v < NH; v++) {
-    for (let u = 0; u < NW; u++) {
+  const out = new Float32Array(SW * SH);
+  const su = iw / SW;
+  const sv = ih / SH;
+  for (let v = 0; v < SH; v++) {
+    for (let u = 0; u < SW; u++) {
       let acc = 0;
       for (let k = 0; k < SS * SS; k++) {
         // posición en la carta (centrada) → rotación → imagen (SS×SS muestras por píxel)
@@ -306,7 +398,7 @@ export function innerGraySampled(src0, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, a
         // (coordenadas de imagen: el centro del píxel i está en i + 0,5)
         acc += bil(g, W, H, cx + px * c - py * s - 0.5, cy + px * s + py * c - 0.5);
       }
-      out[v * NW + u] = acc / (SS * SS);
+      out[v * SW + u] = acc / (SS * SS);
     }
   }
   return out;
@@ -446,7 +538,9 @@ const HYP = [
   [1.45, 0, 0.04],
 ];
 
-const hashAt = (source, p) => hashFromInner(innerGray(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1));
+const hashAt = (source, p) => (source && source.g
+  ? hashFromInner(innerGraySampled(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1), SW, SH)
+  : hashFromInner(innerGray(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1)));
 
 function hamming(db, i, q, words = WORDS) {
   let d = 0;
@@ -573,6 +667,7 @@ export function enclosedRatio(g, W, H, loc) {
  * hint en píxeles de la imagen pequeña (k: de la pequeña al recorte).
  */
 export function processFrame(rgba, w, h, opts, db = hashDb) {
+  const T0 = Date.now();
   const full = { g: grayFromRGBA(rgba, w, h), W: w, H: h };
   const small = downscaleGray(full.g, w, h, opts.gh || 200);
   // suavizado ligero (como el reescalado de calidad del navegador, con el que se ajustó el localizador)
@@ -589,8 +684,10 @@ export function processFrame(rgba, w, h, opts, db = hashDb) {
     }
   }
   const k = h / small.H;
+  const T1 = Date.now();
   let loc = locateCard(small.g, small.W, small.H, opts.hint || null);
   if (opts.hint && loc.score < opts.hint.score * 0.6) loc = locateCard(small.g, small.W, small.H, null);
+  const T2 = Date.now();
   // el localizador usa centros de píxel en enteros; la imagen, en i + 0,5
   const toFull = (l) => ({ cx: (l.cx + 0.5) * k, cy: (l.cy + 0.5) * k, h: l.h * k, ang: l.ang });
   const res = identify(full, { ...toFull(loc), alts: (loc.alts || []).map(toFull) }, db, { altFrom: opts.altFrom || 0, altCount: opts.altCount ?? 99 });
@@ -605,5 +702,6 @@ export function processFrame(rgba, w, h, opts, db = hashDb) {
       enclosed = enclosedRatio(small.g, small.W, small.H, { cx: res.loc.cx / k - 0.5, cy: res.loc.cy / k - 0.5, h: res.loc.h / k, ang: res.loc.ang });
     }
   }
-  return { res, loc: { cx: loc.cx, cy: loc.cy, h: loc.h, ang: loc.ang, score: loc.score }, k, enclosed };
+  const T3 = Date.now();
+  return { res, loc: { cx: loc.cx, cy: loc.cy, h: loc.h, ang: loc.ang, score: loc.score }, k, enclosed, times: [T1 - T0, T2 - T1, T3 - T2] };
 }

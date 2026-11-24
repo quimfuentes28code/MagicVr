@@ -2,8 +2,44 @@
 // Lee sin parar el nombre de la carta que hay dentro del círculo de invocación
 // y avisa cuando reconoce una carta con seguridad. Sin botones.
 
-import { grabFrame, titleBar, stretchContrast, deskew, grabGray, videoToScreen } from './camera.js';
-import { loadCardHash, cardHashReady, locateCard, identify, enclosedRatio } from './recognize.js';
+import { grabFrame, titleBar, stretchContrast, deskew, regionToVideo, videoToScreen } from './camera.js';
+import { loadCardHash, cardHashReady, processFrame } from './recognize.js';
+
+// ------------------------------------------------ Web Worker del reconocimiento
+let recWorker = null;
+let workerReady = false;
+let workerFailed = false;
+let reqId = 0;
+const pending = new Map();
+function startWorker() {
+  if (recWorker || workerFailed) return;
+  try {
+    recWorker = new Worker(new URL('./recognize.worker.js', import.meta.url), { type: 'module' });
+    recWorker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'ready') { workerReady = true; if (window.__visionDebug) window.__visionDebug({ workerReady: m.n }); }
+      else if (m.type === 'error') { workerFailed = true; recWorker.terminate(); recWorker = null; loadCardHash().catch(() => {}); }
+      else if (m.type === 'result') { const p = pending.get(m.id); if (p) { pending.delete(m.id); p(m); } }
+    };
+    recWorker.onerror = () => { workerFailed = true; workerReady = false; recWorker = null; loadCardHash().catch(() => {}); };
+    recWorker.postMessage({ type: 'init', url: new URL('./cardhash.bin', document.baseURI).href });
+  } catch {
+    workerFailed = true;
+    loadCardHash().catch(() => {});
+  }
+}
+/** Analiza un recorte (ImageData) en el recWorker, o aquí si no hay recWorker. */
+function analyze(img, opts) {
+  if (workerReady && recWorker) {
+    return new Promise((resolve) => {
+      const id = ++reqId;
+      pending.set(id, (m) => resolve(m.error ? null : m.out));
+      recWorker.postMessage({ type: 'frame', id, buf: img.data.buffer, w: img.width, h: img.height, opts }, [img.data.buffer]);
+    });
+  }
+  return loadCardHash().then((db) => processFrame(img.data, img.width, img.height, opts, db));
+}
+const imageReady = () => workerReady || cardHashReady();
 import { LOCAL_CARDS, localCard } from './engine/cards.js';
 import { findCard, knownCards } from './scryfall.js';
 import { cardDbReady, candidates, recordToCard, cardByOracle, imageUrl } from './carddb.js';
@@ -32,7 +68,7 @@ function ocrWorker(onProgress) {
 
 /** Precarga el OCR en segundo plano (para que la primera lectura sea rápida). */
 export function preloadVision() {
-  loadCardHash().catch(() => {});
+  startWorker();
   ocrWorker().catch(() => {});
 }
 
@@ -41,13 +77,12 @@ export function preloadVision() {
 // el 98 % de los aciertos por debajo de ~170 y los fallos por encima de ~209.
 export const IMG = { present: 200, sure: 170, bigMargin: 80, instant: 110, instantMargin: 40, enclosed: 0.8 };
 
-/** Carta (con la imagen de SU edición) a partir de una entrada de la base de huellas. */
-function cardFromHash(db, i) {
-  const base = cardByOracle(db.oracle(i));
+/** Carta (con la imagen de SU edición) a partir del resultado del reconocimiento. */
+function cardFromResult(res) {
+  const base = cardByOracle(res.oracle);
   if (!base) return null;
-  const id = db.image(i);
-  const url = imageUrl(id).replace('/front/', db.back(i) ? '/back/' : '/front/');
-  return { ...base, image: url, edition: id, editionSpanish: db.spanish(i) };
+  const url = imageUrl(res.image).replace('/front/', res.back ? '/back/' : '/front/');
+  return { ...base, image: url, edition: res.image, editionSpanish: res.spanish };
 }
 
 export const norm = (s) =>
@@ -162,7 +197,8 @@ export class CardWatcher {
         continue;
       }
       try {
-        if (cardHashReady() && cardDbReady()) {
+        if (!recWorker && !workerFailed) startWorker();
+        if (imageReady() && cardDbReady()) {
           const t0 = performance.now();
           await this.imageTick(worker);
           this.tickMs = performance.now() - t0;
@@ -199,28 +235,26 @@ export class CardWatcher {
     if (!this.hint) this.variant = ((this.variant || 0) + 1) % V.length;
     const [m, gh, ox, oy] = this.hint ? V[0] : V[this.variant];
     const rect = { x: region.x - region.w * m + region.w * ox, y: region.y - region.h * m + region.h * oy, w: region.w * (1 + 2 * m), h: region.h * (1 + 2 * m) };
-    const shot = grabGray(this.video, rect, gh);
-    if (!shot) return;
-    const { g, W, H, r } = shot;
-    let loc = locateCard(g, W, H, this.hint);
-    if (this.hint && loc.score < this.hint.score * 0.6) loc = locateCard(g, W, H, null);
-    const k = r.sh / H; // de la imagen pequeña a píxeles del vídeo
-    // Recorte de la zona una sola vez (≤ 560 px de alto): todos los enderezados
-    // salen de aquí y no del fotograma entero (mucho más rápido en el móvil).
+    // Recorte de la zona (≤ 560 px de alto) → al worker
+    const r = regionToVideo(this.video, rect);
+    if (!r.sw || !r.sh) return;
     const ck = Math.min(1, 560 / r.sh);
     const crop = this.crop || (this.crop = document.createElement('canvas'));
     crop.width = Math.max(8, Math.round(r.sw * ck));
     crop.height = Math.max(8, Math.round(r.sh * ck));
-    const cctx = crop.getContext('2d');
+    const cctx = crop.getContext('2d', { willReadFrequently: true });
     cctx.imageSmoothingQuality = 'high';
     cctx.drawImage(this.video, r.sx, r.sy, r.sw, r.sh, 0, 0, crop.width, crop.height);
-    const kc = k * ck; // de la imagen pequeña al recorte
-    const toCrop = (l) => ({ cx: l.cx * kc, cy: l.cy * kc, h: l.h * kc, ang: l.ang });
-    const vloc = { ...toCrop(loc), alts: (loc.alts || []).map(toCrop) };
-    const db = await loadCardHash();
+    const img = cctx.getImageData(0, 0, crop.width, crop.height);
     // propuestas alternativas repartidas entre lecturas (2 por lectura)
     this.altTurn = ((this.altTurn || 0) + 2) % 8;
-    const res0 = identify(crop, vloc, db, { altFrom: this.hint ? 0 : this.altTurn, altCount: this.hint ? 0 : 2 });
+    const out = await analyze(img, {
+      gh, hint: this.hint, altFrom: this.hint ? 0 : this.altTurn, altCount: this.hint ? 0 : 2, encAbove: IMG.instant,
+    });
+    if (!out) return;
+    const { loc, k, enclosed } = out;
+    const res0 = out.res;
+    // del recorte a píxeles del vídeo
     const res = res0 && res0.loc
       ? { ...res0, loc: { ...res0.loc, cx: r.sx + res0.loc.cx / ck, cy: r.sy + res0.loc.cy / ck, h: res0.loc.h / ck } }
       : res0;
@@ -228,10 +262,7 @@ export class CardWatcher {
     const present = res && res.d <= IMG.present;
     let sure = present && (res.d <= IMG.sure || (res.d <= IMG.present && res.margin >= IMG.bigMargin));
     // ¿lo encontrado es sólo la ilustración de una carta mayor? (p. ej. parece una tierra de arte completo)
-    if (sure && res.d > IMG.instant && res.loc) {
-      const small = { cx: (res.loc.cx - r.sx) / k, cy: (res.loc.cy - r.sy) / k, h: res.loc.h / k, ang: res.loc.ang };
-      if (enclosedRatio(g, W, H, small) > IMG.enclosed) sure = false;
-    }
+    if (sure && res.d > IMG.instant && enclosed > IMG.enclosed) sure = false;
     // contorno de la carta en pantalla (esquinas en coordenadas relativas)
     if (present && res.loc) {
       const { cx, cy, h, ang } = res.loc;
@@ -245,8 +276,8 @@ export class CardWatcher {
     // la próxima lectura busca cerca del encuadre ajustado (mucho más rápido)
     // (sólo si está segura: si no, conviene seguir probando encuadres y propuestas distintas)
     const tracking = sure || (present && this.accepted && res.oracle === this.acceptedOracle);
-    this.hint = tracking && res.loc
-      ? { cx: (res.loc.cx - r.sx) / k, cy: (res.loc.cy - r.sy) / k, h: res.loc.h / k, ang: res.loc.ang, score: loc.score }
+    this.hint = tracking && res0.loc
+      ? { cx: res0.loc.cx / k - 0.5, cy: res0.loc.cy / k - 0.5, h: res0.loc.h / k, ang: res0.loc.ang, score: loc.score }
       : null;
 
     // ¿Sigue en el círculo la carta ya aceptada?
@@ -272,7 +303,7 @@ export class CardWatcher {
       const again = Date.now() - (this.recent.get(key) || 0) < 2500;
       // muy clara: a la primera; si no, dos lecturas seguidas iguales
       if ((count >= 2 || (res.d <= IMG.instant && res.margin >= IMG.instantMargin)) && !again) {
-        const card = cardFromHash(db, res.i);
+        const card = cardFromResult(res);
         if (card) return this.accept(card, key);
       }
       this.onState({ phase: 'reading', text: 'Leyendo…' });

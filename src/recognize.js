@@ -229,6 +229,7 @@ export function hashFromInner(gray) {
  * interior en gris NW×NH. dx, dy, ds: pequeños desplazamientos (fracción) para tolerar errores.
  */
 export function innerGray(source, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, ax = 1) {
+  if (source && source.g) return innerGraySampled(source, cx, cy, h, ang, dx, dy, ds, ax);
   const w = h * ASPECT * ax;
   const c = document.createElement('canvas');
   c.width = NW;
@@ -251,6 +252,90 @@ export function innerGray(source, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, ax = 1
   const g = new Float32Array(NW * NH);
   for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
   return g;
+}
+
+/**
+ * Igual que innerGray pero muestreando a mano una imagen en gris { g, W, H }
+ * (sin canvas: sirve dentro de un Web Worker y es más rápido). 2x2 muestras por píxel.
+ */
+function half(g, W, H) {
+  const W2 = W >> 1;
+  const H2 = H >> 1;
+  const out = new Float32Array(W2 * H2);
+  for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+    const i = 2 * y * W + 2 * x;
+    out[y * W2 + x] = (g[i] + g[i + 1] + g[i + W] + g[i + W + 1]) / 4;
+  }
+  return { g: out, W: W2, H: H2 };
+}
+
+const SS = 1;
+export function innerGraySampled(src0, cx, cy, h, ang, dx = 0, dy = 0, ds = 1, ax = 1) {
+  // pirámide: muestreamos del nivel en el que la carta mide entre 1 y 2 veces la huella
+  // (si no, el muestreo simple «pierde» detalle de forma irregular)
+  let src = src0;
+  let f = 1;
+  const need = ((INNER[3] - INNER[1]) * h * ds) / NH;
+  src0.levels ||= [src0];
+  let li = 0;
+  while (need / f >= 2 && src.W >= 64) {
+    li++;
+    if (!src0.levels[li]) src0.levels[li] = half(src0.levels[li - 1].g, src0.levels[li - 1].W, src0.levels[li - 1].H);
+    src = src0.levels[li];
+    f *= 2;
+  }
+  if (f > 1) { cx /= f; cy /= f; h /= f; }
+  const { g, W, H } = src;
+  const w = h * ASPECT * ax;
+  const iw = (INNER[2] - INNER[0]) * w * ds;
+  const ih = (INNER[3] - INNER[1]) * h * ds;
+  const ox = ((INNER[0] + INNER[2]) / 2 - 0.5) * w + dx * w;
+  const oy = ((INNER[1] + INNER[3]) / 2 - 0.5) * h + dy * h;
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  const out = new Float32Array(NW * NH);
+  const su = iw / NW;
+  const sv = ih / NH;
+  for (let v = 0; v < NH; v++) {
+    for (let u = 0; u < NW; u++) {
+      let acc = 0;
+      for (let k = 0; k < SS * SS; k++) {
+        // posición en la carta (centrada) → rotación → imagen (SS×SS muestras por píxel)
+        const px = ((u + (1 + 2 * (k % SS)) / (2 * SS)) * su) - iw / 2 + ox;
+        const py = ((v + (1 + 2 * Math.floor(k / SS)) / (2 * SS)) * sv) - ih / 2 + oy;
+        // (coordenadas de imagen: el centro del píxel i está en i + 0,5)
+        acc += bil(g, W, H, cx + px * c - py * s - 0.5, cy + px * s + py * c - 0.5);
+      }
+      out[v * NW + u] = acc / (SS * SS);
+    }
+  }
+  return out;
+}
+
+/** RGBA (ImageData) → gris. */
+export function grayFromRGBA(data, W, H) {
+  const g = new Float32Array(W * H);
+  for (let i = 0; i < g.length; i++) g[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+  return g;
+}
+
+/** Reduce una imagen en gris a `H2` de alto promediando por áreas. */
+export function downscaleGray(g, W, H, H2) {
+  const k = H / H2;
+  const W2 = Math.max(8, Math.round(W / k));
+  const out = new Float32Array(W2 * H2);
+  for (let y = 0; y < H2; y++) {
+    const y0 = Math.floor(y * k);
+    const y1 = Math.max(y0 + 1, Math.floor((y + 1) * k));
+    for (let x = 0; x < W2; x++) {
+      const x0 = Math.floor(x * k);
+      const x1 = Math.max(x0 + 1, Math.min(W, Math.floor((x + 1) * k)));
+      let sum = 0;
+      for (let yy = y0; yy < y1 && yy < H; yy++) for (let xx = x0; xx < x1; xx++) sum += g[yy * W + xx];
+      out[y * W2 + x] = sum / ((Math.min(y1, H) - y0) * (x1 - x0));
+    }
+  }
+  return { g: out, W: W2, H: H2 };
 }
 
 // --------------------------------------------------------------- búsqueda
@@ -444,7 +529,7 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
 }
 
 try {
-  if (localStorage.getItem('mtgvr-debug')) window.__rec = { locateCard, identify, loadCardHash, hashFromInner, innerGray, nearest, enclosedRatio };
+  if (localStorage.getItem('mtgvr-debug')) window.__rec = { locateCard, identify, loadCardHash, hashFromInner, innerGray, nearest, enclosedRatio, processFrame };
 } catch { /* */ }
 
 /**
@@ -472,4 +557,45 @@ export function enclosedRatio(g, W, H, loc) {
     }
   }
   return own > 0 ? best / own : 0;
+}
+
+/**
+ * Todo el reconocimiento de un fotograma (sirve en el Web Worker y, si no hay
+ * worker, en el hilo principal). rgba: píxeles del recorte de la zona (w×h).
+ * opts: { gh (alto para localizar), hint, altFrom, altCount, encAbove }.
+ * Devuelve { res, loc, k, enclosed } — res.loc en píxeles del recorte; loc y
+ * hint en píxeles de la imagen pequeña (k: de la pequeña al recorte).
+ */
+export function processFrame(rgba, w, h, opts, db = hashDb) {
+  const full = { g: grayFromRGBA(rgba, w, h), W: w, H: h };
+  const small = downscaleGray(full.g, w, h, opts.gh || 200);
+  // suavizado ligero (como el reescalado de calidad del navegador, con el que se ajustó el localizador)
+  {
+    const { g, W, H } = small;
+    const t = new Float32Array(g.length);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const xm = Math.max(0, x - 1), xp = Math.min(W - 1, x + 1);
+      t[y * W + x] = (g[y * W + xm] + 2 * g[y * W + x] + g[y * W + xp]) / 4;
+    }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const ym = Math.max(0, y - 1), yp = Math.min(H - 1, y + 1);
+      g[y * W + x] = (t[ym * W + x] + 2 * t[y * W + x] + t[yp * W + x]) / 4;
+    }
+  }
+  const k = h / small.H;
+  let loc = locateCard(small.g, small.W, small.H, opts.hint || null);
+  if (opts.hint && loc.score < opts.hint.score * 0.6) loc = locateCard(small.g, small.W, small.H, null);
+  // el localizador usa centros de píxel en enteros; la imagen, en i + 0,5
+  const toFull = (l) => ({ cx: (l.cx + 0.5) * k, cy: (l.cy + 0.5) * k, h: l.h * k, ang: l.ang });
+  const res = identify(full, { ...toFull(loc), alts: (loc.alts || []).map(toFull) }, db, { altFrom: opts.altFrom || 0, altCount: opts.altCount ?? 99 });
+  let enclosed = 0;
+  if (res) {
+    res.image = db.image(res.i);
+    res.back = db.back(res.i);
+    res.spanish = db.spanish(res.i);
+    if (res.loc && res.d > (opts.encAbove ?? Infinity)) {
+      enclosed = enclosedRatio(small.g, small.W, small.H, { cx: res.loc.cx / k - 0.5, cy: res.loc.cy / k - 0.5, h: res.loc.h / k, ang: res.loc.ang });
+    }
+  }
+  return { res, loc: { cx: loc.cx, cy: loc.cy, h: loc.h, ang: loc.ang, score: loc.score }, k, enclosed };
 }

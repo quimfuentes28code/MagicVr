@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { parseCardHash, hashFromInner, nearest, WORDS, BITS } from '../src/recognize.js';
+import { parseCardHash, hashFromInner, nearest, WORDS, BITS, STRIDE } from '../src/recognize.js';
 
 const FILE = new URL('../public/cardhash.bin', import.meta.url);
 
@@ -15,21 +15,26 @@ test('la base de huellas se lee y tiene todas las ilustraciones', { skip: !exist
   assert.match(db.oracle(0), /^[0-9a-f-]{36}$/);
   assert.match(db.image(0), /^[0-9a-f-]{36}$/);
   // cada huella se encuentra a sí misma a distancia 0
-  const q = db.hashes.slice(1234 * WORDS, 1235 * WORDS);
+  const q = db.hashes.slice(1234 * STRIDE, 1235 * STRIDE);
   const [[d, i]] = nearest(db, q, 1);
   assert.equal(d, 0);
   assert.equal(db.oracle(i), db.oracle(1234));
 });
 
-test('la huella compara cada zona con la de su derecha', () => {
-  // degradado horizontal: cada zona es más clara que la anterior → todos los bits a 1
+test('la huella no cambia con la luz suave (reflejos, sombras)', () => {
+  // patrón cualquiera + un degradado suave de luz → casi la misma huella
   const g = new Float32Array(128 * 176);
-  for (let y = 0; y < 176; y++) for (let x = 0; x < 128; x++) g[y * 128 + x] = x;
-  const h = hashFromInner(g);
-  let ones = 0;
-  for (let b = 0; b < BITS; b++) if (h[b >> 5] & (1 << (b & 31))) ones++;
-  assert.equal(ones, BITS);
-  // al revés → todos a 0
-  for (let y = 0; y < 176; y++) for (let x = 0; x < 128; x++) g[y * 128 + x] = 200 - x;
-  assert.ok(hashFromInner(g).every((w) => w === 0));
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const cellv = Array.from({ length: 16 * 22 }, () => rnd() * 200);
+  for (let y = 0; y < 176; y++) for (let x = 0; x < 128; x++) g[y * 128 + x] = cellv[Math.floor(y / 8) * 16 + Math.floor(x / 8)];
+  const a = hashFromInner(g);
+  const g2 = g.map((v, i) => v * 1.1 + 40 + (i % 128) * 0.3 + Math.floor(i / 128) * 0.2);
+  const b = hashFromInner(g2);
+  let diff = 0;
+  // la huella de paso alto (segunda mitad) no cambia con la luz suave
+  for (let w = WORDS; w < STRIDE; w++) { let v = a[w] ^ b[w]; while (v) { diff += v & 1; v >>>= 1; } }
+  assert.ok(diff <= 6, 'la luz cambió ' + diff + ' bits');
+  // y es la misma con la misma imagen
+  assert.deepEqual([...hashFromInner(g)], [...a]);
 });

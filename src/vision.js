@@ -37,8 +37,9 @@ export function preloadVision() {
 }
 
 // Umbrales del reconocimiento por imagen (calibrados con el banco de pruebas).
-// d: bits distintos de 330 (aciertos ≤ ~65, fallos ≥ ~84 en el banco de pruebas).
-export const IMG = { present: 100, sure: 70, bigMargin: 32, instant: 52, instantMargin: 12, enclosed: 0.8 };
+// d: bits distintos de 660 (las dos huellas sumadas). Calibrado con el banco de pruebas:
+// el 98 % de los aciertos por debajo de ~170 y los fallos por encima de ~209.
+export const IMG = { present: 200, sure: 170, bigMargin: 80, instant: 110, instantMargin: 40, enclosed: 0.8 };
 
 /** Carta (con la imagen de SU edición) a partir de una entrada de la base de huellas. */
 function cardFromHash(db, i) {
@@ -242,7 +243,9 @@ export class CardWatcher {
       this.onOutline({ pts, state: this.accepted && res.oracle === this.acceptedOracle ? 'found' : sure ? 'sure' : 'reading' });
     } else this.onOutline(null);
     // la próxima lectura busca cerca del encuadre ajustado (mucho más rápido)
-    this.hint = present && res.loc
+    // (sólo si está segura: si no, conviene seguir probando encuadres y propuestas distintas)
+    const tracking = sure || (present && this.accepted && res.oracle === this.acceptedOracle);
+    this.hint = tracking && res.loc
       ? { cx: (res.loc.cx - r.sx) / k, cy: (res.loc.cy - r.sy) / k, h: res.loc.h / k, ang: res.loc.ang, score: loc.score }
       : null;
 

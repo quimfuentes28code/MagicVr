@@ -1,7 +1,7 @@
 // Reconocimiento de cartas por imagen (sin OCR):
 //  1) localiza el rectángulo de la carta dentro del círculo por sus bordes,
 //  2) la endereza,
-//  3) calcula su huella (330 bits: si cada zona es más clara que la de su derecha),
+//  3) calcula su huella (330 bits: tras un paso alto, si cada zona es más clara que la de su derecha),
 //  4) la compara con la huella de las ~50.000 ilustraciones de Magic (public/cardhash.bin).
 // Identifica la ilustración exacta, así que también da la edición (en español si existe).
 // Los mismos cálculos están en scripts/build-cardhash.py (deben coincidir).
@@ -150,10 +150,12 @@ export function locateCard(g, W, H, hint = null) {
     const picked = [];
     for (const [, p] of scored) {
       if (picked.length >= 7) break;
-      const differs = (q) => Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.06 * H || Math.abs(p[2] - q[2]) > 0.08 * q[2] || Math.abs(p[3] - q[3]) > 0.05;
-      const far = picked.every(differs);
-      const notFirst = differs(starts[0][0]);
-      if (far && notFirst) picked.push(p);
+      // misma posición y tamaño = mismo «sitio»; como mucho 2 variantes (giros) por sitio
+      const samePlace = (q) => Math.hypot(p[0] - q[0], p[1] - q[1]) <= 0.06 * H && Math.abs(p[2] - q[2]) <= 0.08 * q[2];
+      const all = [starts[0][0], ...picked];
+      const twins = all.filter(samePlace);
+      if (twins.length >= 2 || twins.some((q) => Math.abs(p[3] - q[3]) <= 0.05)) continue;
+      picked.push(p);
     }
     for (const p of picked) starts.push([p]);
   }
@@ -195,13 +197,30 @@ export function hashFromInner(gray) {
       cell[gyi * GW + gxi] = s;
     }
   }
-  const out = new Uint32Array(WORDS);
-  let b = 0;
+  // Paso alto: a cada zona le restamos la media de su entorno 3x3. Así los cambios
+  // suaves de luz (reflejos de la funda, sombras, luz amarilla) no cambian la huella.
+  const hp = new Float32Array(GW * GH);
   for (let y = 0; y < GH; y++) {
-    for (let x = 0; x < GW - 1; x++, b++) {
-      if (cell[y * GW + x + 1] > cell[y * GW + x]) out[b >> 5] |= 1 << (b & 31);
+    for (let x = 0; x < GW; x++) {
+      let s = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = Math.min(GH - 1, Math.max(0, y + dy));
+        for (let dx = -1; dx <= 1; dx++) s += cell[yy * GW + Math.min(GW - 1, Math.max(0, x + dx))];
+      }
+      hp[y * GW + x] = cell[y * GW + x] - s / 9;
     }
   }
+  // Dos huellas: [0..10] clásica (tolera mejor un encuadre imperfecto) y
+  // [11..21] de paso alto (tolera la luz). Se usan juntas.
+  const out = new Uint32Array(2 * WORDS);
+  [cell, hp].forEach((src, k) => {
+    let b = 0;
+    for (let y = 0; y < GH; y++) {
+      for (let x = 0; x < GW - 1; x++, b++) {
+        if (src[y * GW + x + 1] > src[y * GW + x]) out[k * WORDS + (b >> 5)] |= 1 << (b & 31);
+      }
+    }
+  });
   return out;
 }
 
@@ -240,17 +259,21 @@ const POP = new Uint8Array(65536);
 for (let i = 1; i < 65536; i++) POP[i] = POP[i >> 1] + (i & 1);
 const pop32 = (v) => POP[v & 0xffff] + POP[v >>> 16];
 
+export const STRIDE = 2 * WORDS;
+
 /**
  * Las k entradas más parecidas a la huella q (distancia de Hamming).
- * db: { hashes: Uint32Array (N×WORDS), n }.
+ * mode 'base': sólo la huella clásica (0..330); 'sum': las dos sumadas (0..660).
+ * db: { hashes: Uint32Array (N×STRIDE), n }.
  */
-export function nearest(db, q, k = 8) {
+export function nearest(db, q, k = 8, mode = 'sum') {
   const { hashes, n } = db;
+  const words = mode === 'base' ? WORDS : STRIDE;
   const best = [];
   let worst = Infinity;
-  for (let i = 0, o = 0; i < n; i++, o += WORDS) {
+  for (let i = 0, o = 0; i < n; i++, o += STRIDE) {
     let d = 0;
-    for (let w = 0; w < WORDS; w++) {
+    for (let w = 0; w < words; w++) {
       d += pop32(hashes[o + w] ^ q[w]);
       if (d >= worst) break;
     }
@@ -292,14 +315,14 @@ export function loadCardHash() {
 export function parseCardHash(buf) {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
-  if (magic !== 'MVH1') throw new Error('cardhash.bin no válido');
+  if (magic !== 'MVH2') throw new Error('cardhash.bin no válido');
   const n = dv.getUint32(4, true);
   const words = dv.getUint32(8, true);
   const nor = dv.getUint32(12, true);
   if (words !== WORDS) throw new Error('cardhash.bin de otra versión');
   let o = 16;
-  const hashes = new Uint32Array(buf.slice(o, o + n * words * 4));
-  o += n * words * 4;
+  const hashes = new Uint32Array(buf.slice(o, o + n * 2 * words * 4));
+  o += n * 2 * words * 4;
   const oracleIdx = new Uint16Array(buf.slice(o, o + n * 2));
   o += n * 2;
   const imageIds = new Uint8Array(buf, o, n * 16);
@@ -328,14 +351,16 @@ const HYP = [
   [1.145, 0, 0.032],
   [1.04, 0, 0.008],
   [0.95, 0, 0], // con funda: el borde exterior es algo mayor que la carta
+  [0.925, 0, 0],
+  [0.97, 0, 0],
 ];
 
 const hashAt = (source, p) => hashFromInner(innerGray(source, p[0], p[1], p[2], p[3], 0, 0, 1, p[4] ?? 1));
 
-function hamming(db, i, q) {
+function hamming(db, i, q, words = WORDS) {
   let d = 0;
-  const o = i * WORDS;
-  for (let w = 0; w < WORDS; w++) d += pop32(db.hashes[o + w] ^ q[w]);
+  const o = i * STRIDE;
+  for (let w = 0; w < words; w++) d += pop32(db.hashes[o + w] ^ q[w]);
   return d;
 }
 
@@ -366,7 +391,7 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
       const w = h * ASPECT;
       const p = [st.cx + ex * w * c0 - ey * h * s0, st.cy + ex * w * s0 + ey * h * c0, h, st.ang, 1];
       const q = hashAt(source, p);
-      for (const [d, i] of nearest(db, q, 12)) {
+      for (const [d, i] of nearest(db, q, 12, 'base')) {
         if (!short.has(i)) short.set(i, true);
         if (d < bestD) { bestD = d; bestP = p; }
       }
@@ -407,13 +432,13 @@ export function identify(source, loc, db = hashDb, { refine = true, altFrom = 0,
     }
     if (!bestRun || d < bestRun.d) bestRun = { d, p };
   }
-  // búsqueda final en toda la base con el mejor encuadre
+  // búsqueda final en toda la base con el mejor encuadre y las dos huellas
   const q = hashAt(source, bestRun.p);
-  const list = nearest(db, q, 24);
+  const list = nearest(db, q, 24, 'sum');
   const [d, i] = list[0];
   const o = db.oracleIdx[i];
   const other = list.find(([, j]) => db.oracleIdx[j] !== o);
-  const d2 = other ? other[0] : BITS;
+  const d2 = other ? other[0] : 2 * BITS;
   const [cx, cy, h, ang, ax] = bestRun.p;
   return { i, d, d2, margin: d2 - d, oracle: db.oracle(i), loc: { cx, cy, h, ang, ax } };
 }

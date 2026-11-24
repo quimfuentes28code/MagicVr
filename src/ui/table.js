@@ -13,7 +13,7 @@ import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
 import { musicOn, setMusic, musicVolume, setMusicVolume, startMusic, duckMusic } from './music.js';
-import { openEditionPicker, autoMatchEdition, withPreferredEdition, rememberEdition } from './editions.js';
+import { openEditionPicker, autoMatchEdition, withPreferredEdition } from './editions.js';
 import {
   STEPS, PHASES, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
   power, toughness, displayName, canAttack, manaSources, manaAvailable, planPayment,
@@ -291,7 +291,6 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         editionPrompt(`¿Es tu edición de ${displayName(card)}?`, () => openEditionPicker(perm.card, (e2) => { const p2 = myPerm(); if (p2) session.dispatch({ t: 'setImage', uid: p2.uid, image: e2.image }); }));
         return;
       }
-      rememberEdition(card, ed);
       const perm = myPerm();
       if (perm) session.dispatch({ t: 'setImage', uid: perm.uid, image: ed.image });
       editionPrompt(`Edición detectada: ${ed.setName}`, () => openEditionPicker(card, (e2) => { const p2 = myPerm(); if (p2) session.dispatch({ t: 'setImage', uid: p2.uid, image: e2.image }); }));

@@ -16,13 +16,16 @@ function save(map) {
 }
 
 /** Edición elegida antes para esta carta (o null). */
+// Sólo se recuerdan las ediciones elegidas a mano (las automáticas de versiones
+// antiguas podían estar mal y ya no se usan).
 export function preferredEdition(card) {
-  return load()[card.name] || null;
+  const ed = load()[card.name];
+  return ed && ed.manual ? ed : null;
 }
 
 export function rememberEdition(card, ed) {
   const map = load();
-  map[card.name] = ed;
+  map[card.name] = { ...ed, manual: true };
   save(map);
 }
 
@@ -38,6 +41,20 @@ async function get(path) {
   const res = await fetch(API + path, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error('scryfall ' + res.status);
   return res.json();
+}
+
+// Huellas de las ilustraciones ya descargadas (para no repetir con cada Pantano).
+const artCache = new Map();
+async function artPrints(card, arts) {
+  if (artCache.has(card.name)) return artCache.get(card.name);
+  const out = [];
+  for (let i = 0; i < arts.length; i += 12) {
+    const batch = arts.slice(i, i + 12);
+    const imgs = await Promise.all(batch.map((c) => loadImage(imgOf(c, 'small')).catch(() => null)));
+    imgs.forEach((img, k) => { if (img) out.push({ c: batch[k], fp: fingerprint(img, img.naturalWidth, img.naturalHeight) }); });
+  }
+  artCache.set(card.name, out);
+  return out;
 }
 
 /** Ilustraciones distintas de una carta (hasta 3 páginas: las tierras básicas tienen cientos). */
@@ -74,11 +91,20 @@ const H = 12;
 const ART = { x: 0.1, y: 0.12, w: 0.8, h: 0.42 };
 
 function fingerprint(source, sw, sh, region = ART) {
+  // Reducción en dos pasos (suaviza como un promedio, sin "dientes de sierra").
+  const mid = document.createElement('canvas');
+  mid.width = W * 4;
+  mid.height = H * 4;
+  const mctx = mid.getContext('2d');
+  mctx.imageSmoothingQuality = 'high';
+  mctx.filter = 'blur(1px)';
+  mctx.drawImage(source, region.x * sw, region.y * sh, region.w * sw, region.h * sh, 0, 0, mid.width, mid.height);
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
   const ctx = c.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(source, region.x * sw, region.y * sh, region.w * sw, region.h * sh, 0, 0, W, H);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(mid, 0, 0, W, H);
   const d = ctx.getImageData(0, 0, W, H).data;
   const n = W * H;
   const gray = Array.from({ length: n }, (_, i) => 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]);
@@ -114,25 +140,28 @@ function loadImage(url) {
  * photo: canvas con la carta tal y como la ve la cámara (el círculo).
  * Devuelve { image, set, setName } o null si no hay una coincidencia clara.
  */
+const artListCache = new Map();
 export async function autoMatchEdition(photo, card) {
   if (!photo || preferredEdition(card)) return null;
-  const arts = await artworks(card);
+  if (!artListCache.has(card.name)) artListCache.set(card.name, artworks(card).catch((e) => { artListCache.delete(card.name); throw e; }));
+  const arts = await artListCache.get(card.name);
   if (arts.length <= 1) return null;
   // La carta no siempre llena el círculo exactamente: probamos varios encuadres de la foto.
+  // También si la carta es más pequeña que el círculo (cámara lejos).
   const targets = [];
-  for (const dx of [-0.04, 0, 0.04]) for (const dy of [-0.04, 0, 0.04]) for (const sc of [0.92, 1]) {
-    targets.push(fingerprint(photo, photo.width, photo.height, { x: ART.x + dx + (ART.w * (1 - sc)) / 2, y: ART.y + dy + (ART.h * (1 - sc)) / 2, w: ART.w * sc, h: ART.h * sc }));
+  for (const card of [1, 0.85, 0.72]) {
+    const off = (1 - card) / 2;
+    for (const dx of [-0.04, 0, 0.04]) for (const dy of [-0.04, 0, 0.04]) for (const sc of [0.92, 1]) {
+      const w = ART.w * sc * card;
+      const hh = ART.h * sc * card;
+      targets.push(fingerprint(photo, photo.width, photo.height, {
+        x: off + (ART.x + dx) * card + (ART.w * card - w) / 2,
+        y: off + (ART.y + dy) * card + (ART.h * card - hh) / 2,
+        w, h: hh,
+      }));
+    }
   }
-  const scored = [];
-  for (let i = 0; i < arts.length; i += 12) {
-    const batch = arts.slice(i, i + 12);
-    const imgs = await Promise.all(batch.map((c) => loadImage(imgOf(c, 'small')).catch(() => null)));
-    imgs.forEach((img, k) => {
-      if (!img) return;
-      const fp = fingerprint(img, img.naturalWidth, img.naturalHeight);
-      scored.push({ c: batch[k], d: Math.min(...targets.map((t) => distance(t, fp))) });
-    });
-  }
+  const scored = (await artPrints(card, arts)).map(({ c, fp }) => ({ c, d: Math.min(...targets.map((t) => distance(t, fp))) }));
   scored.sort((a, b) => a.d - b.d);
   const [best, second] = scored;
   if (window.__editionDebug) window.__editionDebug(scored.slice(0, 5).map((x) => [x.c.set_name, x.d.toFixed(3)]));
@@ -175,3 +204,5 @@ export function openEditionPicker(card, onPick) {
     }
   })();
 }
+
+try { if (localStorage.getItem('mtgvr-debug')) window.__autoMatchEdition = autoMatchEdition; } catch { /* */ }

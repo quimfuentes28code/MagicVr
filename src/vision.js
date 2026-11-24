@@ -3,7 +3,7 @@
 // y avisa cuando reconoce una carta con seguridad. Sin botones.
 
 import { grabFrame, titleBar, stretchContrast, deskew, grabGray, videoToScreen } from './camera.js';
-import { loadCardHash, cardHashReady, locateCard, identify } from './recognize.js';
+import { loadCardHash, cardHashReady, locateCard, identify, enclosedRatio } from './recognize.js';
 import { LOCAL_CARDS, localCard } from './engine/cards.js';
 import { findCard, knownCards } from './scryfall.js';
 import { cardDbReady, candidates, recordToCard, cardByOracle, imageUrl } from './carddb.js';
@@ -38,7 +38,7 @@ export function preloadVision() {
 
 // Umbrales del reconocimiento por imagen (calibrados con el banco de pruebas).
 // d: bits distintos de 330 (aciertos ≤ ~65, fallos ≥ ~84 en el banco de pruebas).
-export const IMG = { present: 100, sure: 75, bigMargin: 28, instant: 52, instantMargin: 12 };
+export const IMG = { present: 100, sure: 70, bigMargin: 32, instant: 52, instantMargin: 12, enclosed: 0.8 };
 
 /** Carta (con la imagen de SU edición) a partir de una entrada de la base de huellas. */
 function cardFromHash(db, i) {
@@ -205,10 +205,17 @@ export class CardWatcher {
     const toVideo = (l) => ({ cx: r.sx + l.cx * k, cy: r.sy + l.cy * k, h: l.h * k, ang: l.ang });
     const vloc = { ...toVideo(loc), alts: (loc.alts || []).map(toVideo) };
     const db = await loadCardHash();
-    const res = identify(this.video, vloc, db);
+    // propuestas alternativas repartidas entre lecturas (2 por lectura)
+    this.altTurn = ((this.altTurn || 0) + 2) % 8;
+    const res = identify(this.video, vloc, db, { altFrom: this.hint ? 0 : this.altTurn, altCount: this.hint ? 0 : 2 });
     if (window.__visionDebug) window.__visionDebug({ image: true, loc, res });
     const present = res && res.d <= IMG.present;
-    const sure = present && (res.d <= IMG.sure || (res.d <= IMG.present && res.margin >= IMG.bigMargin));
+    let sure = present && (res.d <= IMG.sure || (res.d <= IMG.present && res.margin >= IMG.bigMargin));
+    // ¿lo encontrado es sólo la ilustración de una carta mayor? (p. ej. parece una tierra de arte completo)
+    if (sure && res.d > IMG.instant && res.loc) {
+      const small = { cx: (res.loc.cx - r.sx) / k, cy: (res.loc.cy - r.sy) / k, h: res.loc.h / k, ang: res.loc.ang };
+      if (enclosedRatio(g, W, H, small) > IMG.enclosed) sure = false;
+    }
     // contorno de la carta en pantalla (esquinas en coordenadas relativas)
     if (present && res.loc) {
       const { cx, cy, h, ang } = res.loc;

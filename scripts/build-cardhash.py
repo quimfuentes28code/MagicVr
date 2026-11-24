@@ -16,6 +16,9 @@ Formato (little-endian):
   oracle_idx  n * u16
   image_id    n * 16 bytes (uuid de Scryfall de la imagen a mostrar)
   flags       n * u8   (bit0: cara trasera, bit1: impresión en español)
+Cada ilustración aparece dos veces si tiene impresión en español: la huella de la
+imagen inglesa y la de la española (el texto cambia la huella; así una carta en
+español se compara con su imagen en español).
   oracles     noracle * 16 bytes (uuid)
 """
 import gzip, json, os, ssl, struct, sys, time, urllib.request, uuid
@@ -114,6 +117,30 @@ def main():
     with ThreadPoolExecutor(12) as ex:
         files = list(ex.map(fetch, entries))
 
+    # entradas extra: la imagen en español de cada ilustración que la tenga
+    os.makedirs(os.path.join(WORK, 'img_es'), exist_ok=True)
+    extra = []
+    seen = set()
+    for e in entries:
+        sp = es.get(e['ill'])
+        if not sp or (sp[1], sp[2]) in seen or sp[1] == e['id']:
+            continue
+        seen.add((sp[1], sp[2]))
+        sid, face = sp[1], sp[2]
+        extra.append({'id': sid, 'face': face, 'oracle': e['oracle'], 'ill': e['ill'], 'es': True,
+                      'url': f"https://cards.scryfall.io/small/{'back' if face else 'front'}/{sid[0]}/{sid[1]}/{sid}.jpg"})
+
+    def fetch_es(e):
+        fn = os.path.join(WORK, 'img_es', f"{e['id']}_{e['face']}.jpg")
+        if not (os.path.exists(fn) and os.path.getsize(fn) > 0):
+            open(fn, 'wb').write(get(e['url']))
+        return fn
+
+    with ThreadPoolExecutor(12) as ex:
+        files += list(ex.map(fetch_es, extra))
+    entries += extra
+    print('entradas en total (inglés + español)', len(entries), flush=True)
+
     oracles = sorted({e['oracle'] for e in entries})
     oidx = {o: i for i, o in enumerate(oracles)}
     assert len(oracles) < 65536
@@ -130,10 +157,9 @@ def main():
         f.write(np.array([oidx[e['oracle']] for e in entries], '<u2').tobytes())
         flags = bytearray()
         for e in entries:
-            sp = es.get(e['ill'])
-            img_id, face = (sp[1], sp[2]) if sp else (e['id'], e['face'])
-            f.write(uuid.UUID(img_id).bytes)
-            flags.append((1 if face else 0) | (2 if sp else 0))
+            # la imagen a mostrar es la de esa misma entrada (la edición reconocida)
+            f.write(uuid.UUID(e['id']).bytes)
+            flags.append((1 if e['face'] else 0) | (2 if e.get('es') else 0))
         f.write(bytes(flags))
         for o in oracles:
             f.write(uuid.UUID(o).bytes)

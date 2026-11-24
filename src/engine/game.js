@@ -927,6 +927,18 @@ function resolveCombat(s, phase) {
  */
 function resolveEffects(s, pl, card, fx, targets, source) {
   const name = displayName(card);
+  const since = s.eventSeq;
+  try {
+    resolveEffectsInner(s, pl, card, fx, targets, name);
+  } finally {
+    // Los efectos llevan el color de la carta: la mesa dibuja el hechizo (rayo, fuego, agua…).
+    const spell = { colors: card.colors.length ? card.colors.slice(0, 3) : ['C'], by: pl.id, src: source ? source.uid : null };
+    for (const ev of s.events) if (ev.id > since && !ev.spell) ev.spell = spell;
+  }
+  stateBased(s);
+}
+
+function resolveEffectsInner(s, pl, card, fx, targets, name) {
   let ti = 0;
   for (const e of fx) {
     let tgt = null;
@@ -1019,7 +1031,6 @@ function resolveEffects(s, pl, card, fx, targets, source) {
       default:
     }
   }
-  stateBased(s);
 }
 
 function hurtPlayer(s, t, amount, srcName) {

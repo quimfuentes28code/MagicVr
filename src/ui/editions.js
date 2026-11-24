@@ -53,11 +53,11 @@ async function artworks(card, maxPages = 3) {
   return out;
 }
 
-async function spanishOf(card, set) {
+async function spanishSameArt(card, art) {
   try {
-    const r = await get(`/cards/search?q=${encodeURIComponent(`!"${card.name}" set:${set} lang:es`)}&unique=prints`);
-    const es = r.data.find((c) => /scan/.test(c.image_status || '')) || null;
-    return es ? imgOf(es) : null;
+    const artist = art.artist ? ` artist:"${art.artist}"` : '';
+    const r = await get(`/cards/search?q=${encodeURIComponent(`!"${card.name}" lang:es${artist}`)}&unique=prints&include_multilingual=true&order=released&dir=desc`);
+    return r.data.find((c) => c.illustration_id === art.illustration_id && imgOf(c) && !/missing|placeholder/.test(c.image_status || '')) || null;
   } catch {
     return null;
   }
@@ -65,9 +65,12 @@ async function spanishOf(card, set) {
 
 // ----------------------------------------------------- comparación de imágenes
 
-// Huella de una imagen de carta: la ilustración reducida a 12x9 en color.
-const W = 12;
-const H = 9;
+// Huella de una imagen de carta: la ilustración en gris reducida a 16x12 y
+// convertida en "orden de brillo" (qué zonas son más claras que otras). Así da
+// igual que la luz de la mesa sea amarilla, tenue o esté quemada: lo que se
+// compara es la forma de la ilustración, no sus colores.
+const W = 16;
+const H = 12;
 const ART = { x: 0.1, y: 0.12, w: 0.8, h: 0.42 };
 
 function fingerprint(source, sw, sh, region = ART) {
@@ -77,20 +80,16 @@ function fingerprint(source, sw, sh, region = ART) {
   const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(source, region.x * sw, region.y * sh, region.w * sw, region.h * sh, 0, 0, W, H);
   const d = ctx.getImageData(0, 0, W, H).data;
-  const v = new Float32Array(W * H * 3);
-  let mean = 0;
-  for (let i = 0; i < W * H; i++) {
-    v[i * 3] = d[i * 4];
-    v[i * 3 + 1] = d[i * 4 + 1];
-    v[i * 3 + 2] = d[i * 4 + 2];
-    mean += d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2];
-  }
-  mean /= W * H * 3;
-  // normalizamos el brillo (la luz de la mesa cambia mucho)
+  const n = W * H;
+  const gray = Array.from({ length: n }, (_, i) => 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]);
+  const order = gray.map((g, i) => [g, i]).sort((a, b) => a[0] - b[0]);
+  const v = new Float32Array(n);
+  order.forEach(([, i], rank) => { v[i] = rank; });
+  let mean = (n - 1) / 2;
   let sd = 0;
-  for (let i = 0; i < v.length; i++) { v[i] -= mean; sd += v[i] * v[i]; }
-  sd = Math.sqrt(sd / v.length) || 1;
-  for (let i = 0; i < v.length; i++) v[i] /= sd;
+  for (let i = 0; i < n; i++) { v[i] -= mean; sd += v[i] * v[i]; }
+  sd = Math.sqrt(sd / n) || 1;
+  for (let i = 0; i < n; i++) v[i] /= sd;
   return v;
 }
 
@@ -137,10 +136,13 @@ export async function autoMatchEdition(photo, card) {
   scored.sort((a, b) => a.d - b.d);
   const [best, second] = scored;
   if (window.__editionDebug) window.__editionDebug(scored.slice(0, 5).map((x) => [x.c.set_name, x.d.toFixed(3)]));
-  // Aceptamos si es bastante parecida y se distingue de la siguiente.
-  if (!best || best.d > 0.9 || (second && second.d - best.d < 0.02)) return { unsure: true };
-  const es = await spanishOf(card, best.c.set);
-  return { image: es || imgOf(best.c), set: best.c.set, setName: best.c.set_name };
+  // Aceptamos si es bastante parecida y se distingue claramente de la siguiente.
+  if (!best || best.d > 0.5 || (second && second.d - best.d < 0.12)) return { unsure: true };
+  // La misma ilustración se reimprime en muchas ediciones: buscamos la impresión
+  // en español más reciente con ESA ilustración (p. ej. Fundamentos).
+  const es = await spanishSameArt(card, best.c);
+  const pick = es || best.c;
+  return { image: imgOf(pick), set: pick.set, setName: pick.set_name };
 }
 
 // ------------------------------------------------------------ galería manual
@@ -157,7 +159,7 @@ export function openEditionPicker(card, onPick) {
     try {
       const q = encodeURIComponent(`!"${card.name}" (lang:es or lang:en)`);
       const r = await get(`/cards/search?q=${q}&unique=prints&include_multilingual=true&order=released&dir=desc`);
-      const prints = r.data.filter((c) => imgOf(c, 'small') && /scan/.test(c.image_status || ''));
+      const prints = r.data.filter((c) => imgOf(c, 'small') && !/missing|placeholder/.test(c.image_status || ''));
       clear(grid).append(...prints.slice(0, 120).map((c) => h('button', {
         class: 'edition', onClick: () => {
           const ed = { image: imgOf(c), set: c.set, setName: c.set_name };

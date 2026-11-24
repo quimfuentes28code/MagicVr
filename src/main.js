@@ -17,6 +17,7 @@ import { goNative } from './native.js';
 import { preloadVision } from './vision.js';
 import { loadCardDb, cardDbCount, cardDbReady, searchNames, cardByName } from './carddb.js';
 import { manaColor } from './ui/dom.js';
+import { startMusic, musicOn, setMusic } from './ui/music.js';
 
 const app = document.getElementById('app');
 const COLORS = Object.keys(BOT_DECKS);
@@ -88,6 +89,7 @@ function splash() {
     dbLine(),
   )));
   async function enter() {
+    startMusic();
     await goNative();
     preloadVision();
     menu();
@@ -102,7 +104,10 @@ function menu() {
       h('div', { class: 'logo-title' }, 'MagicVR'),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
       h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), nameInput),
-      h('button', { class: 'gem small bronze', onClick: calibrateFromMenu }, icon('eye'), 'Ajustar mesa'),
+      h('div', { class: 'menu-btns' },
+        h('button', { class: 'gem small bronze', onClick: calibrateFromMenu }, icon('eye'), 'Ajustar mesa'),
+        h('button', { class: 'gem small bronze', onClick: (e) => { setMusic(!musicOn()); e.currentTarget.textContent = musicOn() ? '♫ Música: sí' : '♫ Música: no'; } }, musicOn() ? '♫ Música: sí' : '♫ Música: no'),
+      ),
       dbLine(),
     ),
     h('div', { class: 'menu-right' },

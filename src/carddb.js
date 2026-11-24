@@ -88,34 +88,55 @@ function trigrams(s) {
 }
 
 /** Convierte un registro compacto en una carta de la app (con caché). */
+// Cartas de dos caras/mitades cuya «carta» normal es la primera cara (la otra se elige al jugar).
+const FRONT_LAYOUTS = new Set(['adventure', 'modal_dfc', 'transform', 'flip', 'prepare']);
+
 export function recordToCard(r) {
   if (!r) return null;
   let c = cache.get(r.o);
   if (c) return c;
   const front = r.f ? r.f[0] : null;
+  const useFront = !!front && FRONT_LAYOUTS.has(r.y);
+  const firstPart = (t) => (t ? t.split(/\s*\/\/\s*/)[0] : null);
   c = normalize({
     id: r.o,
-    name: r.n,
+    name: useFront ? front.n : r.n,
     printedName: r.en || null,
     image: imageUrl(r.ei || r.i || front?.i),
     imageEn: imageUrl(r.i || front?.i),
-    manaCost: r.m || front?.m || '',
-    cmc: r.v,
-    typeLine: r.t,
-    printedType: r.et || null,
-    oracle: r.x || (r.f ? r.f.map((f) => f.x).join('\n//\n') : ''),
-    printedText: r.ex || null,
-    power: r.p ?? front?.p,
-    toughness: r.d ?? front?.d,
+    manaCost: useFront ? front.m || '' : r.m || front?.m || '',
+    cmc: useFront ? undefined : r.v,
+    typeLine: useFront ? front.t : r.t,
+    printedType: useFront ? firstPart(r.et) : r.et || null,
+    oracle: useFront ? front.x || '' : r.x || (r.f ? r.f.map((f) => f.x).join('\n//\n') : ''),
+    printedText: useFront ? firstPart(r.ex) : r.ex || null,
+    power: useFront ? front.p : r.p ?? front?.p,
+    toughness: useFront ? front.d : r.d ?? front?.d,
     colors: (r.c || '').split('').filter(Boolean),
     keywords: r.k || [],
   });
-  c.loyalty = r.l ?? front?.l ?? null;
+  c.loyalty = (useFront ? front.l : r.l ?? front?.l) ?? null;
   c.colorIdentity = (r.ci || '').split('').filter(Boolean);
   c.commanderLegal = !!r.cmd;
   c.set = r.s;
   c.rarity = r.r;
-  if (r.f) c.faces = r.f.map((f) => ({ name: f.name || f.n, manaCost: f.m, typeLine: f.t, oracle: f.x, power: f.p, toughness: f.d, image: imageUrl(f.i) }));
+  c.layout = r.y || 'normal';
+  c.fullName = r.n;
+  if (r.f) {
+    // cada cara como carta jugable (para elegir cuál lanzar)
+    c.faces = r.f.map((f, i) => {
+      const fc = normalize({
+        id: r.o, name: f.n, printedName: i === 0 ? r.en || null : null, manaCost: f.m || '', typeLine: f.t || '',
+        oracle: f.x || '', power: f.p, toughness: f.d, keywords: i === 0 ? r.k || [] : [],
+        image: imageUrl(f.i) || c.image,
+      });
+      fc.loyalty = f.l ?? null;
+      fc.faceIndex = i;
+      fc.layout = c.layout;
+      fc.fullName = r.n;
+      return fc;
+    });
+  }
   cache.set(r.o, c);
   return c;
 }

@@ -41,6 +41,7 @@ export function normalize(c) {
     id: c.id || 'local:' + c.name,
     name: c.name,
     printedName: c.printedName || null,
+    printedType: c.printedType || null,
     image: c.image || IMG(c.name),
     manaCost: c.manaCost || '',
     cmc: c.cmc ?? cmcOf(c.manaCost || ''),

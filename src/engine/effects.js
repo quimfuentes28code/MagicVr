@@ -33,9 +33,11 @@ function parseSentence(t) {
   if (/Counter target (?:creature |noncreature |instant or sorcery |instant |sorcery )?spell/i.test(t)) fx.push({ kind: 'counterspell', target: 'spell' });
   if ((m = t.match(/Target creature gets ([+-]\d+)\/([+-]\d+) until end of turn/i))) fx.push({ kind: 'pump', p: +m[1], t: +m[2], target: 'creature' });
   if (/Return target (?:nonland permanent|creature) to its owner's hand/i.test(t)) fx.push({ kind: 'bounce', target: 'creature' });
-  if (/[Pp]ut a \+1\/\+1 counter on target creature/.test(t)) fx.push({ kind: 'counter', target: 'creature' });
+  if (/[Pp]ut a \+1\/\+1 counter on (?:up to one )?target creature/.test(t)) fx.push({ kind: 'counter', target: 'creature' });
   if ((m = t.match(/(?:target opponent|each opponent) loses (\d+) life/i))) fx.push({ kind: 'drain', amount: +m[1] });
   if ((m = t.match(/[Yy]ou gain (\d+) life/))) fx.push({ kind: 'gain', amount: +m[1] });
+  // «Target player gains N life»: casi siempre te lo aplicas a ti
+  else if ((m = t.match(/[Tt]arget player gains (\d+) life/))) fx.push({ kind: 'gain', amount: +m[1] });
   if ((m = t.match(/[Yy]ou lose (\d+) life/))) fx.push({ kind: 'lose', amount: +m[1] });
   if ((m = t.match(/[Dd]raws? (a|one|two|three|\d+) cards?/))) fx.push({ kind: 'draw', amount: num(m[1]) });
   if (!/you lose/i.test(t) && (m = t.match(/[Tt]arget player draws \w+ cards? and loses (\d+) life/))) fx.push({ kind: 'lose', amount: +m[1] });

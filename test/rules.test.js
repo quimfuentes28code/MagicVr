@@ -390,3 +390,25 @@ test('mano física: la app lleva la cuenta de tus cartas en mano', () => {
   s = apply(s, { t: 'hand', by: 'a', set: 5 });
   assert.equal(s.players.find((p) => p.id === 'a').handCount, 5);
 });
+
+test('aventura: el hechizo se resuelve, se exilia «de aventura» y luego se lanza la criatura desde el exilio', () => {
+  let s = duel();
+  s.step = 'main1';
+  const [s1, target] = put(s, 'a', creature('Oso', 2, 2));
+  s = s1;
+  const creatureFace = normalize({ name: 'Gollum, Silent Slinker', manaCost: '{3}{B}', typeLine: 'Legendary Creature — Halfling Horror', power: '4', toughness: '3', keywords: ['Menace'], oracle: 'Menace' });
+  const adventure = normalize({ name: 'Meager Meal', manaCost: '{B}', typeLine: 'Sorcery — Adventure', oracle: 'Put a +1/+1 counter on up to one target creature. Target player gains 2 life. (Then exile this card. You may cast the creature later from exile.)' });
+  adventure.adventureOf = creatureFace;
+  const life0 = s.players.find((p) => p.id === 'a').life;
+  s = act(s, { t: 'play', by: 'a', card: adventure, targets: [{ uid: target }], force: true });
+  const a = s.players.find((p) => p.id === 'a');
+  assert.equal(a.battlefield.find((p) => p.uid === target).counters, 1, '+1/+1 aplicado solo');
+  assert.equal(a.life, life0 + 2, '2 vidas sumadas solas');
+  assert.equal(a.graveyard.length, 0, 'no va al cementerio');
+  assert.equal(a.exile.filter((c) => c.onAdventure).length, 1, 'queda exiliada de aventura');
+  const later = { ...creatureFace, fromAdventure: true };
+  s = act(s, { t: 'play', by: 'a', card: later, force: true });
+  const a2 = s.players.find((p) => p.id === 'a');
+  assert.equal(a2.exile.length, 0, 'sale del exilio');
+  assert.ok(a2.battlefield.some((p) => p.card.name === 'Gollum, Silent Slinker'), 'la criatura entra al campo');
+});

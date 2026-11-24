@@ -9,7 +9,7 @@ export function cardFace(card, { big = false } = {}) {
   const fallback = h('div', { class: 'card-fallback', style: { '--frame': manaColor(color) } },
     h('div', { class: 'cf-head' }, h('span', { class: 'cf-name' }, displayName(card)), manaCost(card.manaCost)),
     h('div', { class: 'cf-art' }, card.isLand ? '⛰' : card.isCreature ? '⚔' : '✦'),
-    h('div', { class: 'cf-type' }, card.typeLine),
+    h('div', { class: 'cf-type' }, card.printedType || card.typeLine),
     h('div', { class: 'cf-text' }, card.printedText || card.oracle),
     card.isCreature ? h('div', { class: 'cf-pt' }, `${card.power}/${card.toughness}`) : null,
   );

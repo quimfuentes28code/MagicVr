@@ -62,18 +62,31 @@ export function targetsFor(card) {
 
 const TOKEN_ES = { Soldier: 'Soldado', Goblin: 'Trasgo', Zombie: 'Zombi', Spirit: 'Espíritu', Elf: 'Elfo', Warrior: 'Guerrero', Beast: 'Bestia', Bird: 'Ave', Knight: 'Caballero', Saproling: 'Saprolín', Human: 'Humano', Cat: 'Gato', Wolf: 'Lobo', Insect: 'Insecto', Rat: 'Rata', Vampire: 'Vampiro', Angel: 'Ángel', Dragon: 'Dragón' };
 
+const KW_ES = { flying: 'vuela', vigilance: 'vigilancia', lifelink: 'vínculo vital', haste: 'prisa', trample: 'arrollar', deathtouch: 'toque mortal',
+  reach: 'alcance', menace: 'amenaza', 'first strike': 'dañar primero', defender: 'defensor', hexproof: 'antimaleficio', indestructible: 'indestructible', 'double strike': 'dañar dos veces' };
+const COLOR_ES = { W: 'blanca', U: 'azul', B: 'negra', R: 'roja', G: 'verde' };
+const COLOR_EN = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
+
 export function tokenCard(e) {
+  const es = TOKEN_ES[e.subtype] || e.subtype;
+  const kws = e.keywords.map((k) => k.toLowerCase());
+  const colEs = e.colors.length ? e.colors.map((c) => COLOR_ES[c]).join(' y ') : 'incolora';
+  const colEn = e.colors.length ? e.colors.map((c) => COLOR_EN[c]).join(' and ') : 'colorless';
+  const kwEs = kws.map((k) => KW_ES[k] || k);
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   return {
-    id: 'token:' + e.subtype + e.power + e.toughness,
+    id: 'token:' + e.subtype + e.power + e.toughness + e.colors.join('') + kws.join(','),
     name: `${e.subtype} Token`,
-    printedName: `Ficha de ${TOKEN_ES[e.subtype] || e.subtype}`,
+    printedName: `Ficha de ${es}`,
     image: null,
     manaCost: '', cmc: 0,
     typeLine: `Token Creature — ${e.subtype}`,
-    oracle: e.keywords.join(', '),
-    printedText: null,
+    printedType: `Criatura ficha — ${es}`,
+    oracle: (kws.length ? kws.map(cap).join(', ') + '\n' : '') + `(${e.power}/${e.toughness} ${colEn} ${e.subtype} creature token.)`,
+    printedText: (kwEs.length ? kwEs.map(cap).join(', ') + '.\n' : '') + `Ficha de criatura ${es} ${e.power}/${e.toughness} ${colEs}. Es una criatura más: puede atacar y bloquear, pero si sale del campo de batalla deja de existir.`,
     power: e.power, toughness: e.toughness,
-    colors: e.colors, keywords: e.keywords.map((k) => k.toLowerCase()),
+    colors: e.colors, keywords: kws,
+    subtype: e.subtype,
     isLand: false, isCreature: true, isInstant: false, isSorcery: false, isLegendary: false, isPermanent: true, isToken: true,
     produces: [], effects: { etb: [], spell: [] },
   };

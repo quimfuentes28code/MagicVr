@@ -13,6 +13,7 @@ import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
 import { hologram } from './hologram.js';
+import { tokenImage } from './tokens.js';
 import { apply as applyAction } from '../engine/game.js';
 import { normalize as normalizeCard } from '../engine/cards.js';
 import { warCry, strike, impactFlash, damageNumber } from './combatfx.js';
@@ -714,6 +715,13 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       el.addEventListener('animationend', (ev) => { if (ev.animationName === 'summonIn') el.classList.remove('enter'); });
       el.addEventListener('click', (e) => { e.stopPropagation(); onPermTap(perm.uid); });
       ui.els.set(perm.uid, el);
+      el.__img = perm.card.image;
+    }
+    // si cambia la imagen (edición elegida, imagen de la ficha…), se repinta la cara
+    if (el.__img !== perm.card.image) {
+      el.__img = perm.card.image;
+      const old = el.querySelector('.card');
+      if (old) old.replaceWith(cardFace(perm.card));
     }
     const attacking = s.combat.attackers[perm.uid] != null;
     const blocking = Object.values(s.combat.blocks).some((l) => l.includes(perm.uid));
@@ -842,6 +850,11 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           clearTimeout(el.__enterT);
           el.__enterT = setTimeout(() => el.classList.remove('enter'), 1100);
           setTimeout(() => burst(el, e.color, 22), 650);
+          // las fichas reciben su imagen oficial
+          const tk = findPerm(s, e.uid)?.perm.card;
+          if (tk && tk.isToken && !tk.image) {
+            tokenImage(tk).then((url) => { if (url && findPerm(S(), e.uid)) session.dispatch({ t: 'setImage', uid: e.uid, image: url }); });
+          }
           // el personaje de la carta sale en 2,5D (criaturas y planeswalkers)
           const pc = findPerm(s, e.uid)?.perm.card;
           if (pc && (pc.isCreature || pc.isPlaneswalker) && !pc.isToken) {

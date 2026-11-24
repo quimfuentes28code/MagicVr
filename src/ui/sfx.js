@@ -114,6 +114,11 @@ const SOUNDS = {
   death: () => { tone(330, { dur: 0.5, type: 'sawtooth', vol: 0.06, slide: 0.3 }); noise({ dur: 0.5, vol: 0.06, from: 1200, to: 200 }); },
   gain: () => { tone(660, { dur: 0.2, vol: 0.1 }); tone(990, { t: 0.1, dur: 0.3, vol: 0.08 }); },
   loss: () => tone(160, { dur: 0.35, type: 'square', vol: 0.1, slide: 0.6 }),
+  warcry: () => {
+    // cuerno de guerra + tambores
+    [[147, 0], [220, 0.02], [294, 0.04]].forEach(([f, t]) => tone(f, { t, dur: 0.9, type: 'sawtooth', vol: 0.05, slide: 1.06 }));
+    [0, 0.18, 0.36].forEach((t) => { tone(80, { t, dur: 0.25, vol: 0.25, slide: 0.5 }); noise({ t, dur: 0.12, vol: 0.08, from: 300, to: 120 }); });
+  },
   attack: () => { noise({ dur: 0.5, vol: 0.12, from: 200, to: 1800 }); tone(70, { dur: 0.45, type: 'sawtooth', vol: 0.08, slide: 1.8 }); },
   explosion: () => { boom(); },
   turn: () => { tone(740, { dur: 0.6, type: 'triangle', vol: 0.09 }); tone(1110, { t: 0.02, dur: 0.7, vol: 0.05 }); },

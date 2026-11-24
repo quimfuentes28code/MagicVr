@@ -12,6 +12,9 @@ import { targetsFor, describeEffect } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
+import { apply as applyAction } from '../engine/game.js';
+import { normalize as normalizeCard } from '../engine/cards.js';
+import { warCry, strike, impactFlash, damageNumber } from './combatfx.js';
 import { musicOn, setMusic, musicVolume, setMusicVolume, startMusic, duckMusic } from './music.js';
 import { openEditionPicker, autoMatchEdition, withPreferredEdition } from './editions.js';
 import {
@@ -111,7 +114,12 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   startMusic();
   try {
     if (localStorage.getItem('mtgvr-debug')) {
-      window.__mtg = { session, spell: (e) => spellVisual(S(), { id: 0, ...e }, new Set()) };
+      window.__mtg = {
+        session,
+        spell: (e) => spellVisual(S(), { id: 0, ...e }, new Set()),
+        normalize: normalizeCard,
+        act: (a) => { session.state = applyAction(session.state, a); session.emit(); return session.state; },
+      };
     }
   } catch { /* */ }
 
@@ -364,6 +372,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   // ------------------------------------------------------------- render
   function render(s) {
+    // Posición de cada carta antes de redibujar (para animar las que mueren o se van).
+    ui.rects ||= new Map();
+    for (const [uid, el] of ui.els) if (el.isConnected) { const r = el.getBoundingClientRect(); if (r.width) ui.rects.set(uid, r); }
     const myP = player(s, me());
     const opps = s.players.filter((p) => p.id !== me());
     if (!ui.viewOpp || !opps.find((p) => p.id === ui.viewOpp && !p.eliminated)) {
@@ -750,7 +761,18 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     if (!fresh.length) return;
     ui.lastEvent = fresh[fresh.length - 1].id;
     const cast = new Set();
+    // Combate: primero las embestidas; las vidas y muertes se ven al impactar.
+    const combatEv = fresh.find((e) => e.kind === 'combat' && e.hits);
+    const lateBy = combatEv ? playCombat(s, combatEv) : 0;
     for (const e of fresh) {
+      if (lateBy && e.kind === 'life' && e.uid) { setTimeout(() => lifeFx(e, false), lateBy); continue; }
+      if (lateBy && e.kind === 'death' && e.uid) {
+        const el = ui.els.get(e.uid);
+        ui.els.delete(e.uid);
+        if (el) deathGhost(el, ui.rects?.get(e.uid) || el.getBoundingClientRect(), lateBy);
+        setTimeout(() => sfx('death'), lateBy);
+        continue;
+      }
       if (e.spell && spellVisual(s, e, cast)) continue;
       if (e.kind === 'play' && e.uid) {
         sfx(findPerm(s, e.uid)?.perm.card.isLand ? 'land' : 'play');
@@ -783,34 +805,21 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         const el = ui.els.get(e.uid);
         if (el) {
           ui.els.delete(e.uid);
-          deathGhost(el, el.getBoundingClientRect());
+          deathGhost(el, ui.rects?.get(e.uid) || el.getBoundingClientRect());
         }
       } else if (e.kind === 'life') {
-        floatText(document.querySelector(`[data-life="${e.target}"]`), (e.delta > 0 ? '+' : '') + e.delta, e.delta > 0 ? 'gain' : 'loss');
-        if (e.delta < 0 && e.uid) explode(document.querySelector(`[data-life="${e.target}"]`), true, colorOf(s, e.uid));
-        sfx(e.delta > 0 ? 'gain' : 'loss');
-        if (e.delta < 0 && e.target === me()) { screen.classList.add('hurt'); buzz(120); setTimeout(() => screen.classList.remove('hurt'), 500); }
+        lifeFx(e, !!e.uid);
       } else if (e.kind === 'turn') {
         sfx('turn');
         showBanner(e.player === me() ? 'Tu turno' : 'Turno de ' + player(s, e.player).name);
       } else if (e.kind === 'attack') {
         showBanner('¡Al ataque!');
-        sfx('attack');
+        sfx('warcry');
         buzz(60);
-        for (const u of e.uids || []) {
-          const el = ui.els.get(u);
-          if (!el) continue;
-          el.classList.remove('lunge');
-          void el.offsetWidth;
-          el.classList.add('lunge');
-          setTimeout(() => el.classList.remove('lunge'), 800);
-        }
+        (e.uids || []).forEach((u, i) => setTimeout(() => warCry(ui.els.get(u), colorOf(s, u)), i * 90));
       } else if (e.kind === 'combat') {
-        // Impacto: explosión en cada criatura que combate y donde recibe el golpe el jugador.
-        sfx('explosion');
-        duckMusic();
-        buzz(150);
-        for (const u of e.uids || []) explode(ui.els.get(u), false, colorOf(s, u));
+        // (las embestidas se lanzan en playCombat)
+        if (!e.hits) { sfx('explosion'); for (const u of e.uids || []) explode(ui.els.get(u), false, colorOf(s, u)); }
       } else if (e.kind === 'illegal' && e.to === me()) {
         illegalSheet(e);
       } else if (e.kind === 'out' || e.kind === 'win') {
@@ -827,19 +836,78 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     for (const [uid, el] of ui.els) if (!findPerm(s, uid)) { el.remove(); ui.els.delete(uid); }
   }
 
+  function lifeFx(e, boom) {
+    const gem = document.querySelector(`[data-life="${e.target}"]`);
+    floatText(gem, (e.delta > 0 ? '+' : '') + e.delta, e.delta > 0 ? 'gain' : 'loss');
+    if (boom && e.delta < 0) explode(gem, true, 'R');
+    sfx(e.delta > 0 ? 'gain' : 'loss');
+    if (e.delta < 0 && e.target === me()) { screen.classList.add('hurt'); buzz(120); setTimeout(() => screen.classList.remove('hurt'), 500); }
+  }
+
+  /** Rect actual (o el último conocido) de una carta del campo. */
+  function rectOf(uid) {
+    const el = ui.els.get(uid);
+    if (el && el.isConnected) { const r = el.getBoundingClientRect(); if (r.width) return r; }
+    return ui.rects?.get(uid) || null;
+  }
+
+  /**
+   * Embestidas del combate: cada criatura que golpea carga contra su objetivo
+   * (bloqueador o jugador). Devuelve los ms hasta el último impacto.
+   */
+  function playCombat(s, ev) {
+    const order = [];
+    for (const hit of ev.hits) if (!order.includes(hit.src) && (ev.uids || []).includes(hit.src)) order.push(hit.src);
+    let last = 0;
+    let first = true;
+    duckMusic(1800);
+    for (const hit of ev.hits) {
+      const srcEl = ui.els.get(hit.src);
+      const cardEl = srcEl ? srcEl.querySelector('.card') : null;
+      const from = rectOf(hit.src);
+      // los bloqueadores contraatacan a la vez que su atacante
+      const att = (ev.uids || []).includes(hit.src) ? hit.src : hit.to;
+      const slot = Math.max(0, order.indexOf(att));
+      const delay = slot * 260 + ((ev.uids || []).includes(hit.src) ? 0 : 90);
+      const playerTarget = hit.player != null;
+      const toEl = playerTarget ? document.querySelector(`[data-life="${hit.player}"]`) : null;
+      const to = playerTarget ? (toEl && toEl.getBoundingClientRect()) : rectOf(hit.to);
+      const color = (findPerm(s, hit.src)?.perm.card.colors[0]) || (srcEl && srcEl.dataset.color) || 'R';
+      const isFirst = first;
+      first = false;
+      const at = strike(fx, cardEl, from, to, color, () => {
+        impactFlash(fx, playerTarget && toEl ? toEl.getBoundingClientRect() : to, color, playerTarget);
+        if (!playerTarget) damageNumber(fx, to, hit.amt);
+        if (isFirst) { sfx('explosion'); buzz(150); } else sfx('hit');
+        screen.classList.remove('quake');
+        void screen.offsetWidth;
+        screen.classList.add('quake');
+        setTimeout(() => screen.classList.remove('quake'), 450);
+        const tEl = playerTarget ? toEl : ui.els.get(hit.to);
+        if (tEl && tEl.isConnected) { tEl.classList.remove('shake'); void tEl.offsetWidth; tEl.classList.add('shake'); setTimeout(() => tEl.classList.remove('shake'), 600); }
+      }, { delay });
+      last = Math.max(last, at);
+    }
+    return last + 30;
+  }
+
   function colorOf(s, uid) {
     const f = findPerm(s, uid);
     return (f && f.perm.card.colors[0]) || 'R';
   }
 
-  function deathGhost(el, r) {
-    if (!r.width) return;
+  function deathGhost(el, r, wait = 0) {
+    if (!r || !r.width) return;
     const ghost = el.cloneNode(true);
-    ghost.className = 'perm ghost';
-    Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px' });
-    ghost.style.setProperty('--card-w', r.width + 'px');
+    const tapped = el.classList.contains('tapped');
+    ghost.className = 'perm ghost' + (tapped ? ' tapped' : '') + (wait ? ' hold' : '');
+    // la carta girada ocupa su ancho en horizontal: el rect es el de la carta girada
+    const w = tapped ? r.height : r.width;
+    Object.assign(ghost.style, { left: r.left + (r.width - w) / 2 + 'px', top: r.top + (r.height - (tapped ? r.width : r.height)) / 2 + 'px', width: w + 'px', margin: 0 });
+    ghost.style.setProperty('--card-w', w + 'px');
     fx.append(ghost);
-    setTimeout(() => ghost.remove(), 950);
+    if (wait) setTimeout(() => ghost.classList.remove('hold'), wait);
+    setTimeout(() => ghost.remove(), wait + 950);
   }
 
   /**

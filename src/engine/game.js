@@ -1041,7 +1041,7 @@ function resolveEffectsInner(s, pl, card, fx, targets, name) {
         for (let i = 0; i < e.amount; i++) {
           const perm2 = makePerm(s, tokenCard(e), pl.id);
           pl.battlefield.push(perm2);
-          pushEvent(s, 'play', `${name} crea una ficha de ${e.subtype} ${e.power}/${e.toughness}.`, { uid: perm2.uid, by: pl.id, color: e.colors[0] || 'C' });
+          pushEvent(s, 'play', `${name} crea una ${perm2.card.printedName.toLowerCase()} ${e.power}/${e.toughness}.`, { uid: perm2.uid, by: pl.id, color: e.colors[0] || 'C', token: true });
         }
         break;
       case 'regrow': {
@@ -1091,6 +1091,15 @@ function stateBased(s) {
   checkDeaths(s);
 }
 
+/** Habilidades «cuando muera…»: se aplican solas (las que piden objetivo, a mano). */
+function fireDies(s, owner, perm) {
+  const fx = perm.card.effects?.dies || [];
+  if (!fx.length || owner.eliminated) return;
+  const name = displayName(perm.card);
+  pushEvent(s, 'info', `Al morir, se dispara la habilidad de ${name}.`, { to: owner.id });
+  resolveEffects(s, owner, perm.card, fx, [], null);
+}
+
 function leaveBattlefield(s, owner, perm, to, verb) {
   owner.battlefield = owner.battlefield.filter((x) => x.uid !== perm.uid);
   delete s.combat.attackers[perm.uid];
@@ -1100,6 +1109,7 @@ function leaveBattlefield(s, owner, perm, to, verb) {
   if (perm.isCommander && (to === 'graveyard' || to === 'exile' || to === 'hand' || to === 'library')) {
     owner.commanderInZone = true;
     pushEvent(s, 'death', `${name} ${verb || 'deja el campo'} y vuelve a la zona de mando.`, { uid: perm.uid });
+    if (to === 'graveyard') fireDies(s, owner, perm);
     return;
   }
   if (perm.card.isToken) {
@@ -1113,6 +1123,7 @@ function leaveBattlefield(s, owner, perm, to, verb) {
   else if (to === 'library' && owner.isBot) owner.library.unshift({ ...perm.card, uid: perm.uid });
   const where = { graveyard: 'al cementerio', exile: 'al exilio', hand: 'a la mano', library: 'a la biblioteca' }[to];
   pushEvent(s, 'death', `${name} ${verb ? verb + ' y va' : 'va'} ${where}.`, { uid: perm.uid, to });
+  if (to === 'graveyard') fireDies(s, owner, perm);
 }
 
 function checkDeaths(s) {

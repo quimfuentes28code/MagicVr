@@ -10,7 +10,7 @@ const COLOR_WORD = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G', co
 /** Divide el texto en efectos de "al entrar" y efectos de hechizo. */
 export function parseEffects(card) {
   const text = (card.oracle || '').replace(/\([^)]*\)/g, ''); // quita textos recordatorio
-  const out = { etb: [], spell: [] };
+  const out = { etb: [], spell: [], dies: [] };
   if (!text) return out;
   const self = new RegExp(escapeRe(card.name), 'g');
   const clean = text.replace(self, 'CARDNAME');
@@ -19,6 +19,9 @@ export function parseEffects(card) {
   } else {
     const m = clean.match(/When (?:CARDNAME|this creature) enters(?: the battlefield)?,\s*([^\n]+)/i);
     if (m) out.etb = parseSentence(m[1]);
+    // «Cuando muera…» (disparada al ir del campo de batalla al cementerio)
+    const d = clean.match(/When (?:CARDNAME|this creature) (?:dies|is put into a graveyard from the battlefield),\s*([^\n]+)/i);
+    if (d) out.dies = parseSentence(d[1]);
   }
   return out;
 }
@@ -44,7 +47,7 @@ function parseSentence(t) {
   if ((m = t.match(/[Cc]reate (a|an|one|two|three|four|\d+) (\d+)\/(\d+) ((?:white|blue|black|red|green|colorless)(?: and (?:white|blue|black|red|green))?) ([A-Z][\w ]*?) (?:artifact )?creature tokens?(?: with ([a-z, ]+))?/))) {
     fx.push({
       kind: 'token', amount: num(m[1]), power: +m[2], toughness: +m[3],
-      colors: m[4].split(' and ').map((w) => COLOR_WORD[w]).filter(Boolean), subtype: m[5].trim(),
+      colors: m[4].split(' and ').map((w) => COLOR_WORD[w]).filter((c) => c && c !== 'C'), subtype: m[5].trim(),
       keywords: (m[6] || '').split(/,| and /).map((s) => s.trim()).filter(Boolean),
     });
   }
@@ -62,7 +65,11 @@ export function targetsFor(card) {
   return (fx || []).filter(needsTarget);
 }
 
-const TOKEN_ES = { Soldier: 'Soldado', Goblin: 'Trasgo', Zombie: 'Zombi', Spirit: 'Espíritu', Elf: 'Elfo', Warrior: 'Guerrero', Beast: 'Bestia', Bird: 'Ave', Knight: 'Caballero', Saproling: 'Saprolín', Human: 'Humano', Cat: 'Gato', Wolf: 'Lobo', Insect: 'Insecto', Rat: 'Rata', Vampire: 'Vampiro', Angel: 'Ángel', Dragon: 'Dragón' };
+const TOKEN_ES = { Hero: 'Héroe', Construct: 'Constructo', Thopter: 'Tóptero', Elemental: 'Elemental', Faerie: 'Hada', Dog: 'Perro', Squirrel: 'Ardilla',
+  Snake: 'Serpiente', Plant: 'Planta', Ox: 'Buey', Pest: 'Plaga', Servo: 'Servo', Illusion: 'Ilusión', Golem: 'Gólem', Demon: 'Demonio', Giant: 'Gigante',
+  Shapeshifter: 'Cambiaformas', Dwarf: 'Enano', Halfling: 'Mediano', Orc: 'Orco', Army: 'Ejército', Monk: 'Monje', Cleric: 'Clérigo', Wizard: 'Hechicero',
+  Rogue: 'Pícaro', Horror: 'Horror', Treefolk: 'Arbóreo', Fungus: 'Hongo', Germ: 'Germen', Wurm: 'Sierpe', Hippo: 'Hipopótamo', Rabbit: 'Conejo', Frog: 'Rana',
+  Soldier: 'Soldado', Goblin: 'Trasgo', Zombie: 'Zombi', Spirit: 'Espíritu', Elf: 'Elfo', Warrior: 'Guerrero', Beast: 'Bestia', Bird: 'Ave', Knight: 'Caballero', Saproling: 'Saprolín', Human: 'Humano', Cat: 'Gato', Wolf: 'Lobo', Insect: 'Insecto', Rat: 'Rata', Vampire: 'Vampiro', Angel: 'Ángel', Dragon: 'Dragón' };
 
 const KW_ES = { flying: 'vuela', vigilance: 'vigilancia', lifelink: 'vínculo vital', haste: 'prisa', trample: 'arrollar', deathtouch: 'toque mortal',
   reach: 'alcance', menace: 'amenaza', 'first strike': 'dañar primero', defender: 'defensor', hexproof: 'antimaleficio', indestructible: 'indestructible', 'double strike': 'dañar dos veces' };

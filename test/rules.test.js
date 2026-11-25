@@ -412,3 +412,24 @@ test('aventura: el hechizo se resuelve, se exilia «de aventura» y luego se lan
   assert.equal(a2.exile.length, 0, 'sale del exilio');
   assert.ok(a2.battlefield.some((p) => p.card.name === 'Gollum, Silent Slinker'), 'la criatura entra al campo');
 });
+
+test('«cuando muera, crea una ficha»: la ficha aparece sola al morir la criatura', () => {
+  let s = duel();
+  s.step = 'main1';
+  const guard = creature('Dwarven Castle Guard', 2, 1, [], { oracle: 'When this creature dies, create a 1/1 colorless Hero creature token.' });
+  let uid;
+  [s, uid] = put(s, 'a', guard);
+  s = apply(s, { t: 'damage', by: 'a', uid, amount: 3 });
+  const a = s.players.find((p) => p.id === 'a');
+  assert.ok(!a.battlefield.some((p) => p.uid === uid), 'la criatura muere');
+  const tok = a.battlefield.find((p) => p.card.isToken);
+  assert.ok(tok, 'aparece la ficha');
+  assert.equal(tok.card.subtype, 'Hero');
+  assert.equal(tok.card.power, 1);
+  assert.equal(tok.card.printedName, 'Ficha de Héroe');
+});
+
+test('las fichas incoloras no tienen color', () => {
+  const guard = creature('Guard', 2, 1, [], { oracle: 'When this creature dies, create a 1/1 colorless Hero creature token.' });
+  assert.deepEqual(guard.effects.dies[0].colors, []);
+});

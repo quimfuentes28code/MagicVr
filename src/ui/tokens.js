@@ -33,7 +33,8 @@ export function tokenImage(card) {
   const m = load();
   if (m[key]) return Promise.resolve(m[key]);
   if (pending.has(key)) return pending.get(key);
-  const colors = card.colors && card.colors.length ? `c=${card.colors.map((c) => COLOR_Q[c]).join('')}` : 'c=c';
+  const real = (card.colors || []).filter((c) => COLOR_Q[c]);
+  const colors = real.length ? `c=${real.map((c) => COLOR_Q[c]).join('')}` : 'c=c';
   const base = `t:token t:"${card.subtype}" pow=${card.power} tou=${card.toughness} ${colors}`;
   const kw = (card.keywords || []).map((k) => ` keyword:"${k}"`).join('');
   const p = (async () => {

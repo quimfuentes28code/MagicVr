@@ -177,6 +177,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         session,
         spell: (e) => spellVisual(S(), { id: 0, ...e }, new Set()),
         normalize: normalizeCard,
+        tokenImage,
         act: (a) => { session.state = applyAction(session.state, a); session.emit(); return session.state; },
       };
     }
@@ -993,6 +994,10 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           setTimeout(() => burst(el, e.color, 22), 650);
           // las fichas reciben su imagen oficial
           const tk = findPerm(s, e.uid)?.perm.card;
+          if (tk && tk.isToken && e.by === me() && Date.now() - (ui.tokenTip || 0) > 2000) {
+            ui.tokenTip = Date.now();
+            toast(`Se ha creado una ${tk.printedName.toLowerCase()} ${tk.power}/${tk.toughness}. Si tienes la ficha física, ponla en tu mesa (la app ya la tiene en cuenta).`, 'info', 6000);
+          }
           if (tk && tk.isToken && !tk.image) {
             tokenImage(tk).then((url) => { if (url && findPerm(S(), e.uid)) session.dispatch({ t: 'setImage', uid: e.uid, image: url }); });
           }

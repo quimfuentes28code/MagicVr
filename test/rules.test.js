@@ -920,3 +920,20 @@ test('pagos opcionales, copias de ficha, parpadeo y elegir color', () => {
   s = act(s, { t: 'play', by: 'a', card: cl, force: true, targets: [{ uid: ogre }] });
   assert.equal(s.players[0].battlefield.filter((p) => p.card.name === 'Ogre').length, 2);
 });
+
+test('disparadas genéricas: «tú u otro Aliado que controlas entra» y «lanzas un hechizo multicolor»', () => {
+  const ally = normalize({ name: 'Ally Test', manaCost: '{1}{W}', power: '1', toughness: '1', typeLine: 'Creature — Kor Ally',
+    oracle: 'Whenever this creature or another Ally you control enters, you may put a +1/+1 counter on this creature.' });
+  let s = duel();
+  let a1;
+  [s, a1] = put(s, 'a', ally);
+  [s] = put(s, 'a', normalize({ name: 'Other Ally', manaCost: '{W}', power: '1', toughness: '1', typeLine: 'Creature — Human Ally' }));
+  [s] = put(s, 'a', creature('Bear', 2, 2));
+  assert.equal(s.players[0].battlefield.find((p) => p.uid === a1).counters, 2, 'ella misma + el otro Aliado (el oso no)');
+  const multi = normalize({ name: 'Multi Fan', manaCost: '{1}{G}', power: '2', toughness: '2', typeLine: 'Creature — Elf', oracle: 'Whenever you cast a multicolored spell, you gain 2 life.' });
+  [s] = put(s, 'a', multi);
+  const l = s.players[0].life;
+  s.step = 'main1'; s.stack = [];
+  s = act(s, { t: 'play', by: 'a', card: normalize({ name: 'Gold', manaCost: '{G}{W}', typeLine: 'Instant', colors: ['G', 'W'], oracle: 'You gain 1 life.' }), force: true });
+  assert.equal(s.players[0].life, l + 3);
+});

@@ -9,7 +9,7 @@
 
 import { pips } from './cards.js';
 import { tokenCard, describeEffect, needsTarget, parseAttach, describeAttach, targetsFor, artifactTokenCard, kwEs, targetEs, effectFx } from './effects.js';
-import { staticsOf, triggersOf, activatedOf, keywordsOf, abilitiesOf, altCosts, levelsOf } from './abilities.js';
+import { staticsOf, triggersOf, activatedOf, keywordsOf, abilitiesOf, altCosts, levelsOf, castMatches } from './abilities.js';
 import { manualParts } from './coverage.js';
 
 // Etapas del turno en orden. Las marcadas como automáticas pasan solas
@@ -1582,6 +1582,7 @@ function resolveCombat(s, phase) {
     const ren = keywordsOf(src.card).map((k) => k.match(/^renown (\d+)/)).find(Boolean);
     if (ren && amt > 0 && !src.renowned) { src.renowned = true; src.counters += +ren[1]; pushEvent(s, 'pump', `${displayName(src.card)} gana renombre (+${ren[1]} contadores +1/+1).`, { uid: src.uid }); }
   }
+  for (const pid of new Set(combatHits.map(([src]) => src.ownerId))) fireTriggers(s, 'youCombatDamage', { player: player(s, pid) });
   for (const [src, t] of combatHits) {
     fireTriggers(s, 'combatDamagePlayer', { perm: src, player: t });
     fireTriggers(s, 'creatureCombatDamageMine', { perm: src, player: t });
@@ -2307,8 +2308,18 @@ const SELF_EVENTS = new Set(['attacks', 'blocks', 'blocked', 'combatDamagePlayer
 let triggerDepth = 0;
 
 /** ¿Le afecta este evento a esta habilidad de `perm` (controlada por `p`)? */
-function triggerApplies(ev, p, perm, info) {
+function triggerApplies(ev, p, perm, info, tr = null) {
   const ip = info.perm;
+  if ((ev === 'permEtb' || ev === 'permDies') && tr && tr.filt) {
+    const f = tr.filt;
+    if (!ip) return false;
+    if (ip.uid === perm.uid && !f.selfOk) return false;
+    if (f.mine && ip.ownerId !== p.id) return false;
+    if (f.opp && ip.ownerId === p.id) return false;
+    return permMatches(null, { ...f, opp: false, you: false }, ip, ip.ownerId, p.id);
+  }
+  if (ev === 'castFilter' && tr && tr.cast) return info.player.id === p.id && castMatches(tr.cast, info.card);
+  if (ev === 'attacksWithOthers') return ip && ip.uid === perm.uid && info.count >= 3;
   const ipOwner = ip ? ip.ownerId : null;
   const isCr = ip && ip.card.isCreature;
   switch (ev) {
@@ -2338,6 +2349,7 @@ function triggerApplies(ev, p, perm, info) {
     case 'castAny': return info.player.id === p.id;
     case 'oppCast': return info.player.id !== p.id;
     case 'gainLife': return info.player.id === p.id;
+    case 'youCombatDamage': return info.player && info.player.id === p.id;
     case 'youAttack': return info.player.id === p.id;
     case 'creatureAttacksMine': return ip && ipOwner === p.id;
     case 'creatureCombatDamageMine': return ip && ipOwner === p.id;
@@ -2355,7 +2367,7 @@ function fireTriggers(s, ev, info = {}) {
     for (const p of s.players) {
       if (p.eliminated) continue;
       for (const perm of [...p.battlefield]) {
-        for (const tr of triggersOf(perm.card, ev)) if (triggerApplies(ev, p, perm, info)) seen.push([p, perm, tr]);
+        for (const tr of triggersOf(perm.card, ev)) if (triggerApplies(ev, p, perm, info, tr)) seen.push([p, perm, tr]);
       }
     }
     // la propia carta que se va («cuando deje el campo de batalla»)
@@ -2396,6 +2408,7 @@ function autoTargets(s, p, wanted, source) {
 }
 
 function fireEnterTriggers(s, pl, perm) {
+  fireTriggers(s, 'permEtb', { perm });
   fireTriggers(s, 'artifactEtbMine', { perm });
   fireTriggers(s, 'enchantmentEtbMine', { perm });
   // Evolucionar: si entra una criatura tuya más grande, +1/+1
@@ -2414,6 +2427,7 @@ function fireEnterTriggers(s, pl, perm) {
 }
 
 function diesTriggers(s, owner, perm) {
+  fireTriggers(s, 'permDies', { perm });
   const kws = keywordsOf(perm.card);
   const mod = kws.map((k) => k.match(/^modular (\d+)/)).find(Boolean);
   if (mod && perm.counters > 0) {
@@ -2460,6 +2474,7 @@ function castTriggers(s, pl, card) {
       gainLife(s, pl, n);
     }
   }
+  fireTriggers(s, 'castFilter', info);
   fireTriggers(s, 'castHistoric', info);
   fireTriggers(s, 'castAuraEquip', info);
   fireTriggers(s, 'castFirst', info);
@@ -2492,6 +2507,7 @@ function attackTriggers(s) {
       if (pupil) { pupil.counters += 1; pushEvent(s, 'pump', `${displayName(a.card)} instruye a ${displayName(pupil.card)} (+1/+1).`, { uid: pupil.uid }); }
     }
     fireTriggers(s, 'attacks', { perm: a });
+    fireTriggers(s, 'attacksWithOthers', { perm: a, count: atts.length });
     fireTriggers(s, 'creatureAttacksMine', { perm: a });
     fireTriggers(s, 'hostAttacks', { perm: a });
   }

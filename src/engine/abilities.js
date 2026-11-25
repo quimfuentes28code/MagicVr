@@ -503,7 +503,57 @@ export function parseTrigger(cond) {
     || R(/^When enchanted creature dies$/i, 'hostDies')
     || R(/^Whenever you sacrifice (?:a|another) permanent$/i, 'sacrifice')
     || R(/^Whenever you cycle or discard (?:a|another) card$/i, 'discard')
+    || R(/^Whenever you cast or copy an instant or sorcery spell$/i, 'castInstantSorcery')
+    || R(/^Whenever one or more creatures you control deal combat damage to a player$/i, 'youCombatDamage')
+    || R(/^Whenever CARDNAME and at least (two|one) other creatures? attacks?$/i, 'attacksWithOthers')
+    || genericTrigger(c)
     || null;
+}
+
+/** Condiciones genéricas: «Siempre que [CARDNAME u] otra X (que controlas) entre / muera», «Siempre que lances un hechizo X». */
+function genericTrigger(c) {
+  let m;
+  if ((m = c.match(/^(?:When|Whenever) (CARDNAME or )?(another )?(?:one or more )?(.+?) (?:you control )?(?:enters|enter)(?: the battlefield)?( under your control)?$/i))) {
+    const mine = /you control/i.test(c) || !!m[4];
+    const ph = m[3].replace(/ you control$/i, '');
+    if (/\b(card|spell|player)\b/i.test(ph)) return null;
+    const f = parseTargetPhrase(ph);
+    if (f) return { ev: 'permEtb', filt: { ...f, selfOk: !!m[1], other: !!m[2], mine, opp: /opponent controls/i.test(c) } };
+  }
+  if ((m = c.match(/^(?:When|Whenever) (CARDNAME or )?(another )?(?:one or more )?(?:other )?(.+?) (?:you control )?(?:dies|die|is put into a graveyard from the battlefield|are put into a graveyard from the battlefield)$/i))) {
+    const ph = m[3].replace(/ (?:you control|an opponent controls|your opponents control)$/i, '');
+    if (/\bcard\b/i.test(ph)) return null;
+    const f = parseTargetPhrase(ph);
+    if (f) return { ev: 'permDies', filt: { ...f, selfOk: !!m[1], other: !!m[2], mine: /you control/i.test(c), opp: /opponent/i.test(c) } };
+  }
+  if ((m = c.match(/^Whenever you cast (?:a|an) (.+?) spell(?: with mana value (\d+) or (greater|less))?$/i))) {
+    const words = m[1];
+    if (/that targets|from anywhere|during|your first|your second/i.test(words)) return null;
+    return { ev: 'castFilter', cast: { words, mv: m[2] ? +m[2] : null, mvDir: m[3] || null } };
+  }
+  if ((m = c.match(/^Whenever you cast a spell with mana value (\d+) or (greater|less)$/i))) return { ev: 'castFilter', cast: { words: 'any', mv: +m[1], mvDir: m[2] } };
+  return null;
+}
+
+/** ¿Cumple el hechizo la descripción («creature», «noncreature», «multicolored», «Spirit or Arcane»…)? */
+export function castMatches(cast, card) {
+  if (cast.mv != null && (cast.mvDir === 'less' ? card.cmc > cast.mv : card.cmc < cast.mv)) return false;
+  const w = cast.words.toLowerCase();
+  if (w === 'any') return true;
+  return w.split(/,? or |, /).some((part) => part.split(' ').every((t) => {
+    switch (t) {
+      case 'noncreature': return !card.isCreature;
+      case 'nonartifact': return !/Artifact/.test(card.typeLine);
+      case 'multicolored': return (card.colors || []).length > 1;
+      case 'monocolored': return (card.colors || []).length === 1;
+      case 'colorless': return !(card.colors || []).length;
+      case 'white': case 'blue': case 'black': case 'red': case 'green': return (card.colors || []).includes({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[t]);
+      case 'historic': return /Legendary|Artifact|Saga/.test(card.typeLine);
+      case 'kicked': return !!card.kicked;
+      case '': return true;
+      default: return new RegExp('\\b' + t + '\\b', 'i').test(card.typeLine || '');
+    }
+  }));
 }
 
 // ------------------------------------------------------------ activadas
@@ -693,8 +743,12 @@ export function parseAbilities(card) {
       let cond = null;
       const ifm = body.match(/^if (.+?), (.+)$/i);
       if (ifm) { cond = ifm[1]; body = ifm[2]; }
+      if (/^Whenever (CARDNAME|enchanted creature|equipped creature) deals damage$/i.test(tm[1]) && /^you gain that much life$/i.test(body)) {
+        out.push({ kind: 'static', text, st: /CARDNAME/.test(tm[1]) ? { kind: 'lifelinkLike' } : { kind: 'attach' }, ok: true });
+        continue;
+      }
       const r = parseEffectText(body);
-      out.push({ kind: 'trigger', text, ev: tr && tr.ev, cond, fx: r.fx, ok: !!tr && r.ok && !cond, missing: r.missing, condText: tm[1] });
+      out.push({ kind: 'trigger', text, ev: tr && tr.ev, filt: tr && tr.filt, cast: tr && tr.cast, cond, fx: r.fx, ok: !!tr && r.ok && !cond, missing: r.missing, condText: tm[1] });
       continue;
     }
     // 4) activada (coste: efecto)

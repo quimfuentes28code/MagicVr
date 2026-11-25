@@ -6,7 +6,8 @@ import { cardFace, cardInfo } from './cardview.js';
 import { icon } from './icons.js';
 import { openPicker } from './picker.js';
 import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
-import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, setCameraZoom } from '../camera.js';
+import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, setCameraZoom, videoToScreen } from '../camera.js';
+import { detectSurface } from '../surface.js';
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES, targetEs, needsTarget, costEs } from '../engine/effects.js';
 import { activatedOf, keywordsOf } from '../engine/abilities.js';
@@ -287,7 +288,79 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
    * Editor de perspectiva: 4 esquinas que arrastras sobre la imagen de la cámara
    * hasta las esquinas de tu zona de juego; el tablero se adapta al momento.
    */
+  // Inclinación del móvil (sólo si la cámara es la del propio móvil): ayuda a la detección automática.
+  let devicePitch = null;
+  const onMotion = (e) => {
+    const a = e.accelerationIncludingGravity;
+    if (!a || a.z == null) return;
+    const n = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+    if (n > 5) devicePitch = (Math.acos(Math.max(-1, Math.min(1, a.z / n))) * 180) / Math.PI;
+  };
+  window.addEventListener('devicemotion', onMotion);
+
+  /** Un fotograma completo de la cámara en gris (lado mayor ~360 px). */
+  function grabWholeFrame() {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const k = 360 / Math.max(vw, vh);
+    const W = Math.round(vw * k);
+    const H = Math.round(vh * k);
+    const c = grabWholeFrame.canvas || (grabWholeFrame.canvas = document.createElement('canvas'));
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0, W, H);
+    const d = ctx.getImageData(0, 0, W, H).data;
+    const g = new Float32Array(W * H);
+    for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+    return { g, W, H, vw, vh };
+  }
+
+  /**
+   * Detecta la superficie de la mesa en la imagen de la cámara y coloca el tablero
+   * en esa perspectiva (sin arrastrar esquinas). Usa varios fotogramas y la mediana.
+   */
+  async function autoPerspective({ openEditor = true } = {}) {
+    if (!video.videoWidth) { toast('La cámara no está encendida: actívala para detectar la mesa.', 'warn'); return; }
+    toast('Buscando la superficie de la mesa…', 'info', 1800);
+    const results = [];
+    for (let i = 0; i < 4; i++) {
+      const f = grabWholeFrame();
+      if (f) results.push(detectSurface(f.g, f.W, f.H, { pitch: devicePitch }));
+      await new Promise((r) => setTimeout(r, 140));
+    }
+    const tilted = results.filter((r) => !r.topDown);
+    if (tilted.length < Math.ceil(results.length / 2)) {
+      ui.settings.persp = null;
+      applyPerspective();
+      saveSettings(ui.settings);
+      toast('La cámara mira la mesa desde arriba (o no se ven bordes claros): el tablero va recto, sin perspectiva.', 'info', 4500);
+      return;
+    }
+    // mediana de las esquinas
+    const med = (arr) => { const a = [...arr].sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
+    const q = [0, 1, 2, 3].map((i) => [med(tilted.map((r) => r.quad[i][0])), med(tilted.map((r) => r.quad[i][1]))]);
+    // de fracciones de la imagen a fracciones de la zona del tablero
+    const vr = video.getBoundingClientRect();
+    const mr = mid.getBoundingClientRect();
+    const P = [];
+    for (const [fx, fy] of q) {
+      const sp = videoToScreen(video, fx * video.videoWidth, fy * video.videoHeight);
+      const px = vr.left + sp.x * vr.width;
+      const py = vr.top + sp.y * vr.height;
+      P.push(Math.max(-0.4, Math.min(1.4, (px - mr.left) / mr.width)), Math.max(-0.4, Math.min(1.4, (py - mr.top) / mr.height)));
+    }
+    ui.settings.persp = P;
+    applyPerspective();
+    saveSettings(ui.settings);
+    const how = tilted[0].method === 'sensor' ? 'con la inclinación del móvil' : 'por las líneas de la mesa';
+    toast(`Mesa detectada ${how}: el tablero se ha colocado en su perspectiva. Puedes retocar las esquinas si quieres.`, 'info', 4500);
+    if (openEditor) perspectiveEditor();
+  }
+
   function perspectiveEditor() {
+    document.querySelector('.persp-editor')?.remove();
+    document.querySelector('.persp-bar')?.remove();
     const W = () => mid.clientWidth;
     const Hh = () => mid.clientHeight;
     const P = ui.settings.persp ? [...ui.settings.persp] : [0.06, 0.06, 0.94, 0.06, 0.94, 0.94, 0.06, 0.94];
@@ -327,8 +400,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('b', {}, 'Perspectiva de la mesa'),
       h('span', {}, 'Arrastra las 4 esquinas (1-2-3-4) a las esquinas de tu zona de juego tal y como la ve la cámara. El tablero y el círculo se adaptan solos, y el reconocimiento endereza las cartas.'),
       h('div', { class: 'row-btns' },
+        h('button', { class: 'act primary', onClick: () => { layer.remove(); bar.remove(); autoPerspective(); } }, '✨ Automática'),
         h('button', { class: 'act', onClick: () => { ui.settings.persp = null; applyPerspective(); layer.remove(); bar.remove(); saveSettings(ui.settings); } }, 'Sin perspectiva (cámara cenital)'),
-        h('button', { class: 'act primary', onClick: close }, 'Hecho')));
+        h('button', { class: 'act', onClick: close }, 'Hecho')));
     mid.append(layer);
     screen.append(bar);
     paint();
@@ -339,7 +413,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     session.pauseBots(true);
     const zoomSlider = h('label', { class: 'slider' }, h('span', {}, 'Zoom cámara ', zoomLabel),
       h('input', { type: 'range', min: 1, max: 4, step: 0.25, value: ui.settings.camZoom || 1, onInput: (e) => { ui.settings.camZoom = +e.target.value; saveSettings(ui.settings); applyZoom(); } }));
-    const perspBtn = h('button', { class: 'act', onClick: () => perspectiveEditor() }, '⬚ Perspectiva de la mesa');
+    const perspBtn = h('div', { class: 'row-btns' },
+      h('button', { class: 'act primary', onClick: () => autoPerspective() }, '✨ Adaptar a la mesa automáticamente'),
+      h('button', { class: 'act', onClick: () => perspectiveEditor() }, '⬚ Perspectiva a mano'));
     openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
       firstTime,
       toLocal,
@@ -1562,6 +1638,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     close = sheet(h('div', {},
       h('h3', {}, 'Ajustes de la mesa'),
       h('button', { class: 'act primary', onClick: () => { close(); calibrateTable(); } }, 'Ajustar áreas de la mesa (con la cámara)'),
+      h('button', { class: 'act primary', onClick: () => { close(); autoPerspective(); } }, '✨ Adaptar el tablero a la mesa (automático)'),
       slider('Inclinación', 'tilt', 0, 45, 1),
       slider('Tamaño', 'zoom', 0.7, 1.15, 0.05),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: st.camera, onChange: (e) => { st.camera = e.target.checked; saveSettings(st); applySettings(); } }), 'Usar la cámara'),
@@ -1583,6 +1660,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   }
 
   function exit() {
+    window.removeEventListener('devicemotion', onMotion);
     unsub();
     watcher.stop();
     stopCamera();

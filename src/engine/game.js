@@ -174,7 +174,8 @@ export function findPerm(s, uid) {
 }
 
 export function has(perm, kw) {
-  return perm.card.keywords.includes(kw) || !!(perm.bonus && perm.bonus.kw.includes(kw)) || !!(perm.eot && perm.eot.kw && perm.eot.kw.includes(kw));
+  return perm.card.keywords.includes(kw) || !!(perm.bonus && perm.bonus.kw.includes(kw)) || !!(perm.eot && perm.eot.kw && perm.eot.kw.includes(kw))
+    || (kw === 'lifelink' && staticsOf(perm.card).some((x) => x.kind === 'lifelinkLike'));
 }
 
 export function power(perm) {
@@ -232,10 +233,23 @@ function refreshStatics(s) {
           for (const c of pool) {
             if (!c.card.isCreature || (st.other && c.uid === src.uid)) continue;
             if (st.sub && !st.sub.split(' ').every((w) => new RegExp('\\b' + w + '\\b').test(c.card.typeLine) || (c.bonus && c.bonus.types.includes(w))) && !keywordsOf(c.card).includes('changeling')) continue;
+            if (st.adj) {
+              const col = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[st.adj];
+              const ok = col ? c.card.colors.includes(col) : st.adj === 'artifact' ? /Artifact/.test(c.card.typeLine) : st.adj === 'nontoken' ? !c.card.isToken : st.adj === 'token' ? !!c.card.isToken
+                : st.adj === 'tapped' ? c.tapped : st.adj === 'attacking' ? s.combat.attackers[c.uid] != null : st.adj === 'legendary' ? c.card.isLegendary
+                  : st.adj === 'multicolored' ? c.card.colors.length > 1 : st.adj === 'colorless' ? !c.card.colors.length : true;
+              if (!ok) continue;
+            }
+            if (st.withKw && !has(c, st.withKw)) continue;
             const b = B(c);
             b.p += st.p; b.t += st.t;
             for (const k of st.kw) if (!b.kw.includes(k)) b.kw.push(k);
           }
+        } else if (st.kind === 'varPT' || st.kind === 'forEach') {
+          const n = countFor(s, p, st.what, src) * (st.k || 1);
+          const b = B(src);
+          if (st.kind === 'forEach') { b.p += st.p * n; b.t += st.t * n; }
+          else { if (st.which !== 't') b.p += n; if (st.which !== 'p') b.t += n; }
         } else if (st.kind === 'selfBuff' && (!st.myTurn || active === p.id)) {
           const b = B(src);
           b.p += st.p; b.t += st.t;
@@ -304,7 +318,7 @@ export function canAttack(s, perm) {
   if (staticsOf(perm.card).some((x) => x.kind === 'noAttackSelf')) return false;
   const only = staticsOf(perm.card).find((x) => x.kind === 'attackOnlyIf');
   if (only && !opponents(s, perm.ownerId).some((o) => o.battlefield.some((x) => new RegExp('\\b' + only.land + '\\b').test(x.card.typeLine)))) return false;
-  if (has(perm, 'defender') || /can.t attack/i.test(perm.card.oracle)) return false;
+  if ((has(perm, 'defender') && !(perm.eot && perm.eot.canAttackDefender)) || (/can.t attack/i.test(perm.card.oracle) && !/can.t attack (unless|alone)/i.test(perm.card.oracle) && !(perm.eot && perm.eot.canAttackDefender))) return false;
   if (perm.sick && !has(perm, 'haste')) return false;
   return true;
 }
@@ -321,6 +335,14 @@ export function canBlock(perm, attacker, s = null) {
   if (st.some((x) => x.kind === 'blockOnlyFlyers') && !has(attacker, 'flying')) return false;
   if (ast.some((x) => x.kind === 'evadePower' && power(perm) >= x.min)) return false;
   if (ast.some((x) => x.kind === 'evadeSmaller') && power(perm) < power(attacker)) return false;
+  const evT = ast.find((x) => x.kind === 'evadeType');
+  if (evT) {
+    const w = evT.what;
+    const c = perm.card;
+    if ((w === 'artifact creatures' && /Artifact/.test(c.typeLine)) || (w === 'creatures with flying' && has(perm, 'flying')) || (w === 'Walls' && /\bWall\b/.test(c.typeLine))) return false;
+    const col = { 'black creatures': 'B', 'white creatures': 'W', 'red creatures': 'R', 'green creatures': 'G', 'blue creatures': 'U' }[w];
+    if (col && c.colors.includes(col)) return false;
+  }
   // evasión por palabra clave
   const ak = keywordsOf(attacker.card);
   const bk = keywordsOf(perm.card);
@@ -743,6 +765,17 @@ const HANDLERS = {
       if (!f || f.owner.id !== pl.id || !permMatches(s, addSac.filter, f.perm, pl.id, pl.id)) return illegal(s, pl.id, `Para lanzar ${displayName(card)} tienes que sacrificar ${targetEs(addSac.filter)} como coste adicional.`, a);
     }
     let discount = card.isLand ? 0 : costReduction(s, card, a.targets, pl.id);
+    // coste X: el jugador elige X al lanzar
+    const xv = /\{X\}/.test(cost) ? Math.max(0, +(a.x ?? card.xValue ?? 0) || 0) : null;
+    if (xv != null) { discount -= xv * ((cost.match(/\{X\}/g) || []).length); card = { ...card, xValue: xv }; }
+    // reductores («Los hechizos de instantáneo y conjuro que lanzas cuestan {1} menos»…)
+    for (const x of pl.battlefield) for (const st of staticsOf(x.card)) {
+      if (st.kind !== 'costReducer') continue;
+      const w = st.what;
+      const fits = w === 'any' || (w === 'instant and sorcery' && (card.isInstant || card.isSorcery)) || (w === 'noncreature' && !card.isCreature) || (w !== 'noncreature' && new RegExp('\\b' + w + '\\b', 'i').test(card.typeLine));
+      if (fits) discount += st.n;
+    }
+    for (const st of staticsOf(card)) if (st.kind === 'selfReduce') discount += st.n * countFor(s, pl, st.what);
     let wardLife = 0;
     for (const t of a.targets || []) {
       const f = t.uid != null ? findPerm(s, t.uid) : null;
@@ -893,7 +926,7 @@ const HANDLERS = {
       if (c.life && pl.life < c.life) return illegal(s, pl.id, 'No tienes vidas suficientes para pagar.', a);
       if (c.energy && (pl.energy || 0) < c.energy) return illegal(s, pl.id, `Te falta energía: necesitas ${c.energy} y tienes ${pl.energy || 0}.`, a);
       if (c.mana) {
-        const plan = planPayment(pl, c.mana);
+        const plan = planPayment(pl, c.mana, /\{X\}/.test(c.mana) ? Math.max(0, +a.x || 0) : 0);
         if (!plan) { const m = manaAvailable(pl); return illegal(s, pl.id, `No te llega el maná: la habilidad cuesta ${c.mana} y tienes ${m.total} disponible${m.total === 1 ? '' : 's'}.`, a); }
         tapForPayment(pl, plan);
       }
@@ -910,7 +943,7 @@ const HANDLERS = {
     if (ab.exhaust) perm.exhausted = { ...(perm.exhausted || {}), [a.idx]: true };
     if (c.sacSelf) leaveBattlefield(s, pl, perm, 'graveyard', 'se sacrifica');
     pushEvent(s, 'activate', `${pl.name} activa ${name}: ${ab.fx.map(describeEffect).filter(Boolean).join(', ') || 'su habilidad'}.`, { by: pl.id, uid: perm.uid, color: perm.card.colors[0] || 'C' });
-    resolveEffects(s, pl, perm.card, ab.fx, a.targets || [], perm);
+    resolveEffects(s, pl, /\{X\}/.test(c.mana || '') ? { ...perm.card, xValue: Math.max(0, +a.x || 0) } : perm.card, ab.fx, a.targets || [], perm);
     stateBased(s);
   },
 
@@ -1300,8 +1333,13 @@ function passTurn(s) {
   cleanup(s);
   if (s.winner) return;
   let i = s.active;
-  do i = (i + 1) % s.players.length;
-  while (s.players[i].eliminated);
+  const extra = (s.extraTurns || []).shift();
+  const ei = extra != null ? s.players.findIndex((p) => p.id === extra && !p.eliminated) : -1;
+  if (ei >= 0) { i = ei; pushEvent(s, 'info', `${s.players[i].name} juega un turno extra.`); }
+  else {
+    do i = (i + 1) % s.players.length;
+    while (s.players[i].eliminated);
+  }
   s.active = i;
   s.turn += 1;
   pushEvent(s, 'turn', `Turno ${s.turn}: le toca a ${s.players[i].name}.`, { player: s.players[i].id });
@@ -1370,7 +1408,9 @@ function enterStep(s, step) {
   } else if (step === 'draw') {
     // 103.8a: en partidas de dos jugadores, quien empieza no roba en su primer turno.
     // 103.8c: en el resto de multijugador, todos roban.
-    if (s.turn > 1 || s.players.length > 2) {
+    const skip = pl.battlefield.some((x) => staticsOf(x.card).some((st) => st.kind === 'skipDraw'));
+    if (skip) pushEvent(s, 'info', `${pl.name} se salta el paso de robar.`);
+    else if (s.turn > 1 || s.players.length > 2) {
       if (pl.isBot && pl.library.length) drawCard(s, pl);
       else if (pl.isBot && !pl.library.length) eliminate(s, pl, 'tiene que robar y no le quedan cartas');
       if (!pl.isBot) { pl.handCount += 1; pushEvent(s, 'draw', 'Paso de robar: roba una carta de tu mazo.', { to: pl.id, amount: 1 }); }
@@ -1552,9 +1592,10 @@ function resolveEffects(s, pl, card, fx, targets, source) {
 function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
   let ti = 0;
   const ctx = { chosen: null };
-  for (const e of fx) {
+  for (let e of fx) {
     if (e.kicked && !card.kicked) continue;
     if (s.winner) return;
+    if (card.xValue != null) e = substX(e, card.xValue);
     let tgt = null;
     if (needsTarget(e)) {
       tgt = targets[ti++];
@@ -1608,7 +1649,10 @@ function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
         if (perm) leaveBattlefield(s, perm.owner, perm.perm, 'hand', 'vuelve a la mano');
         break;
       case 'exile':
-        if (perm) leaveBattlefield(s, perm.owner, perm.perm, 'exile', 'es exiliada');
+        if (perm) {
+          leaveBattlefield(s, perm.owner, perm.perm, 'exile', 'es exiliada');
+          if (e.untilLeaves && source && findPerm(s, source.uid)) source.holding = [...(source.holding || []), { card: perm.perm.card, owner: perm.owner.id }];
+        }
         break;
       case 'counter': {
         const tp = e.self ? source : e.host ? hostOf(s, source) : perm && perm.perm;
@@ -1621,6 +1665,14 @@ function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
       }
       case 'counterspell': {
         const idx = s.stack.findIndex((x) => x.id === tgt.stack);
+        if (idx >= 0 && e.unless) {
+          // «salvo que su controlador pague {N}»: se paga solo si llega el maná
+          const it = s.stack[idx];
+          const ctl = player(s, it.by);
+          const cost = e.unless === 'X' ? '{' + (card.xValue || 0) + '}' : e.unless;
+          const plan = ctl && planPayment(ctl, cost);
+          if (plan) { tapForPayment(ctl, plan); pushEvent(s, 'info', `${ctl.name} paga ${cost} y ${displayName(it.card)} no se contrarresta.`); break; }
+        }
         if (idx >= 0) {
           const [it] = s.stack.splice(idx, 1);
           const owner = player(s, it.by);
@@ -1753,6 +1805,13 @@ function stateBased(s) {
         leaveBattlefield(s, p, perm, 'graveyard', 'se queda sin lealtad');
       }
     }
+    for (const perm of [...p.battlefield]) {
+      const su = staticsOf(perm.card).find((x) => x.kind === 'sacUnless');
+      if (!su) continue;
+      const w = su.what.toLowerCase().replace(/s$/, '');
+      const has2 = p.battlefield.some((x) => x !== perm && (w === 'artifact' ? /Artifact/.test(x.card.typeLine) : w === 'other creature' ? x.card.isCreature : new RegExp('\\b' + w + '\\b', 'i').test(x.card.typeLine)));
+      if (!has2) leaveBattlefield(s, p, perm, 'graveyard', 'se sacrifica (ya no controlas lo que necesita)');
+    }
     // Regla de leyendas: si controlas dos legendarios con el mismo nombre, te quedas uno.
     const seen = new Map();
     for (const perm of [...p.battlefield].reverse()) {
@@ -1841,6 +1900,35 @@ const fmt = (n) => (n >= 0 ? '+' + n : String(n));
 
 // ------------------------------------------------- efectos ampliados (abilities.js)
 
+function substX(e, x) {
+  const o = { ...e };
+  for (const k of ['amount', 'p', 't', 'power', 'toughness']) {
+    if (o[k] === 'X') o[k] = x;
+    else if (o[k] === '+X') o[k] = x;
+    else if (o[k] === '-X') o[k] = -x;
+  }
+  return o;
+}
+
+/** Cuenta para «igual al número de…» / «por cada…». */
+export function countFor(s, pl, what, self = null) {
+  const bf = pl.battlefield;
+  switch (true) {
+    case what === 'myLands': return bf.filter((x) => x.card.isLand).length;
+    case what === 'myCreatures': return bf.filter((x) => x.card.isCreature).length;
+    case what === 'myOtherCreatures': return bf.filter((x) => x.card.isCreature && x !== self).length;
+    case what === 'myArtifacts': return bf.filter((x) => /Artifact/.test(x.card.typeLine)).length;
+    case what === 'myEnchantments': return bf.filter((x) => /Enchantment/.test(x.card.typeLine)).length;
+    case what === 'myHand': return pl.isBot ? pl.hand.length : pl.handCount || 0;
+    case what === 'myGrave': return pl.graveyard.length;
+    case what === 'myGraveCreatures': return pl.graveyard.filter((c) => c.isCreature).length;
+    case what === 'allCreatures': return s.players.reduce((a, p) => a + p.battlefield.filter((x) => x.card.isCreature).length, 0);
+    case what === 'opponents': return opponents(s, pl.id).length;
+    case what.startsWith('myLandType:'): return bf.filter((x) => new RegExp('\\b' + what.split(':')[1] + '\\b', 'i').test(x.card.typeLine)).length;
+    default: return 0;
+  }
+}
+
 function hostOf(s, source) {
   if (!source || source.attachedTo == null) return null;
   return findPerm(s, source.attachedTo)?.perm || null;
@@ -1862,6 +1950,10 @@ function pumpPerm(s, perm, p, t, kw = []) {
 
 function gainLife(s, pl, n) {
   if (!n) return;
+  for (const p of s.players) for (const x of p.battlefield) for (const st of staticsOf(x.card)) {
+    if (st.kind === 'noLifeGain' && (st.who === 'all' || p.id !== pl.id)) { pushEvent(s, 'info', `${pl.name} no puede ganar vidas (${displayName(x.card)}).`); return; }
+  }
+  for (const x of pl.battlefield) for (const st of staticsOf(x.card)) if (st.kind === 'lifeBonus') n = st.twice ? n * 2 : n + st.plus;
   pl.life += n;
   pushEvent(s, 'life', `${pl.name} gana ${n} vida${n === 1 ? '' : 's'} (${pl.life}).`, { target: pl.id, delta: n });
   fireTriggers(s, 'gainLife', { player: pl });
@@ -2393,6 +2485,11 @@ function applyEntersStatics(s, pl, perm) {
     if (st.unlessTypes) tapped = !otherLands.some((x) => st.unlessTypes.some((t) => new RegExp('\\b' + t + '\\b', 'i').test(x.card.typeLine)));
     else if (st.unlessFewLands != null) tapped = otherLands.length > st.unlessFewLands;
     else if (st.unlessManyLands != null) tapped = otherLands.length < st.unlessManyLands;
+    else if (st.unlessLowLife != null) tapped = !s.players.some((p) => !p.eliminated && p.life <= st.unlessLowLife);
+    else if (st.unlessBasics != null) tapped = otherLands.filter((x) => /Basic/.test(x.card.typeLine)).length < st.unlessBasics;
+    else if (st.unlessOpps != null) tapped = opponents(s, pl.id).length < st.unlessOpps;
+    else if (st.unlessPW) tapped = !pl.battlefield.some((x) => isPlaneswalker(x));
+    else if (st.unlessOppLands != null) tapped = opponents(s, pl.id).reduce((acc, o) => acc + o.battlefield.filter((x) => x.card.isLand).length, 0) < st.unlessOppLands;
     else if (st.shock) {
       if (pl.isBot) tapped = pl.life <= 8;
       else {
@@ -2519,6 +2616,39 @@ function execMore2(s, pl, card, e, { perm, target, name, source, ctx }) {
       if (tgt2) (s.delayed ||= []).push({ at: 'end', from: s.turn, pid: pl.id, kind: 'sac', uid: tgt2.uid, exile: !!e.exile });
       return true;
     }
+    case 'extraTurn':
+      (s.extraTurns ||= []).push(pl.id);
+      pushEvent(s, 'info', `${name}: ${pl.name} jugará un turno extra después de este.`);
+      return true;
+    case 'freezeLast':
+      if (ctx.last) ctx.last.perm.frozen = true;
+      return true;
+    case 'returnExiled': {
+      const holder = source;
+      for (const h2 of (holder && holder.holding) || []) {
+        const o = player(s, h2.owner);
+        if (!o) continue;
+        const k = o.exile.findIndex((c) => c.name === h2.card.name);
+        if (k >= 0) o.exile.splice(k, 1);
+        if (e.toHand) { if (o.isBot) o.hand.push({ ...h2.card, uid: s.nextId++ }); else o.handCount += 1; pushEvent(s, 'info', `${displayName(h2.card)} vuelve a la mano de ${o.name}.`); }
+        else enterPerm(s, o, h2.card, { from: 'desde el exilio' });
+      }
+      if (holder) holder.holding = [];
+      return true;
+    }
+    case 'switchPT':
+      if (source) { const d = toughness(source) - power(source); source.pump.p += d; source.pump.t -= d; pushEvent(s, 'pump', `${displayName(source.card)} intercambia su fuerza y su resistencia.`, { uid: source.uid }); }
+      return true;
+    case 'canAttackDefender':
+      if (source) source.eot = { ...(source.eot || {}), canAttackDefender: true };
+      return true;
+    case 'putLand':
+      if (pl.isBot) { const i = pl.hand.findIndex((c) => c.isLand); if (i >= 0) { const [c] = pl.hand.splice(i, 1); enterPerm(s, pl, c, { tapped: e.tapped }); } }
+      else {
+        pl.pendingScan = [...(pl.pendingScan || []), { dest: 'battlefield', fromHand: true, tapped: !!e.tapped, src: name, until: s.turn + 99 }];
+        pushEvent(s, 'impulse', `${name}: escanea una tierra de tu mano y entrará al campo de batalla${e.tapped ? ' girada' : ''}.`, { to: pl.id, amount: 1, scan: 'battlefield' });
+      }
+      return true;
     case 'exileGraveCard': {
       const opps = opponents(s, pl.id).filter((o) => o.graveyard.length).sort((a, b) => b.graveyard.length - a.graveyard.length);
       const o = opps[0];

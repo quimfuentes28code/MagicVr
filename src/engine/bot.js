@@ -94,7 +94,17 @@ export function nextBotAction(s) {
         return { t: 'castCommander', by: me.id };
       }
       if (options[0]?.ex) return { t: 'play', by: me.id, card: { ...options[0].c, fromExile: true }, targets: options[0].targets };
-      if (options[0]) return { t: 'play', by: me.id, handUid: options[0].c.uid, targets: options[0].targets, ...(options[0].modes ? { modes: options[0].modes } : {}) };
+      if (options[0]) {
+        const c = options[0].c;
+        let x;
+        if (/\{X\}/.test(c.manaCost || '')) {
+          // X = todo el maná que sobra
+          let lo = 0;
+          for (let v = 1; v <= 12; v++) if (planPayment(me, c.manaCost, v)) lo = v;
+          x = lo;
+        }
+        return { t: 'play', by: me.id, handUid: c.uid, targets: options[0].targets, ...(options[0].modes ? { modes: options[0].modes } : {}), ...(x != null ? { x } : {}) };
+      }
       return { t: 'next', by: me.id };
     }
     case 'attack': {

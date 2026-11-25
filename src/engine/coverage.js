@@ -74,3 +74,25 @@ export const classifyAbility = {
     });
   },
 };
+
+/**
+ * Partes de la carta que el motor NO aplica solo (para avisar al jugador).
+ * Devuelve el texto de esas habilidades, en español si la carta lo tiene.
+ */
+export function manualParts(card) {
+  const abil = parseAbilities(card);
+  const res = abil.map((a) => judge(a));
+  if (res.every(Boolean)) return [];
+  const en = (card.oracle || '').split('\n').map((x) => x.trim()).filter(Boolean);
+  const es = (card.printedText || '').split('\n').map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  abil.forEach((a, i) => {
+    if (res[i] || a.kind === 'mode') return;
+    // busca la línea original de esta habilidad para mostrar su traducción
+    const key = a.text.replace(/CARDNAME/g, '').slice(0, 18).toLowerCase();
+    let li = en.findIndex((l) => l.toLowerCase().replace(card.name.toLowerCase(), '').includes(key.trim().slice(0, 12)));
+    const txt = li >= 0 && es.length === en.length ? es[li] : li >= 0 ? en[li] : a.text.replace(/CARDNAME/g, card.printedName || card.name);
+    if (!out.includes(txt)) out.push(txt);
+  });
+  return out;
+}

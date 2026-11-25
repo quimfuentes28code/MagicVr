@@ -1361,6 +1361,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         if (e.by === me() || e.kind === 'trigger') toast(e.text, 'info', 3200);
       } else if (e.kind === 'sacrifice' && e.to === me()) {
         toast(e.text, 'warn', 3500);
+      } else if (e.kind === 'manualParts' && e.to === me()) {
+        manualSheet(e);
       } else if (e.kind === 'impulse' && e.to === me()) {
         impulseSheet(e);
       } else if ((e.kind === 'manual' || e.kind === 'draw' || e.kind === 'info') && e.to === me()) {
@@ -1688,6 +1690,16 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('p', { class: 'muted' }, 'Ajusta las vidas cuando un hechizo haga daño directo a un jugador o te haga ganar vidas.'),
       h('button', { class: 'act primary', onClick: () => close() }, 'Hecho'),
     ));
+  }
+
+  /** Partes de una carta que la app todavía no aplica sola: se explican para hacerlas a mano. */
+  function manualSheet(e) {
+    const box = h('div', { class: 'manual-note parchment' },
+      h('b', {}, displayName(e.card) + ': hazlo a mano'),
+      h('ul', {}, e.parts.slice(0, 4).map((t) => h('li', {}, t))),
+      h('div', { class: 'row-btns' }, h('button', { class: 'act', onClick: () => box.remove() }, 'Entendido')));
+    screen.append(box);
+    setTimeout(() => box.remove(), 15000);
   }
 
   /** Aviso: coge la(s) carta(s) de arriba de tu biblioteca y escanéala(s). */

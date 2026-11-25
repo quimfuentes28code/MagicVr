@@ -10,7 +10,7 @@ import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, s
 import { detectSurface } from '../surface.js';
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES, targetEs, needsTarget, costEs } from '../engine/effects.js';
-import { activatedOf, keywordsOf } from '../engine/abilities.js';
+import { activatedOf, keywordsOf, altCosts } from '../engine/abilities.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
@@ -508,6 +508,16 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       chooseFace(card, (face) => playRecognized(face));
       return;
     }
+    // opciones de lanzamiento: estímulo, ciclo, evocar, boca abajo…
+    if (!card.castChosen && !card.fromExile && !card.isLand) {
+      const opts = castOptions(card);
+      if (opts.length) { castOptionSheet(card, opts); return; }
+    }
+    // modos («Elige uno —»)
+    if (card.effects?.modes && !card.chosenModes && !card.castAlt?.match(/morph|disguise/)) {
+      chooseModes(card, (modes) => playRecognized({ ...card, chosenModes: modes }));
+      return;
+    }
     const wanted = targetsFor(card);
     if (wanted.length && canPlayNow(card)) {
       startTargeting(card, wanted, (targets) => dispatchPlay(card, targets));
@@ -516,10 +526,64 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     dispatchPlay(card, []);
   }
 
+  /** Formas de lanzar la carta además de la normal. */
+  function castOptions(card) {
+    const a = altCosts(card);
+    const o = [];
+    if (a.kicker) o.push({ label: `Con estímulo (+${a.kicker})`, sub: 'Pagas el coste extra y obtienes el efecto adicional.', set: { kicked: true } });
+    if (a.evoke) o.push({ label: `Evocar (${a.evoke})`, sub: 'Coste alternativo: entra, hace su efecto al entrar y se sacrifica.', set: { castAlt: 'evoke' } });
+    if (a.dash) o.push({ label: `Arremetida (${a.dash})`, sub: 'Tiene prisa y vuelve a tu mano al final del turno.', set: { castAlt: 'dash' } });
+    if (a.buyback) o.push({ label: `Con readquirir (+${a.buyback})`, sub: 'Al resolverse vuelve a tu mano.', set: { castBuyback: true } });
+    for (const k of ['morph', 'megamorph', 'disguise']) if (a[k]) o.push({ label: `Boca abajo por {3}`, sub: `Criatura 2/2 sin nombre${k === 'disguise' ? ' con resguardo {2}' : ''}. Luego la pones boca arriba pagando ${a[k]}.`, set: { castAlt: k } });
+    if (a.cycling) o.push({ label: `Ciclar (${a.cycling})`, sub: 'La descartas y robas otra carta.', cycle: true });
+    if (a.typecycling) o.push({ label: `${a.typecycling.what}ciclo (${a.typecycling.cost})`, sub: 'La descartas y buscas en tu biblioteca una carta de ese tipo.', cycle: 'type' });
+    return o;
+  }
+
+  function castOptionSheet(card, opts) {
+    let close;
+    close = sheet(h('div', {},
+      h('h3', {}, `¿Cómo juegas ${displayName(card)}?`),
+      h('div', { class: 'face-choices' },
+        h('button', { class: 'act face-choice primary', onClick: () => { close(); playRecognized({ ...card, castChosen: true }); } }, h('b', {}, `Lanzarla normal (${card.manaCost || 'gratis'})`), h('span', {}, 'Pagando su coste de maná.')),
+        opts.map((o) => h('button', { class: 'act face-choice', onClick: () => {
+          close();
+          if (o.cycle) session.dispatch({ t: 'cycle', card, type: o.cycle === 'type' });
+          else playRecognized({ ...card, castChosen: true, ...o.set });
+        } }, h('b', {}, o.label), h('span', {}, o.sub))),
+      ),
+    ));
+  }
+
+  /** Elegir los modos de un hechizo o de la habilidad al entrar. */
+  function chooseModes(card, done) {
+    const m = card.effects.modes;
+    const n = card.effects.choose || 1;
+    const max = Math.abs(n);
+    const picked = new Set();
+    let close;
+    const confirm = h('button', { class: 'act primary', onClick: () => { if (!picked.size) return; close(); done([...picked].sort()); } }, 'Hecho');
+    const list = m.map((mode, i) => {
+      const b = h('button', { class: 'act face-choice', onClick: () => {
+        if (max === 1) { close(); done([i]); return; }
+        if (picked.has(i)) picked.delete(i); else if (picked.size < max) picked.add(i);
+        b.classList.toggle('primary', picked.has(i));
+        confirm.disabled = n > 0 ? picked.size !== max : !picked.size;
+      } }, h('b', {}, `Modo ${i + 1}`), h('span', {}, (mode.fx.map(describeEffect).filter(Boolean).join(', ') || mode.text) + (mode.ok ? '' : ' (parte a mano)')));
+      return b;
+    });
+    confirm.disabled = true;
+    close = sheet(h('div', {},
+      h('h3', {}, `${displayName(card)}: elige ${n > 1 ? n + ' modos' : n < 0 ? 'uno o más modos' : 'un modo'}`),
+      h('div', { class: 'face-choices' }, list),
+      max > 1 ? h('div', { class: 'actions' }, confirm) : null,
+    ));
+  }
+
   function dispatchPlay(card, targets) {
     const before = S().eventSeq;
     if (!card.edition) card = withPreferredEdition(card);
-    session.dispatch({ t: 'play', card, targets });
+    session.dispatch({ t: 'play', card, targets, ...(card.castAlt ? { alt: card.castAlt } : {}), ...(card.castBuyback ? { buyback: true } : {}) });
     findEdition(card);
     // Aviso con opción de deshacer por si la cámara leyó mal.
     setTimeout(() => {
@@ -997,7 +1061,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   function permEl(s, perm, owner) {
     let el = ui.els.get(perm.uid);
     if (!el) {
-      el = h('div', { class: 'perm', 'data-uid': perm.uid }, cardFace(perm.card), h('div', { class: 'badges' }));
+      el = h('div', { class: 'perm', 'data-uid': perm.uid }, perm.faceDown ? h('div', { class: 'card facedown' }, h('div', { class: 'card-back' })) : cardFace(perm.card), h('div', { class: 'badges' }));
       // La animación de entrada se reproduce una sola vez: al acabar se quita,
       // para que no se repita cuando el tablero recoloca las cartas.
       el.addEventListener('animationend', (ev) => { if (ev.animationName === 'summonIn') el.classList.remove('enter'); });
@@ -1009,7 +1073,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     if (el.__img !== perm.card.image) {
       el.__img = perm.card.image;
       const old = el.querySelector('.card');
-      if (old) old.replaceWith(cardFace(perm.card));
+      if (old) old.replaceWith(perm.faceDown ? h('div', { class: 'card facedown' }, h('div', { class: 'card-back' })) : cardFace(perm.card));
     }
     const attacking = s.combat.attackers[perm.uid] != null;
     const blocking = Object.values(s.combat.blocks).some((l) => l.includes(perm.uid));
@@ -1438,6 +1502,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const btn = (label, a, cls = '') => h('button', { class: 'act ' + cls, onClick: act(a) }, label);
     close = sheet(cardInfo(perm.card, [
       h('p', { class: 'muted' }, mine ? 'Tu permanente.' : `Permanente de ${owner.name}. Usa estos botones cuando un hechizo tuyo le afecte.`),
+      mine && perm.faceDown ? h('div', { class: 'equip-box' },
+        h('p', {}, `Boca abajo: es ${displayName(perm.hidden)}.`),
+        h('div', { class: 'actions' }, h('button', { class: 'act primary', onClick: () => { close(); session.dispatch({ t: 'unmorph', uid: perm.uid }); } }, `Poner boca arriba (${perm.morphCost})`))) : null,
       mine ? abilityButtons(perm, () => close()) : null,
       equipInfo(perm, mine, () => close()),
       perm.card.isCreature ? h('div', { class: 'dmg-row' }, 'Hacer daño:', [1, 2, 3, 4, 5].map((n) => btn(n, { t: 'damage', uid: perm.uid, amount: n }))) : null,
@@ -1569,6 +1636,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const mine = p.id === me();
     let close;
     const open = (c) => {
+      const ga = zone === 'graveyard' && mine ? altCosts(c) : {};
+      const gk = ['flashback', 'escape', 'unearth'].find((k) => ga[k]);
+      if (gk) {
+        const label = { flashback: 'Lanzar con retrospectiva', escape: 'Lanzar con escapar', unearth: 'Desenterrar' }[gk];
+        let close3;
+        close3 = sheet(cardInfo(c, [h('div', { class: 'actions' }, h('button', { class: 'act primary', onClick: () => { close3(); close(); playRecognized({ ...c, castChosen: true, castAlt: gk }); } }, `${label} (${ga[gk]})`))]));
+        return;
+      }
       if (!(zone === 'exile' && mine && c.playable)) { sheet(cardInfo(c)); return; }
       let close2;
       close2 = sheet(cardInfo(c, [

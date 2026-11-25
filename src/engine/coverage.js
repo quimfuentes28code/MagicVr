@@ -20,6 +20,10 @@ export const FX_SUPPORTED = {
   bite: () => true, fight: () => true, pickMine: () => true,
   mill: () => true, scry: () => true, surveil: () => true, tutor: () => true, instruct: () => true, explore: () => true, connive: () => true,
   edict: () => true, sacSelf: () => true, regen: () => true, addMana: () => true, attachTo: () => true,
+  attachToChosen: () => true, selfToHand: () => true, selfRecur: () => true, exileSelf: () => true, energy: () => true, monstrosity: () => true,
+  adapt: () => true, chargeCounter: () => true, prevent: () => true, fog: () => true, threaten: () => true, steal: () => true,
+  untapLast: () => true, hasteLast: () => true, controllerLife: () => true, controllerLifePower: () => true, delayedDraw: () => true,
+  delayedSac: () => true, support: () => true, bolster: () => true,
 };
 export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', 'blocks', 'blocked', 'combatDamagePlayer', 'upkeep', 'anyUpkeep',
   'endstep', 'anyEndstep', 'begincombat', 'main1', 'drawstep', 'otherEtbMine', 'otherEtbMineNontoken', 'creatureEtbMine', 'otherEtbAny',
@@ -27,12 +31,13 @@ export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', '
   'castCreature', 'castAny', 'oppCast', 'gainLife', 'youAttack', 'creatureAttacksMine', 'creatureCombatDamageMine', 'hostCombatDamagePlayer',
   'hostAttacks', 'hostDies']);
 export const STATICS_SUPPORTED = new Set(['attach', 'extraLand', 'info', 'anthem', 'selfBuff', 'noBlockSelf', 'noAttackSelf', 'unblockableSelf',
-  'menaceLike', 'noUntapSelf', 'entersTapped', 'entersCounters']);
+  'menaceLike', 'noUntapSelf', 'entersTapped', 'entersCounters', 'blockOnlyFlyers', 'attackOnlyIf', 'evadePower', 'evadeSmaller', 'afterlife']);
 export const KEYWORDS_SUPPORTED = new Set(['flying', 'reach', 'first strike', 'double strike', 'deathtouch', 'trample', 'lifelink', 'haste',
   'vigilance', 'menace', 'defender', 'hexproof', 'shroud', 'indestructible', 'flash', 'infect', 'wither', 'protection', 'enchant', 'equip',
   'job select', 'living weapon', 'for mirrodin!', 'partner', 'partner with', 'choose a background', 'prowess', 'exalted', 'toxic', 'fear',
   'intimidate', 'shadow', 'horsemanship', 'skulk', 'changeling', 'devoid', 'crew', 'landwalk', 'swampwalk', 'islandwalk', 'forestwalk',
-  'mountainwalk', 'plainswalk']);
+  'mountainwalk', 'plainswalk', 'kicker', 'cycling', 'typecycling', 'landcycling', 'basic', 'evoke', 'flashback', 'morph', 'megamorph',
+  'disguise', 'dash', 'unearth', 'buyback', 'ward', 'convoke', 'delve', 'improvise', 'affinity', 'escape']);
 
 const fxOk = (fx) => fx.length > 0 && fx.every((e) => FX_SUPPORTED[e.kind] && FX_SUPPORTED[e.kind](e));
 
@@ -43,6 +48,7 @@ function judge(a) {
     case 'trigger': return TRIGGERS_SUPPORTED.has(a.ev) && fxOk(a.fx);
     case 'activated': return ACTIVATED_SUPPORTED && fxOk(a.fx);
     case 'mana': return true;
+    case 'modal': return true;
     case 'spell': case 'mode': return fxOk(a.fx);
     case 'static': return STATICS_SUPPORTED.has(a.st?.kind);
     default: return false;

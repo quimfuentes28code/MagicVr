@@ -255,6 +255,41 @@ const T = [
   [/^you may play an additional land this turn$/i, () => ({ kind: 'extraLand', amount: 1 })],
   [/^(?:it|CARDNAME) gains haste until end of turn$/i, () => ({ kind: 'pump', p: 0, t: 0, kw: ['haste'], self: true })],
   [/^transform CARDNAME$/i, () => ({ kind: 'instruct', text: 'Transforma esta carta (dale la vuelta).' })],
+  [/^CARDNAME explores$/i, () => ({ kind: 'explore' })],
+  [/^CARDNAME connives$/i, () => ({ kind: 'connive' })],
+  [/^attach (?:it|CARDNAME) to target creature you control$/i, () => ({ kind: 'attachTo', target: 'creature', filter: { types: ['creature'], non: [], you: true } })],
+  [/^attach CARDNAME to it$/i, () => ({ kind: 'attachToChosen' })],
+  [/^return (?:it|CARDNAME) to (?:its owner's|your) hand$/i, () => ({ kind: 'selfToHand' })],
+  [/^return (?:it|CARDNAME) to the battlefield(?: tapped)?(?: under (?:its owner's|your) control)?$/i, () => ({ kind: 'selfRecur', to: 'battlefield' })],
+  [/^exile CARDNAME$/i, () => ({ kind: 'exileSelf' })],
+  [/^(?:you get|get) ((?:\{E\})+)$/i, (m) => ({ kind: 'energy', amount: (m[1].match(/\{E\}/g) || []).length })],
+  [/^monstrosity (\d+|X)$/i, (m) => ({ kind: 'monstrosity', amount: num(m[1]) })],
+  [/^adapt (\d+)$/i, (m) => ({ kind: 'adapt', amount: +m[1] })],
+  [/^put a (?:charge|time|storage|ki|spore|quest|loyalty|lore|oil|age|fade|level|study|verse|wish|\w+) counter on CARDNAME$/i, () => ({ kind: 'chargeCounter', amount: 1 })],
+  [/^prevent the next (\d+) damage that would be dealt to (any target|target creature|target creature or player|target player|you|CARDNAME) this turn$/i, (m) => ({ kind: 'prevent', amount: +m[1], ...(/CARDNAME/i.test(m[2]) ? { self: true } : /^you$/i.test(m[2]) ? { you: true } : damageTarget(m[2].replace('target creature or player', 'any target')) || { target: 'any' }) })],
+  [/^prevent all combat damage that would be dealt this turn$/i, () => ({ kind: 'fog' })],
+  [/^prevent all damage that would be dealt to (?:target creature|CARDNAME) this turn$/i, (m) => ({ kind: 'prevent', amount: 999, ...(/CARDNAME/.test(m[0]) ? { self: true } : { target: 'creature' }) })],
+  [/^gain control of target (.+?) until end of turn$/i, (m) => { const p = permT(m[1]); return p ? { kind: 'threaten', ...p } : null; }],
+  [/^gain control of target (.+)$/i, (m) => { const p = permT(m[1]); return p && !/card|spell/.test(m[1]) ? { kind: 'steal', ...p } : null; }],
+  [/^untap (?:that creature|it)$/i, () => ({ kind: 'untapLast' })],
+  [/^(?:that creature|it) gains haste until end of turn$/i, () => ({ kind: 'hasteLast' })],
+  [/^its controller (loses|gains) (\d+) life$/i, (m) => ({ kind: 'controllerLife', amount: (m[1] === 'loses' ? -1 : 1) * +m[2] })],
+  [/^its controller gains life equal to its power$/i, () => ({ kind: 'controllerLifePower' })],
+  [/^its controller (?:may )?(?:search|searches) (?:their|his or her) library for a basic land card.*$/i, () => ({ kind: 'instruct', text: 'Su controlador puede buscar una tierra básica y ponerla en el campo de batalla girada.' })],
+  [new RegExp(`^return up to ${NUMW} target (creature|instant and/or sorcery|artifact|enchantment|permanent|land)? ?cards? from your graveyard to your hand$`, 'i'), (m) => Array.from({ length: num(m[1]) }, () => ({ kind: 'regrow', type: (m[2] || 'card').replace(' and/or ', ' or ').toLowerCase() }))],
+  [new RegExp(`^draw ${NUMW} cards? at the beginning of the next turn's upkeep$`, 'i'), (m) => ({ kind: 'delayedDraw', amount: num(m[1]) })],
+  [/^(?:that player|defending player|target player|target opponent|each opponent) discards (a|one|two) cards?$/i, (m) => ({ kind: 'discard', amount: num(m[1]), who: 'that player' })],
+  [/^sacrifice CARDNAME at the beginning of the next end step$/i, () => ({ kind: 'delayedSac' })],
+  [/^at the beginning of the next end step, sacrifice (?:it|CARDNAME|that creature|them|those tokens)$/i, () => ({ kind: 'delayedSac' })],
+  [/^exile (?:it|that creature|them) at the beginning of the next end step$/i, () => ({ kind: 'delayedSac', exile: true })],
+  [/^(?:you )?take the initiative$/i, () => ({ kind: 'instruct', text: 'Tomas la iniciativa: avanza en la Mazmorra Subterránea (llévalo a mano).' })],
+  [/^the ring tempts you$/i, () => ({ kind: 'instruct', text: 'El Anillo te tienta: elige a tu Portador del Anillo (llévalo a mano).' })],
+  [/^support (\d+)$/i, (m) => ({ kind: 'support', amount: +m[1] })],
+  [/^bolster (\d+)$/i, (m) => ({ kind: 'bolster', amount: +m[1] })],
+  [/^populate$/i, () => ({ kind: 'instruct', text: 'Poblar: crea una copia de una ficha de criatura que controles (créala a mano con el mismo efecto).' })],
+  [/^learn$/i, () => ({ kind: 'instruct', text: 'Aprende: puedes coger una carta de Lección de fuera del juego, o descartar una carta para robar otra.' })],
+  [/^(?:untap|tap) (two|three|up to two|up to three) target (lands|creatures|permanents)$/i, (m) => Array.from({ length: num(m[1].replace('up to ', '')) }, () => ({ kind: /^untap/i.test(m[0]) ? 'untap' : 'tap', ...permT(m[2].replace(/s$/, '')) }))],
+  [/^each player draws (a|one|two|three) cards?$/i, (m) => ({ kind: 'drawOther', who: 'each player', amount: num(m[1]) })],
 ];
 
 /** Partes que no hace falta aplicar (texto de ayuda o ya implícito). */
@@ -273,6 +308,11 @@ function clauses(text) {
 
 function matchClause(c) {
   let s = c.trim().replace(/^(?:you may |then |also |if you do, )/i, '').replace(/^(?:you may )/i, '');
+  // «si se pagó el estímulo, …»
+  const kk = s.match(/^if (?:this spell|CARDNAME|it) was kicked, (.+)$/i);
+  if (kk) { const r = matchClause(kk[1]); return r ? r.map((e) => ({ ...e, kicked: true })) : null; }
+  // «it/that creature …» se refiere a la propia carta en disparadas y activadas
+  s = s.replace(/^(?:it|that creature) (deals|gets|gains|explores|connives|fights|can't be blocked)\b/i, 'CARDNAME $1');
   if (NOOP.some((r) => r.test(s))) return [];
   for (const [re, fn] of T) {
     const m = s.match(re);
@@ -381,7 +421,7 @@ export function parseCost(cost) {
       for (const sy of syms) {
         if (sy === 'T') out.tap = true;
         else if (sy === 'Q') out.untap = true;
-        else if (sy === 'E') out.other.push('energy');
+        else if (sy === 'E') out.energy = (out.energy || 0) + 1;
         else out.mana += '{' + sy + '}';
       }
     } else if (/^Sacrifice CARDNAME$/i.test(part)) out.sacSelf = true;
@@ -400,10 +440,10 @@ export function parseCost(cost) {
 export function parseStatic(text, card) {
   const s = text.replace(/\.$/, '');
   let m;
-  if ((m = s.match(/^(Other )?((?:[A-Z][a-z]+ )*?)creatures you control get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?$/))) {
+  if ((m = s.match(/^(Other )?((?:[A-Z][a-z]+ )*?)[Cc]reatures you control get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?$/))) {
     return { kind: 'anthem', who: 'mine', other: !!m[1], sub: m[2].trim() || null, p: +m[3], t: +m[4], kw: kwList(m[5]) };
   }
-  if ((m = s.match(/^(Other )?((?:[A-Z][a-z]+ )*?)creatures you control have (.+)$/)) && kwList(m[3]).every((k) => new RegExp('^' + KWS + '$').test(k))) {
+  if ((m = s.match(/^(Other )?((?:[A-Z][a-z]+ )*?)[Cc]reatures you control have (.+)$/)) && kwList(m[3]).every((k) => new RegExp('^' + KWS + '$').test(k))) {
     return { kind: 'anthem', who: 'mine', other: !!m[1], sub: m[2].trim() || null, p: 0, t: 0, kw: kwList(m[3]) };
   }
   if ((m = s.match(/^(Other )?((?:[A-Z][a-z]+ )*?)creatures (?:get|you control get) ([+-]\d+)\/([+-]\d+)$/))) return { kind: 'anthem', who: 'all', other: !!m[1], sub: m[2].trim() || null, p: +m[3], t: +m[4], kw: [] };
@@ -438,6 +478,22 @@ export function parseStatic(text, card) {
   if (/^(?:CARDNAME|You) (?:has|have) hexproof$/.test(s)) return { kind: 'info' };
   if (/^Spells you cast cost \{(\d)\} less to cast$/.test(s)) return { kind: 'info', text: 'Tus hechizos cuestan menos (resta a mano).' };
   if (/^Activate only as a sorcery$/.test(s)) return { kind: 'info' };
+  if (/^You may choose not to untap CARDNAME during your untap step$/.test(s)) return { kind: 'info' };
+  if (/^You may look at the top card of your library any time$/.test(s)) return { kind: 'info' };
+  if (/^CARDNAME can be your commander$/.test(s)) return { kind: 'info' };
+  if (/^You have no maximum hand size$/.test(s)) return { kind: 'info' };
+  if (/^Doctor's companion$/.test(s)) return { kind: 'info' };
+  if (/^If CARDNAME is in your opening hand, you may begin the game with it on the battlefield$/.test(s)) return { kind: 'info', text: 'Si está en tu mano inicial, puedes empezar con ella en juego (regístrala con el grimorio).' };
+  if (/^Play with the top card of your library revealed$/.test(s)) return { kind: 'info' };
+  if (/^CARDNAME must be blocked if able$/.test(s)) return { kind: 'info' };
+  if (/^CARDNAME can block only creatures with flying$/.test(s)) return { kind: 'blockOnlyFlyers' };
+  if ((m = s.match(/^CARDNAME can't attack unless defending player controls an? (Island|Swamp|Forest|Mountain|Plains)$/))) return { kind: 'attackOnlyIf', land: m[1] };
+  if ((m = s.match(/^CARDNAME can't be blocked by creatures with power (\d+) or greater$/))) return { kind: 'evadePower', min: +m[1] };
+  if (/^Creatures with power less than CARDNAME's power can't block it$/.test(s)) return { kind: 'evadeSmaller' };
+  if ((m = s.match(/^CARDNAME enters with (two|three|one|a) -1\/-1 counters? on it$/))) return { kind: 'entersCounters', amount: -num(m[1]) };
+  if ((m = s.match(/^If CARDNAME was kicked, it enters with (\w+) \+1\/\+1 counters? on it$/))) return { kind: 'entersCounters', amount: num(m[1]), kicked: true };
+  if ((m = s.match(/^Afterlife (\d+)$/))) return { kind: 'afterlife', amount: +m[1] };
+  if ((m = s.match(/^Soulshift (\d+)$/))) return { kind: 'info', text: 'Al morir, puedes devolver a tu mano una carta de Espíritu de tu cementerio con valor de maná ' + m[1] + ' o menos.' };
   if (/^\{T\}: Add /.test(s)) return null; // las activadas de maná se tratan aparte
   return null;
 }
@@ -461,7 +517,7 @@ export function parseAbilities(card) {
     }
     // 2) modal («Choose one —»)
     if (/^Choose (one|two|one or both|one or more|any number)(?: —|\b.*—)/i.test(text)) {
-      out.push({ kind: 'modal', text, ok: false, template: 'Choose one — …' });
+      out.push({ kind: 'modal', text, ok: /^Choose (one|two|one or both|one or more|three)\b/i.test(text) && !/same mode more than once|Spree/i.test(text), choose: text });
       continue;
     }
     if (/^•/.test(text)) {
@@ -474,6 +530,16 @@ export function parseAbilities(card) {
     if (tm && !isSpell) {
       const tr = parseTrigger(tm[1]);
       let body = tm[2];
+      if (/^choose (one|two|one or both|one or more)(?: —|\b.*—)/i.test(body)) {
+        out.push({ kind: 'trigger', text, ev: tr && tr.ev, modal: body, fx: [], ok: !!tr && tr.ev === 'etb', missing: [], condText: tm[1] });
+        continue;
+      }
+      const kc = body.match(/^if (?:it|CARDNAME) was kicked, (.+)$/i);
+      if (kc) {
+        const r = parseEffectText(kc[1]);
+        out.push({ kind: 'trigger', text, ev: tr && tr.ev, fx: r.fx.map((e) => ({ ...e, kicked: true })), ok: !!tr && r.ok, missing: r.missing, condText: tm[1] });
+        continue;
+      }
       let cond = null;
       const ifm = body.match(/^if (.+?), (.+)$/i);
       if (ifm) { cond = ifm[1]; body = ifm[2]; }
@@ -542,3 +608,32 @@ export const staticsOf = (card) => abilitiesOf(card).filter((a) => a.kind === 's
 export const triggersOf = (card, ev) => abilitiesOf(card).filter((a) => a.kind === 'trigger' && a.ev === ev && a.fx.length && !a.cond);
 export const activatedOf = (card) => abilitiesOf(card).filter((a) => (a.kind === 'activated' || a.kind === 'mana') && a.fx.length);
 export const keywordsOf = (card) => abilitiesOf(card).filter((a) => a.kind === 'keyword').map((a) => a.text.toLowerCase());
+
+/** Costes alternativos y adicionales de una carta (estímulo, ciclo, evocar, retrospectiva, transfigurar…). */
+export function altCosts(card) {
+  const out = {};
+  const t = cleanText(card).replace(/—/g, '—');
+  const get = (re) => { const m = t.match(re); return m ? m[1].trim() : null; };
+  out.kicker = get(/(?:^|\n|, )Kicker ((?:\{[^}]+\})+)/i);
+  out.cycling = get(/(?:^|\n|, )Cycling ((?:\{[^}]+\})+)/i);
+  const tc = t.match(/(?:^|\n|, )((?:Basic l|L)andcycling|[A-Z][a-z]+cycling) ((?:\{[^}]+\})+)/);
+  if (tc) out.typecycling = { what: tc[1].replace(/cycling$/i, ''), cost: tc[2] };
+  out.evoke = get(/(?:^|\n|, )Evoke ((?:\{[^}]+\})+)/i);
+  out.flashback = get(/(?:^|\n|, )Flashback ((?:\{[^}]+\})+)/i);
+  out.morph = get(/(?:^|\n|, )Morph ((?:\{[^}]+\})+)/i);
+  out.megamorph = get(/(?:^|\n|, )Megamorph ((?:\{[^}]+\})+)/i);
+  out.disguise = get(/(?:^|\n|, )Disguise ((?:\{[^}]+\})+)/i);
+  out.dash = get(/(?:^|\n|, )Dash ((?:\{[^}]+\})+)/i);
+  out.escape = get(/(?:^|\n|, )Escape—((?:\{[^}]+\})+)/i);
+  out.unearth = get(/(?:^|\n|, )Unearth ((?:\{[^}]+\})+)/i);
+  out.buyback = get(/(?:^|\n|, )Buyback ((?:\{[^}]+\})+)/i);
+  const w = t.match(/(?:^|\n|, )Ward(?: |—)(?:((?:\{[^}]+\})+)|Pay (\d+) life)/i);
+  if (w) out.ward = w[1] ? { mana: w[1] } : { life: +w[2] };
+  out.convoke = /(?:^|\n|, )Convoke\b/i.test(t);
+  out.delve = /(?:^|\n|, )Delve\b/i.test(t);
+  out.improvise = /(?:^|\n|, )Improvise\b/i.test(t);
+  const af = t.match(/(?:^|\n|, )Affinity for (\w+)/i);
+  if (af) out.affinity = af[1].replace(/s$/, '');
+  for (const k of Object.keys(out)) if (out[k] == null || out[k] === false) delete out[k];
+  return out;
+}

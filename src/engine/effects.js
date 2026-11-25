@@ -33,13 +33,8 @@ export function parseEffects(card) {
     const sp = abil.filter((x) => x.kind === 'spell');
     const fx = sp.flatMap((x) => x.fx);
     const miss = sp.filter((x) => !x.ok).flatMap((x) => x.missing || []).join('. ');
-    out.spell = fx.length ? [...fx, ...(miss ? parseSentence(miss).filter((e) => !fx.some((f) => f.kind === e.kind)) : [])] : parseSentence(clean);
-    const modes = abil.filter((x) => x.kind === 'mode');
-    const modal = abil.find((x) => x.kind === 'modal');
-    if (modal && modes.length) {
-      out.modes = modes.map((x) => ({ text: x.text.replace(/^•\s*/, ''), fx: x.fx, ok: x.ok }));
-      out.choose = /two/i.test(modal.text) ? 2 : /one or both|one or more|any number/i.test(modal.text) ? -modes.length : 1;
-    }
+    const hasModes = abil.some((x) => x.kind === 'modal');
+    out.spell = fx.length ? [...fx, ...(miss ? parseSentence(miss).filter((e) => !fx.some((f) => f.kind === e.kind)) : [])] : hasModes ? [] : parseSentence(clean);
   } else {
     const etb = abil.filter((x) => x.kind === 'trigger' && x.ev === 'etb' && !x.cond && x.fx.length);
     if (etb.length) out.etb = etb.flatMap((x) => x.fx);
@@ -54,6 +49,15 @@ export function parseEffects(card) {
       if (d) out.dies = parseSentence(d[1]);
     }
     if (ownToken && !out.etb.some((e) => e.kind === 'tokenAttach')) out.etb.unshift({ kind: 'tokenAttach', amount: 1, keywords: [], ...ownToken });
+  }
+  // Modos («Elige uno —»): de un hechizo, o de la habilidad «al entrar» de un permanente
+  const modes = abil.filter((x) => x.kind === 'mode');
+  const header = abil.find((x) => x.kind === 'modal') || abil.find((x) => x.kind === 'trigger' && x.modal && x.ev === 'etb');
+  if (header && modes.length) {
+    const t = header.modal || header.text;
+    out.modes = modes.map((x) => ({ text: x.text.replace(/^•\s*/, ''), fx: x.fx, ok: x.ok }));
+    out.choose = /\bthree\b/i.test(t) ? 3 : /\btwo\b/i.test(t) ? 2 : /one or both|one or more|any number/i.test(t) ? -modes.length : 1;
+    out.modesFor = card.isInstant || card.isSorcery ? 'spell' : 'etb';
   }
   return out;
 }
@@ -168,8 +172,16 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 export const needsTarget = (e) => ['any', 'creature', 'permanent', 'player', 'spell'].includes(e.target);
 
 /** Lista de objetivos que pide una carta al jugarse (en orden). */
+/** Efectos que aplica una carta al resolverse (incluidos los modos elegidos). */
+export function effectFx(card) {
+  const base = (card.isPermanent ? card.effects?.etb : card.effects?.spell) || [];
+  const m = card.effects?.modes;
+  if (!m || !card.chosenModes) return base;
+  return [...base, ...card.chosenModes.flatMap((i) => (m[i] ? m[i].fx : []))];
+}
+
 export function targetsFor(card) {
-  const fx = card.isPermanent ? card.effects?.etb : card.effects?.spell;
+  const fx = effectFx(card);
   const out = (fx || []).filter(needsTarget);
   // Aura: se lanza sobre una criatura (va al final para no mover los objetivos de sus efectos)
   if (/\bAura\b/.test(card.typeLine || '') && /^Enchant creature/im.test(card.oracle || '')) out.push({ kind: 'aura', target: 'creature', attach: true, oracle: card.oracle });

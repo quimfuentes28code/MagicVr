@@ -680,7 +680,8 @@ function resolveItem(s, item) {
       // Aventura (regla 715.4): se exilia y luego se puede lanzar la criatura desde el exilio.
       pl.exile.push({ ...stripCard(card.adventureOf), onAdventure: true });
       pushEvent(s, 'info', `${displayName(card.adventureOf)} se va de aventura: queda exiliada y más adelante puedes lanzar la criatura desde el exilio (pon la carta en el círculo y elige la criatura).`, { to: pl.id });
-    } else if (card.exileOnResolve) { pl.exile.push(stripCard(card)); if (card.fromGraveyard === 'flashback') pushEvent(s, 'info', `${name} se exilia (retrospectiva).`); }
+    } else if (card.toLibrary) { if (pl.isBot) { pl.library.push(stripCard(card)); shuffleLib(s, pl); } else pushEvent(s, 'info', `${name} se baraja en tu biblioteca.`, { to: pl.id }); }
+    else if (card.exileOnResolve) { pl.exile.push(stripCard(card)); if (card.fromGraveyard === 'flashback') pushEvent(s, 'info', `${name} se exilia (retrospectiva).`); }
     else if (card.buyback) { if (pl.isBot) pl.hand.push({ ...stripCard(card), uid: s.nextId++ }); else { pl.handCount += 1; pushEvent(s, 'info', `${name} vuelve a tu mano (readquirir).`, { to: pl.id }); } }
     else pl.graveyard.push(stripCard(card));
   }
@@ -772,6 +773,10 @@ const HANDLERS = {
     if (a.alt && ['morph', 'megamorph', 'disguise'].includes(a.alt) && alts[a.alt]) cost = '{3}';
     if (card.kicked && alts.kicker) cost += alts.kicker;
     if (a.buyback && alts.buyback) cost += alts.buyback;
+    const strive = staticsOf(card).find((x) => x.kind === 'strive');
+    if (strive && (a.targets || []).length > 1) cost += strive.cost.repeat(a.targets.length - 1);
+    // «puedes lanzar gratis un hechizo de valor de maná N o menos»
+    if (pl.freeCast && !card.isLand && card.cmc <= pl.freeCast.mv && pl.freeCast.turn === s.turn) { cost = ''; pl.freeCast = null; pushEvent(s, 'info', `${displayName(card)} se lanza gratis.`, { to: pl.id }); }
     if (a.entwine && alts.entwine) { cost += alts.entwine; card = { ...card, chosenModes: (card.effects?.modes || []).map((_, i) => i) }; }
     // costes adicionales: sacrificar / descartar / pagar vidas
     const addSac = staticsOf(card).find((x) => x.kind === 'addSac');
@@ -938,6 +943,10 @@ const HANDLERS = {
       if (c.untap && !perm.tapped) return illegal(s, pl.id, `${name} tiene que estar girada para esa habilidad.`, a);
       if (c.tap && perm.card.isCreature && perm.sick && !has(perm, 'haste')) return illegal(s, pl.id, `${name} acaba de entrar (mareo de invocación): no puede usar habilidades con {T} hasta tu próximo turno.`, a);
       if (c.removeCounters && perm.counters < c.removeCounters) return illegal(s, pl.id, `${name} no tiene contadores suficientes.`, a);
+      if (c.sacOther) {
+        const sf = a.sacUid != null ? findPerm(s, a.sacUid) : null;
+        if (!sf || sf.owner.id !== pl.id || (c.sacOther.another && sf.perm.uid === perm.uid) || !permMatches(s, c.sacOther.filter, sf.perm, pl.id, pl.id)) return illegal(s, pl.id, `Para esa habilidad tienes que sacrificar ${targetEs(c.sacOther.filter)}.`, a);
+      }
       if (c.life && pl.life < c.life) return illegal(s, pl.id, 'No tienes vidas suficientes para pagar.', a);
       if (c.energy && (pl.energy || 0) < c.energy) return illegal(s, pl.id, `Te falta energía: necesitas ${c.energy} y tienes ${pl.energy || 0}.`, a);
       if (c.mana) {
@@ -956,6 +965,7 @@ const HANDLERS = {
     if (c.loyalty != null) { perm.loyaltyUsed = s.turn; if (typeof c.loyalty === 'number') perm.loyalty = (perm.loyalty || 0) + c.loyalty; }
     perm.used = { ...(perm.used || {}), [a.idx]: s.turn };
     if (ab.exhaust) perm.exhausted = { ...(perm.exhausted || {}), [a.idx]: true };
+    if (c.sacOther && a.sacUid != null) { const sf = findPerm(s, a.sacUid); if (sf) leaveBattlefield(s, pl, sf.perm, 'graveyard', 'se sacrifica'); }
     if (c.sacSelf) leaveBattlefield(s, pl, perm, 'graveyard', 'se sacrifica');
     pushEvent(s, 'activate', `${pl.name} activa ${name}: ${ab.fx.map(describeEffect).filter(Boolean).join(', ') || 'su habilidad'}.`, { by: pl.id, uid: perm.uid, color: perm.card.colors[0] || 'C' });
     resolveEffects(s, pl, /\{X\}/.test(c.mana || '') ? { ...perm.card, xValue: Math.max(0, +a.x || 0) } : perm.card, ab.fx, a.targets || [], perm);
@@ -2116,7 +2126,9 @@ function execMore(s, pl, card, e, { perm, target, tgt, name, source, ctx }) {
       if (perm) { perm.perm.frozen = true; pushEvent(s, 'info', `${displayName(perm.perm.card)} no se enderezará en su próximo paso de enderezar.`, { uid: perm.perm.uid }); }
       break;
     case 'pumpAll': {
-      const list = e.who === 'mine' ? pl.battlefield : e.who === 'opp' ? opponents(s, pl.id).flatMap((o) => o.battlefield) : s.players.flatMap((p) => p.battlefield);
+      const list = e.who === 'mine' ? pl.battlefield : e.who === 'opp' ? opponents(s, pl.id).flatMap((o) => o.battlefield)
+        : e.who === 'attacking' ? s.players.flatMap((p) => p.battlefield).filter((x) => s.combat.attackers[x.uid] != null)
+          : e.who === 'blocking' ? s.players.flatMap((p) => p.battlefield).filter((x) => Object.values(s.combat.blocks).some((l) => l.includes(x.uid))) : s.players.flatMap((p) => p.battlefield);
       for (const p2 of list) if (p2.card.isCreature) {
         p2.pump.p += e.p; p2.pump.t += e.t;
         if (e.kw?.length) { p2.eot = p2.eot || {}; p2.eot.kw = [...new Set([...(p2.eot.kw || []), ...e.kw])]; }
@@ -2128,7 +2140,7 @@ function execMore(s, pl, card, e, { perm, target, tgt, name, source, ctx }) {
       if (perm) { perm.perm.eot = { ...(perm.perm.eot || {}), noBlock: true, noAttack: !!e.noAttack }; pushEvent(s, 'info', `${displayName(perm.perm.card)} no puede ${e.noAttack ? 'atacar ni bloquear' : 'bloquear'} este turno.`, { uid: perm.perm.uid }); }
       break;
     case 'noBlockAll':
-      for (const o of opponents(s, pl.id)) for (const p2 of o.battlefield) p2.eot = { ...(p2.eot || {}), noBlock: true };
+      for (const o of e.noFlyers ? s.players : opponents(s, pl.id)) for (const p2 of o.battlefield) if (!e.noFlyers || !has(p2, 'flying')) p2.eot = { ...(p2.eot || {}), noBlock: true };
       pushEvent(s, 'info', `${name}: las criaturas rivales no pueden bloquear este turno.`);
       break;
     case 'unblockable': {
@@ -2722,6 +2734,7 @@ function execMore2(s, pl, card, e, { perm, target, name, source, ctx }) {
       return true;
     }
     case 'switchPT':
+      if (perm && e.target) { const tp = perm.perm; const d = toughness(tp) - power(tp); tp.pump.p += d; tp.pump.t -= d; return true; }
       if (source) { const d = toughness(source) - power(source); source.pump.p += d; source.pump.t -= d; pushEvent(s, 'pump', `${displayName(source.card)} intercambia su fuerza y su resistencia.`, { uid: source.uid }); }
       return true;
     case 'canAttackDefender':
@@ -2740,8 +2753,8 @@ function execMore2(s, pl, card, e, { perm, target, name, source, ctx }) {
       if (!o) return true;
       const i = o.graveyard.map((c, k) => [c, k]).sort((x, y) => (y[0].isCreature ? 5 : 0) + y[0].cmc - (x[0].isCreature ? 5 : 0) - x[0].cmc)[0][1];
       const [c] = o.graveyard.splice(i, 1);
-      o.exile.push(c);
-      pushEvent(s, 'info', `${name} exilia ${displayName(c)} del cementerio de ${o.name}.`);
+      if (e.toLibrary) { if (o.isBot) o.library.push(c); } else o.exile.push(c);
+      pushEvent(s, 'info', `${name} ${e.toLibrary ? 'pone en la biblioteca' : 'exilia'} ${displayName(c)} del cementerio de ${o.name}.`);
       return true;
     }
     case 'exileGraveyard':
@@ -2945,6 +2958,35 @@ function execMore3(s, pl, card, e, { perm, target, tgt, name, source, ctx }) {
       (pl.manaPool ||= []).push(...Array.from({ length: e.amount }, () => (c ? [c] : ['W', 'U', 'B', 'R', 'G'])));
       return true;
     }
+    case 'basePT': {
+      const tp = e.self ? source : perm && perm.perm;
+      if (tp) pumpPerm(s, tp, e.p - power(tp), e.t - toughness(tp));
+      return true;
+    }
+    case 'toLibrary':
+      card.toLibrary = true;
+      return true;
+    case 'freeCast':
+      pl.freeCast = { mv: e.mv, turn: s.turn };
+      if (!pl.isBot) pushEvent(s, 'manual', `${name}: puedes lanzar gratis un hechizo de valor de maná ${e.mv} o menos de tu mano (pásalo por el círculo).`, { to: pl.id });
+      return true;
+    case 'hostZone': {
+      const host = hostOf(s, source);
+      const f = host ? findPerm(s, host.uid) : null;
+      if (f) leaveBattlefield(s, f.owner, f.perm, e.to, e.to === 'exile' ? 'es exiliada' : 'es destruida');
+      return true;
+    }
+    case 'hostTap': {
+      const host = hostOf(s, source);
+      if (host) host.tapped = !!e.tapped;
+      return true;
+    }
+    case 'tapToggle':
+      if (perm) perm.perm.tapped = !perm.perm.tapped;
+      return true;
+    case 'selfTuck':
+      if (source && findPerm(s, source.uid)) leaveBattlefield(s, pl, source, 'library', 'se pone encima de la biblioteca');
+      return true;
     case 'win':
       pushEvent(s, 'info', `${name}: ¡${pl.name} gana la partida!`);
       for (const o of opponents(s, pl.id)) eliminate(s, o, `pierde por ${name}`);

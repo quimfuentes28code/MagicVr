@@ -1625,7 +1625,24 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     );
   }
 
-  function activateFlow(perm, ab, idx, x) {
+  function activateFlow(perm, ab, idx, x, sacUid) {
+    // coste: sacrificar otro permanente (se elige primero)
+    if (ab.cost.sacOther && sacUid == null) {
+      const s0 = S();
+      const cands = player(s0, me()).battlefield.filter((y) => (!ab.cost.sacOther.another || y.uid !== perm.uid) && permMatches(s0, ab.cost.sacOther.filter, y, me(), me()));
+      if (!cands.length) { toast(`Necesitas sacrificar ${targetEs(ab.cost.sacOther.filter)} y no tienes ninguno.`, 'warn'); return; }
+      let close;
+      close = sheet(h('div', {}, h('h3', {}, `Coste: sacrifica ${targetEs(ab.cost.sacOther.filter)}`),
+        h('div', { class: 'choice-list' }, cands.map((y) => h('button', { class: 'choice', onClick: () => { close(); activateFlow(perm, ab, idx, x, y.uid); } }, cardFace(y.card), h('span', {}, displayName(y.card)))))));
+      return;
+    }
+    if (sacUid != null) {
+      const go = (targets, xv) => session.dispatch({ t: 'activate', uid: perm.uid, idx, targets, sacUid, ...(xv != null ? { x: xv } : {}) });
+      const w = ab.fx.filter(needsTarget);
+      if (w.length) startTargeting({ ...perm.card }, w, (targets) => go(targets, x));
+      else go([], x);
+      return;
+    }
     if (x == null && /\{X\}/.test(ab.cost.mana || '')) { chooseX(perm.card, ab.cost.mana, (v) => activateFlow(perm, ab, idx, v)); return; }
     if (x != null) {
       const wanted0 = ab.fx.filter(needsTarget);

@@ -158,6 +158,27 @@ const T = [
   [/^tap CARDNAME$/i, () => ({ kind: 'tapSelf' })],
   [/^(target creature|that creature|it) doesn't untap during its controller's next untap step$/i, () => ({ kind: 'freeze' })],
   // --- +X/+X y habilidades
+  [/^(?:up to (two|three) )?target (creatures?(?: you control)?) each get ([+-]\d+|[+-]X)\/([+-]\d+|[+-]X)(?: and gain (.+?))? until end of turn$/i, (m) => Array.from({ length: num(m[1] || 'one') }, () => ({ kind: 'pump', p: m[3].includes('X') ? 'X' : +m[3], t: m[4].includes('X') ? 'X' : +m[4], kw: kwList(m[5]), target: 'creature', filter: parseTargetPhrase(m[2].replace(/creatures/, 'creature')) }))],
+  [/^(?:up to one )?(another )?target ((?:blocking |attacking |tapped |untapped |nonblack |white |blue |black |red |green |artifact |legendary )?creature(?: you control| an opponent controls| you don't control)?(?: with [^,]+?)?) gets ([+-]\d+|[+-]X)\/([+-]\d+|[+-]X)(?: and gains (.+?))? until end of turn$/i, (m) => ({ kind: 'pump', p: m[3].includes('X') ? 'X' : +m[3], t: m[4].includes('X') ? 'X' : +m[4], kw: kwList(m[5]), target: 'creature', filter: parseTargetPhrase(m[2]) })],
+  [/^(attacking|blocking) creatures(?: you control)? get ([+-]\d+)\/([+-]\d+)(?: and gain (.+?))? until end of turn$/i, (m) => ({ kind: 'pumpAll', p: +m[2], t: +m[3], kw: kwList(m[4]), who: m[1].toLowerCase() })],
+  [/^creatures without flying can't block this turn$/i, () => ({ kind: 'noBlockAll', noFlyers: true })],
+  [/^target creature has base power and toughness (\d+)\/(\d+) until end of turn$/i, (m) => ({ kind: 'basePT', p: +m[1], t: +m[2], target: 'creature' })],
+  [/^CARDNAME has base power and toughness (\d+)\/(\d+) until end of turn$/i, (m) => ({ kind: 'basePT', p: +m[1], t: +m[2], self: true })],
+  [/^switch target creature's power and toughness until end of turn$/i, () => ({ kind: 'switchPT', target: 'creature' })],
+  [/^shuffle CARDNAME into its owner's library$/i, () => ({ kind: 'toLibrary' })],
+  [/^(?:you may )?cast a spell with mana value (\d+) or less from your hand without paying its mana cost$/i, (m) => ({ kind: 'freeCast', mv: +m[1] })],
+  [/^put target card from (?:a|your|an opponent's) graveyard on the (?:bottom|top) of (?:its owner's|your) library$/i, () => ({ kind: 'exileGraveCard', toLibrary: true })],
+  [/^target creature blocks CARDNAME this turn if able$/i, () => ({ kind: 'instruct', text: 'La criatura objetivo debe bloquear a esta criatura este turno si puede.' })],
+  [/^target creature can't block CARDNAME this turn$/i, () => ({ kind: 'noBlock', target: 'creature' })],
+  [/^exile (?:enchanted|equipped) creature$/i, () => ({ kind: 'hostZone', to: 'exile' })],
+  [/^destroy (?:enchanted|equipped) creature$/i, () => ({ kind: 'hostZone', to: 'graveyard' })],
+  [/^untap (?:enchanted|equipped) creature$/i, () => ({ kind: 'hostTap', tapped: false })],
+  [/^(?:you may )?tap or untap target (creature|permanent|artifact|land)$/i, (m) => ({ kind: 'tapToggle', ...permT(m[1]) })],
+  [/^CARDNAME becomes the creature type of your choice until end of turn$/i, () => []],
+  [/^CARDNAME can block an additional creature this turn$/i, () => []],
+  [/^target land becomes the basic land type of your choice until end of turn$/i, () => ({ kind: 'instruct', text: 'La tierra objetivo pasa a ser del tipo básico que elijas hasta el final del turno.' })],
+  [/^put CARDNAME on top of its owner's library$/i, () => ({ kind: 'selfTuck' })],
+  [/^the next (\d+) damage that would be dealt to CARDNAME this turn is dealt to target creature you control instead$/i, (m) => ({ kind: 'prevent', amount: +m[1], self: true })],
   [new RegExp(`^(up to one target creature|target creature(?: you control| an opponent controls| you don't control)?|another target creature you control|CARDNAME|equipped creature|enchanted creature) gets? ([+-]\\d+|[+-]X)/([+-]\\d+|[+-]X)(?: and gains (.+?))? until end of turn$`, 'i'), (m) => {
     const who = m[1].toLowerCase();
     const e = { kind: 'pump', p: m[2].includes('X') ? 'X' : +m[2], t: m[3].includes('X') ? 'X' : +m[3], kw: kwList(m[4]) };
@@ -180,7 +201,7 @@ const T = [
   [/^creatures your opponents control can't block this turn$/i, () => ({ kind: 'noBlockAll' })],
   [/^(target creature|CARDNAME) can't be blocked this turn$/i, (m) => ({ kind: 'unblockable', ...(/CARDNAME/i.test(m[1]) ? { self: true } : { target: 'creature' }) })],
   // --- contadores
-  [new RegExp(`^put ${NUMW} \\+1/\\+1 counters? on (up to one target creature|target creature(?: you control)?|another target creature you control|CARDNAME|each creature you control|each other creature you control|it|that creature|equipped creature|enchanted creature)$`, 'i'), (m) => {
+  [new RegExp(`^put ${NUMW} \\+1/\\+1 counters? on (up to one target creature(?: you control)?|target creature(?: you control)?|another target creature you control|CARDNAME|each creature you control|each other creature you control|it|that creature|equipped creature|enchanted creature)$`, 'i'), (m) => {
     const who = m[2].toLowerCase();
     const n = num(m[1]);
     if (who === 'cardname' || who === 'it' || who === 'that creature') return { kind: 'counter', amount: n, self: true };
@@ -574,6 +595,9 @@ export function parseCost(cost) {
         else out.mana += '{' + sy + '}';
       }
     } else if (/^Sacrifice CARDNAME$/i.test(part)) out.sacSelf = true;
+    else if (/^Sacrifice (?:a|an|another|one) ([\w ]+?)$/i.test(part) && parseTargetPhrase(part.replace(/^Sacrifice (?:a|an|another|one) /i, ''))) {
+      out.sacOther = { filter: parseTargetPhrase(part.replace(/^Sacrifice (?:a|an|another|one) /i, '')), another: /another/i.test(part) };
+    }
     else if (/^Exile CARDNAME(?: from your graveyard)?$/i.test(part)) out.exileSelf = true;
     else if (/^Pay (\d+) life$/i.test(part)) out.life = +part.match(/\d+/)[0];
     else if (/^Discard (a|one|two) cards?$/i.test(part)) out.discard = num(part.split(' ')[1]);
@@ -650,6 +674,9 @@ export function parseStatic(text, card) {
   if ((m = s.match(/^CARDNAME enters with (two|three|one|a) -1\/-1 counters? on it$/))) return { kind: 'entersCounters', amount: -num(m[1]) };
   if ((m = s.match(/^If CARDNAME was kicked, it enters with (\w+) \+1\/\+1 counters? on it$/))) return { kind: 'entersCounters', amount: num(m[1]), kicked: true };
   if ((m = s.match(/^Afterlife (\d+)$/))) return { kind: 'afterlife', amount: +m[1] };
+  if (/^Cast this spell only (?:during|before|after|if)/.test(s)) return { kind: 'info', text: 'Sólo se lanza en el momento que indica la carta.' };
+  if ((m = s.match(/^This spell costs ((?:\{[^}]+\})+) more to cast for each target beyond the first$/))) return { kind: 'strive', cost: m[1] };
+  if (/^You may cast this spell as though it had flash/.test(s)) return { kind: 'info' };
   if ((m = s.match(/^(?:CARDNAME enters tapped\. )?As CARDNAME enters, choose (a|an) (color|creature type|opponent|basic land type|card type)$/))) return { kind: 'chooseOnEnter', what: m[2], tapped: /enters tapped/.test(s) };
   if ((m = s.match(/^(?:Other )?[Cc]reatures you control of the chosen type get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?$/))) return { kind: 'anthem', who: 'mine', chosenType: true, other: /^Other/.test(s), p: +m[1], t: +m[2], kw: kwList(m[3]) };
   if ((m = s.match(/^(?:Other )?[Cc]reatures of the chosen type (?:you control )?get ([+-]\d+)\/([+-]\d+)$/))) return { kind: 'anthem', who: 'mine', chosenType: true, other: /^Other/.test(s), p: +m[1], t: +m[2], kw: [] };
@@ -716,6 +743,10 @@ export function parseAbilities(card) {
       continue;
     }
     // 2) modal («Choose one —»)
+    if (/^Choose one\. If .+ choose both instead\.?(?: —)?$/i.test(text)) {
+      out.push({ kind: 'modal', text: 'Choose one or both —', ok: true, choose: text });
+      continue;
+    }
     if (/^Choose (one|two|one or both|one or more|any number)(?: —|\b.*—)/i.test(text)) {
       out.push({ kind: 'modal', text, ok: /^Choose (one|two|one or both|one or more|three)\b/i.test(text) && !/same mode more than once|Spree/i.test(text), choose: text });
       continue;
@@ -758,7 +789,11 @@ export function parseAbilities(card) {
       let body = am[2];
       const sorcery = /Activate only as a sorcery/i.test(body);
       const once = /Activate only once each turn/i.test(body);
-      body = body.replace(/\s*Activate only (?:as a sorcery|once each turn|during your turn|during your upkeep|during combat|before blockers are declared|if [^.]+)\.?/gi, '').trim();
+      body = body.replace(/\s*Activate only (?:as a sorcery|once each turn|during your turn|during your upkeep|during combat|before blockers are declared|if [^.]+)\.?/gi, '').replace(/\s*Any player may activate this ability\.?/gi, '').replace(/\s*Activate no more than (?:twice|three times) each turn\.?/gi, '').trim();
+      if (/^Add /.test(body) && /\{[WUBRGC]\}|mana of any|one mana of/.test(body) && !/for each|equal to/.test(body)) {
+        out.push({ kind: 'mana', text, cost, fx: [{ kind: 'addMana', mana: [['W', 'U', 'B', 'R', 'G']] }], ok: true, missing: [] });
+        continue;
+      }
       const r = parseEffectText(body);
       const isMana = r.fx.length > 0 && r.fx.every((e) => e.kind === 'addMana');
       out.push({ kind: isMana ? 'mana' : 'activated', text, cost, fx: r.fx, sorcery: sorcery || cost.loyalty != null, once: once || cost.loyalty != null, exhaust: word === 'Exhaust',

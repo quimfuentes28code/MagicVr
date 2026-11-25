@@ -937,3 +937,16 @@ test('disparadas genéricas: «tú u otro Aliado que controlas entra» y «lanza
   s = act(s, { t: 'play', by: 'a', card: normalize({ name: 'Gold', manaCost: '{G}{W}', typeLine: 'Instant', colors: ['G', 'W'], oracle: 'You gain 1 life.' }), force: true });
   assert.equal(s.players[0].life, l + 3);
 });
+
+test('habilidad con «Sacrifica una criatura:» como coste (estilo Atog)', () => {
+  const atog = normalize({ name: 'Atog Test', manaCost: '{1}{R}', power: '1', toughness: '2', typeLine: 'Creature — Atog', oracle: 'Sacrifice an artifact: This creature gets +2/+2 until end of turn.' });
+  let s = duel();
+  let a, art;
+  [s, a] = put(s, 'a', atog);
+  [s, art] = put(s, 'a', normalize({ name: 'Rock', manaCost: '{1}', typeLine: 'Artifact' }));
+  s = apply(s, { t: 'activate', by: 'a', uid: a, idx: 0, targets: [] });
+  assert.equal(last(s).kind, 'illegal', 'sin elegir qué sacrificar no vale');
+  s = apply(s, { t: 'activate', by: 'a', uid: a, idx: 0, targets: [], sacUid: art });
+  assert.ok(!s.players[0].battlefield.some((p) => p.uid === art));
+  assert.equal(s.players[0].battlefield.find((p) => p.uid === a).pump.p, 2);
+});

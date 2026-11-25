@@ -34,7 +34,7 @@ export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', '
   'creatureEtbOpp', 'landfall', 'otherDiesMine', 'creatureDiesMine', 'otherDiesAny', 'creatureDiesOpp', 'castNoncreature', 'castInstantSorcery',
   'castCreature', 'castAny', 'oppCast', 'gainLife', 'youAttack', 'creatureAttacksMine', 'creatureCombatDamageMine', 'hostCombatDamagePlayer',
   'hostAttacks', 'hostDies', 'anyCombat', 'artifactEtbMine', 'enchantmentEtbMine', 'castHistoric', 'castFirst', 'castAnyone', 'main2', 'oppUpkeep',
-  'oppEndstep', 'cycled', 'castAuraEquip']);
+  'oppEndstep', 'cycled', 'castAuraEquip', 'permEtb', 'permDies', 'castFilter', 'youCombatDamage', 'attacksWithOthers']);
 export const STATICS_SUPPORTED = new Set(['attach', 'extraLand', 'info', 'anthem', 'selfBuff', 'noBlockSelf', 'noAttackSelf', 'unblockableSelf',
   'menaceLike', 'noUntapSelf', 'entersTapped', 'entersCounters', 'blockOnlyFlyers', 'attackOnlyIf', 'evadePower', 'evadeSmaller', 'afterlife',
   'controlHost', 'addSac', 'addDiscard', 'addLife', 'persist', 'undying', 'kw', 'cumulative', 'echo', 'levelUp', 'levelInfo', 'varPT', 'forEach',

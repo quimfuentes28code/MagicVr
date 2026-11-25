@@ -348,7 +348,8 @@ export function parseAttach(card) {
   const lifeM = eqLine.match(/^Equip\s*—\s*Pay (\d+) life/i);
   const mods = [];
   for (const raw of text.split(/\n|\.\s+/)) {
-    const m = raw.match(/^\s*(During your turn, )?(?:equipped|enchanted) creature (.+)$/i);
+    if (/^\s*Whenever (?:enchanted|equipped) creature deals damage, you gain that much life/i.test(raw)) { mods.push({ p: 0, t: 0, kw: ['lifelink'], types: [], myTurn: false }); continue; }
+    const m = raw.match(/^\s*(During your turn, )?(?:equipped|enchanted) (?:creature|permanent|artifact|land) (.+)$/i);
     if (!m) continue;
     const rest = m[2];
     const own = rest.replace(/[“"][^”"]*[”"]/g, ''); // sin habilidades entre comillas que se le dan

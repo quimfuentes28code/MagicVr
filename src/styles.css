@@ -878,3 +878,6 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .zone-card { position: relative; }
 .zone-card.playable .card { box-shadow: 0 0 0 3px #e9c46a, 0 0 16px rgba(233, 196, 106, 0.7); }
 .play-tag { position: absolute; left: 50%; bottom: 6px; translate: -50% 0; font-family: var(--title); font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 9px; background: #6b0d12; color: #fff4dc; box-shadow: 0 0 0 1.5px var(--gold); }
+.ability-list { display: flex; flex-direction: column; gap: 6px; }
+.act.ability { text-align: left; text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 15px; line-height: 1.25; padding: 8px 12px; }
+.act.ability b { font-family: var(--title); }

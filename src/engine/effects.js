@@ -125,6 +125,11 @@ function parseSentence(t) {
     });
   }
   if (/[Rr]eturn (?:up to one )?target creature card from your graveyard to your hand/.test(t)) fx.push({ kind: 'regrow' });
+  // «Exilia la primera carta de tu biblioteca. Hasta el final de tu próximo turno, puedes jugar esa carta.»
+  if ((m = t.match(/[Ee]xile the top (card|two cards|three cards|four cards|\d+ cards) of your library\.?\s*(?:Until (?:the )?end of (your next turn|turn), you may (play|cast) (?:that card|it|them|those cards)|You may (play|cast) (?:that card|it|them|those cards) (this turn|until the end of your next turn))/))) {
+    fx.push({ kind: 'impulse', amount: m[1] === 'card' ? 1 : num(m[1].split(' ')[0]), until: /next/.test(m[2] || m[5] || '') ? 'next' : 'turn', play: m[3] || m[4] });
+  }
+  if ((m = t.match(/[Yy]ou may play (an|one|two|three) additional lands? this turn/))) fx.push({ kind: 'extraLand', amount: num(m[1]) });
   return fx;
 }
 
@@ -193,6 +198,8 @@ export function describeEffect(e) {
     case 'token': return `crea ${e.amount} ficha${e.amount > 1 ? 's' : ''} de ${e.power}/${e.toughness}`;
     case 'regrow': return 'recupera una criatura de tu cementerio';
     case 'counterspell': return 'contrarresta un hechizo';
+    case 'impulse': return `exilia ${e.amount === 1 ? 'la primera carta' : 'las ' + e.amount + ' primeras cartas'} de tu biblioteca y puedes ${e.play === 'cast' ? 'lanzarla' : 'jugarla'} ${e.until === 'next' ? 'hasta el final de tu próximo turno' : 'este turno'}`;
+    case 'extraLand': return `puedes jugar ${e.amount === 1 ? 'una tierra adicional' : e.amount + ' tierras adicionales'} este turno`;
     case 'aura': return 'elige la criatura que encanta';
     case 'equip': return 'elige la criatura a la que lo equipas';
     default: return '';

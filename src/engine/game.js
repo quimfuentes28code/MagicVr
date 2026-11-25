@@ -296,6 +296,29 @@ export function permMatches(s, f, perm, ownerId, casterId) {
   return true;
 }
 
+/** Cuántas tierras puede jugar este turno (1 + adicionales de hechizos y permanentes). */
+export function landLimit(pl) {
+  let n = 1 + (pl.extraLands || 0);
+  for (const perm of pl.battlefield) {
+    const m = (perm.card.oracle || '').match(/You may play (an|two|three) additional lands? on each of your turns/i);
+    if (m) n += { an: 1, two: 2, three: 3 }[m[1].toLowerCase()];
+  }
+  return n;
+}
+
+/** Número del próximo turno de este jugador (para «hasta el final de tu próximo turno»). */
+export function nextOwnTurn(s, pid) {
+  let i = s.active;
+  let t = s.turn;
+  for (let k = 0; k < s.players.length * 2; k++) {
+    do i = (i + 1) % s.players.length;
+    while (s.players[i].eliminated && s.players.some((p) => !p.eliminated));
+    t += 1;
+    if (s.players[i].id === pid) return t;
+  }
+  return s.turn + 1;
+}
+
 /** Reducción de coste del hechizo según sus objetivos («cuesta {2} menos si hace objetivo a…»). */
 export function costReduction(s, card, targets, casterId) {
   const red = card.effects && card.effects.reduce;
@@ -555,13 +578,26 @@ const HANDLERS = {
       card = pl.hand[fromHand];
     }
     if (!card) return s;
+    // jugar una carta exiliada que se puede jugar («puedes jugar esa carta…»)
+    let exIdx = -1;
+    if (card.fromExile) {
+      exIdx = pl.exile.findIndex((c) => c.playable && c.id === card.id);
+      if (exIdx < 0) return illegal(s, pl.id, `${displayName(card)} ya no se puede jugar desde el exilio (se acabó el plazo).`, a);
+      if (pl.exile[exIdx].playable.cast && card.isLand) return illegal(s, pl.id, 'Esa carta sólo se puede lanzar: una tierra exiliada así no se puede jugar.', a);
+      card = { ...card };
+      delete card.playable;
+      delete card.fromExile;
+    }
     const myTurn = activePlayer(s).id === pl.id;
     const stackEmpty = s.stack.length === 0;
 
     if (!a.force) {
       if (card.isLand) {
         if (!myTurn || !isMain(s) || !stackEmpty) return illegal(s, pl.id, 'Las tierras sólo se juegan en tu propio turno, en una fase principal y con la pila vacía.', a);
-        if (pl.landsPlayed >= 1) return illegal(s, pl.id, 'Sólo puedes jugar UNA tierra por turno.', a);
+        const lim = landLimit(pl);
+        if (pl.landsPlayed >= lim) return illegal(s, pl.id, lim === 1
+          ? 'Sólo puedes jugar UNA tierra por turno (también cuenta una tierra jugada desde el exilio u otra zona, regla 305.2).'
+          : `Ya has jugado ${pl.landsPlayed} tierras este turno: es tu máximo (${lim}).`, a);
       } else if (!speedOK(card) && (!myTurn || !isMain(s) || !stackEmpty)) {
         return illegal(s, pl.id,
           `${displayName(card)} es ${card.isSorcery ? 'un conjuro' : 'un permanente'}: sólo se lanza en tu turno, en una fase principal y con la pila vacía. Sólo los instantáneos (o cartas con destello) se pueden lanzar en cualquier momento, también en respuesta.`,
@@ -595,6 +631,7 @@ const HANDLERS = {
       }
     }
     if (fromHand >= 0) pl.hand.splice(fromHand, 1);
+    else if (exIdx >= 0) pl.exile.splice(exIdx, 1);
     else if (card.fromAdventure) {
       // lanzada desde el exilio tras su aventura: sale del exilio (no de la mano)
       const i = pl.exile.findIndex((c) => c.onAdventure && c.id === card.id);
@@ -663,6 +700,18 @@ const HANDLERS = {
       }
     }
     perm.tapped = nowTapped;
+  },
+
+  /** La carta de arriba de la biblioteca (escaneada) va al exilio y se puede jugar un tiempo. */
+  exileTop(s, a, pl) {
+    const pend = pl.pendingExile || [];
+    if (a.cancel) { pl.pendingExile = []; return s; }
+    const p = pend.shift();
+    if (!p || !a.card) return s;
+    const card = { ...stripCard(a.card), playable: { until: p.until, cast: p.cast } };
+    delete card.fromExile;
+    pl.exile.push(card);
+    pushEvent(s, 'info', `${displayName(card)} queda exiliada por ${p.src}: puedes ${p.cast ? 'lanzarla' : 'jugarla'} desde el exilio ${p.until === s.turn ? 'este turno' : 'hasta el final de tu próximo turno'} (toca la casilla de Exilio).`, { to: pl.id });
   },
 
   /** Equipar (regla 702.6): coste de equipar, a una criatura tuya, a velocidad de conjuro. */
@@ -927,6 +976,11 @@ function cleanup(s) {
       pushEvent(s, 'info', `${pl.name} descarta ${displayName(worst)} (máximo 7 cartas en mano).`);
     }
   }
+  // se acaba el plazo para jugar cartas exiliadas («hasta el final de tu (próximo) turno»)
+  for (const p of s.players) {
+    for (const c of p.exile) if (c.playable && c.playable.until <= s.turn) delete c.playable;
+    if (p.pendingExile) p.pendingExile = p.pendingExile.filter((x) => x.until > s.turn);
+  }
   for (const p of s.players) {
     for (const perm of p.battlefield) {
       perm.damage = 0;
@@ -949,6 +1003,7 @@ function enterStep(s, step) {
       perm.sick = false;
     }
     pl.landsPlayed = 0;
+    pl.extraLands = 0;
   } else if (step === 'draw') {
     // 103.8a: en partidas de dos jugadores, quien empieza no roba en su primer turno.
     // 103.8c: en el resto de multijugador, todos roban.
@@ -1178,6 +1233,25 @@ function resolveEffectsInner(s, pl, card, fx, targets, name) {
           pl.battlefield.push(perm2);
           pushEvent(s, 'play', `${name} crea una ${perm2.card.printedName.toLowerCase()} ${e.power}/${e.toughness}.`, { uid: perm2.uid, by: pl.id, color: e.colors[0] || 'C', token: true });
         }
+        break;
+      case 'impulse': {
+        const until = e.until === 'next' ? nextOwnTurn(s, pl.id) : s.turn;
+        if (pl.isBot) {
+          for (let i = 0; i < e.amount && pl.library.length; i++) {
+            const c = pl.library.shift();
+            pl.exile.push({ ...stripCard(c), playable: { until, cast: e.play === 'cast' } });
+            pushEvent(s, 'info', `${pl.name} exilia ${displayName(c)} de su biblioteca y puede ${e.play === 'cast' ? 'lanzarla' : 'jugarla'}.`);
+          }
+        } else {
+          pl.pendingExile = pl.pendingExile || [];
+          for (let i = 0; i < e.amount; i++) pl.pendingExile.push({ until, cast: e.play === 'cast', src: name });
+          pushEvent(s, 'impulse', `${name}: coge ${e.amount === 1 ? 'la primera carta' : 'las ' + e.amount + ' primeras cartas'} de tu biblioteca y ${e.amount === 1 ? 'escanéala' : 'escanéalas'} en el círculo: ${e.amount === 1 ? 'irá' : 'irán'} al exilio.`, { to: pl.id, amount: e.amount, until: e.until, play: e.play });
+        }
+        break;
+      }
+      case 'extraLand':
+        pl.extraLands = (pl.extraLands || 0) + e.amount;
+        pushEvent(s, 'info', `${pl.name} puede jugar ${e.amount === 1 ? 'una tierra adicional' : e.amount + ' tierras adicionales'} este turno.`, { to: pl.id });
         break;
       case 'regrow': {
         const idx = pl.graveyard.map((c, i) => [c, i]).filter(([c]) => c.isCreature).sort((x, y) => y[0].cmc - x[0].cmc)[0];

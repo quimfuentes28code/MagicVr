@@ -6,6 +6,9 @@
 @import '@fontsource/eb-garamond/400-italic.css';
 
 :root {
+  /* reverso de las cartas de Magic (imagen de Scryfall; si no carga, se ve el dibujo de respaldo) */
+  --mtg-back: url("https://backs.scryfall.io/normal/0/a/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg"), url("https://backs.scryfall.io/large/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg"),
+    radial-gradient(ellipse at 50% 50%, #c98a3a 0 18%, #6b3a17 19% 30%, transparent 31%), linear-gradient(135deg, #3a2414, #1e120a);
   --void: #07060c;
   --night: #120d1d;
   --leather: #24170f;
@@ -278,8 +281,8 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .zone .tax { position: absolute; top: 3px; left: 3px; z-index: 2; font-size: 11px; font-weight: 700; padding: 0 5px; border-radius: 9px; background: #6b0d12; color: #fff4dc; }
 .zone.command { box-shadow: inset 0 0 0 1.5px var(--gold), 0 0 12px rgba(217, 173, 85, 0.35); }
 .card-back { position: absolute; inset: 0; border-radius: 6px;
-  background: radial-gradient(circle at 50% 45%, rgba(247, 220, 143, 0.35) 0 14%, transparent 15%), repeating-linear-gradient(45deg, #3b2370 0 5px, #2a1a4a 5px 10px);
-  box-shadow: inset 0 0 0 3px #1a0f2e, inset 0 0 0 4px #9a7ad6; }
+  background-color: #2b1a10; background-position: center; background-image: var(--mtg-back); background-size: 100% 100%; background-repeat: no-repeat;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
 .battle { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .row { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 3px 6px; border-radius: 10px; position: relative;
   background: linear-gradient(180deg, rgba(217, 173, 85, 0.07), rgba(217, 173, 85, 0.02)); box-shadow: inset 0 0 0 1px rgba(217, 173, 85, 0.22); }
@@ -803,7 +806,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .avatar.me .av-hand { left: calc(100% + 4px); top: 4%; }
 .av-hand i { position: absolute; left: 12px; top: 4px; width: 22px; height: 31px; border-radius: 3px; transform-origin: 50% 120%;
   transform: rotate(calc(var(--i) * 9deg)) translateX(calc(var(--i) * 2px));
-  background: repeating-linear-gradient(45deg, #3b1d6e 0 4px, #2a1352 4px 8px); box-shadow: 0 0 0 1px var(--gold-lo), 0 2px 4px rgba(0,0,0,.6); }
+  background-color: #2b1a10; background-position: center; background-image: var(--mtg-back); background-size: 100% 100%; background-repeat: no-repeat; box-shadow: 0 0 0 1px var(--gold-lo), 0 2px 4px rgba(0,0,0,.6); }
 .av-hand b { position: absolute; right: -2px; bottom: -2px; min-width: 20px; height: 20px; border-radius: 10px; padding: 0 5px; font-family: var(--title); font-size: 12px; color: #fff4dc; background: #6b0d12; box-shadow: 0 0 0 1.5px var(--gold); display: flex; align-items: center; justify-content: center; }
 
 /* ---------- invocación en 2,5D (src/ui/hologram.js) ---------- */
@@ -868,3 +871,10 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .perm.attached .card { box-shadow: 0 0 0 2px #c99b3a, 0 0 10px rgba(255, 200, 90, 0.55); }
 .equip-box { margin: 8px 0; padding: 8px 10px; border-radius: 10px; background: rgba(201, 155, 58, 0.1); box-shadow: inset 0 0 0 1px rgba(201, 155, 58, 0.45); }
 .equip-box p { margin: 2px 0 6px; }
+
+/* ---------- cartas exiliadas que se pueden jugar ---------- */
+.zone.exile.playable { box-shadow: 0 0 0 2px #e9c46a, 0 0 14px rgba(233, 196, 106, 0.8); animation: playablePulse 1.6s ease-in-out infinite; }
+@keyframes playablePulse { 50% { box-shadow: 0 0 0 2px #e9c46a, 0 0 4px rgba(233, 196, 106, 0.3); } }
+.zone-card { position: relative; }
+.zone-card.playable .card { box-shadow: 0 0 0 3px #e9c46a, 0 0 16px rgba(233, 196, 106, 0.7); }
+.play-tag { position: absolute; left: 50%; bottom: 6px; translate: -50% 0; font-family: var(--title); font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 9px; background: #6b0d12; color: #fff4dc; box-shadow: 0 0 0 1.5px var(--gold); }

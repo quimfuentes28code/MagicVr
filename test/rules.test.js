@@ -519,3 +519,54 @@ test('destruir/exiliar/devolver: lee el tipo de objetivo de la carta', () => {
   assert.equal(fx('Return target nonland permanent to its owner\'s hand.').kind, 'bounce');
   assert.equal(fx('Exile target card from a graveyard.'), undefined);
 });
+
+test('«exilia la primera carta de tu biblioteca; hasta el final de tu próximo turno puedes jugarla»', () => {
+  const path = normalize({ name: "Alania's Pathmaker", manaCost: '{3}{R}', power: '4', toughness: '2', typeLine: 'Creature — Otter Wizard',
+    oracle: 'When this creature enters, exile the top card of your library. Until the end of your next turn, you may play that card.', colors: ['R'] });
+  assert.equal(path.effects.etb[0].kind, 'impulse');
+  let s = duel();
+  [s] = put(s, 'a', BASICS.R); // ya jugó su tierra del turno
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: path, force: true });
+  assert.equal(s.players[0].pendingExile.length, 1);
+  // escanea la carta de arriba: una tierra → va al exilio, jugable
+  s = apply(s, { t: 'exileTop', by: 'a', card: BASICS.R });
+  const ex = s.players[0].exile.at(-1);
+  assert.ok(ex.playable);
+  // este turno ya jugó tierra: no puede (regla 305.2)
+  s = apply(s, { t: 'play', by: 'a', card: { ...ex, fromExile: true } });
+  assert.equal(last(s).kind, 'illegal');
+  // turno del rival y su siguiente turno: ahí sí puede
+  s.step = 'cleanup'; s = apply(s, { t: 'next', by: 'a' });
+  assert.equal(s.players[s.active].id, 'b');
+  assert.ok(s.players[0].exile.at(-1).playable, 'sigue jugable en el turno del rival');
+  s.step = 'cleanup'; s = apply(s, { t: 'next', by: 'b' });
+  s.step = 'main1'; s.stack = [];
+  s = apply(s, { t: 'play', by: 'a', card: { ...s.players[0].exile.at(-1), fromExile: true } });
+  assert.equal(s.players[0].exile.length, 0);
+  assert.equal(s.players[0].battlefield.filter((p) => p.card.isLand).length, 2);
+});
+
+test('el plazo caduca al final de tu próximo turno', () => {
+  const path = normalize({ name: 'P', manaCost: '{1}', power: '1', toughness: '1', typeLine: 'Creature — Test',
+    oracle: 'When this creature enters, exile the top card of your library. Until the end of your next turn, you may play that card.' });
+  let s = duel();
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: path, force: true });
+  s = apply(s, { t: 'exileTop', by: 'a', card: creature('Bear', 2, 2) });
+  for (let i = 0; i < 2; i++) { s.step = 'cleanup'; s.stack = []; s = apply(s, { t: 'next', by: s.players[s.active].id }); }
+  assert.ok(s.players[0].exile.at(-1).playable);
+  s.step = 'cleanup'; s.stack = []; s = apply(s, { t: 'next', by: 'a' });
+  assert.ok(!s.players[0].exile.at(-1).playable);
+});
+
+test('tierras adicionales: «puedes jugar una tierra adicional en cada uno de tus turnos»', () => {
+  let s = duel();
+  [s] = put(s, 'a', normalize({ name: 'Explorer', manaCost: '{G}', typeLine: 'Enchantment', oracle: 'You may play an additional land on each of your turns.' }));
+  s.step = 'main1';
+  s = apply(s, { t: 'play', by: 'a', card: BASICS.G });
+  s = apply(s, { t: 'play', by: 'a', card: BASICS.G });
+  assert.equal(s.players[0].landsPlayed, 2);
+  s = apply(s, { t: 'play', by: 'a', card: BASICS.G });
+  assert.equal(last(s).kind, 'illegal');
+});

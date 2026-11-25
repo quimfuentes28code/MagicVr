@@ -220,7 +220,8 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
   grid-template-areas: 'top' 'mid' 'hud'; }
 /* Zona central con el tablero y el círculo colocados según «Ajustar mesa» */
 .table-mid { grid-area: mid; position: relative; min-height: 0; z-index: 2; --bl: 0%; --br: 58%; --sx: 84%; --sy: 50%; --sh: 70%; --zx: 65.5%; --zy: 70%; --zh: 56%; }
-.cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+.cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: 0; background: #050409; }
+.cam[data-fit="cover"] { object-fit: cover; }
 .cam-shade { position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(120% 100% at 50% 50%, transparent 45%, rgba(5, 3, 10, 0.75) 100%), linear-gradient(180deg, rgba(5, 3, 10, 0.55), transparent 22%, transparent 75%, rgba(5, 3, 10, 0.8)); }
 .table-screen.no-cam .cam { display: none; }
@@ -729,7 +730,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .lib-crown { position: absolute; left: -6px; top: -8px; color: var(--gold-hi); background: #2b1a0e; border-radius: 50%; padding: 3px; box-shadow: 0 0 0 1.5px var(--gold); font-size: 16px; }
 
 .scan-screen { position: absolute; inset: 0; overflow: hidden; background: #050409; }
-.scan-cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scan-cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #050409; }
 .scan-frame { position: absolute; left: 34%; top: 50%; height: min(78vh, 560px); aspect-ratio: 63 / 88; transform: translate(-50%, -50%); border-radius: 4%;
   box-shadow: 0 0 0 2px rgba(247, 220, 143, 0.75), 0 0 0 9999px rgba(0, 0, 0, 0.35), inset 0 0 30px rgba(247, 220, 143, 0.25); pointer-events: none; }
 .scan-frame i { position: absolute; width: 22px; height: 22px; border: 3px solid var(--gold-hi); }

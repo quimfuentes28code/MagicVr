@@ -68,15 +68,23 @@ export function cameraActive() {
   return !!stream;
 }
 
+/**
+ * Escala con la que se pinta el vídeo: «completa» (contain: se ve toda la imagen de la
+ * cámara, sin recortar) o «llenar» (cover: llena la pantalla recortando los bordes).
+ */
+export function fitScale(video, ew, eh, vw, vh) {
+  return video.dataset.fit === 'cover' ? Math.max(ew / vw, eh / vh) : Math.min(ew / vw, eh / vh);
+}
+
 /** Captura un recorte del vídeo (coordenadas relativas 0..1 sobre lo que se ve en pantalla). */
 export function grabFrame(video, rect, { color = false } = {}) {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   if (!vw) return null;
-  // El vídeo se muestra con object-fit: cover; calculamos qué parte es visible.
+  // El vídeo se muestra entero (contain) o llenando la pantalla (cover); calculamos qué parte es visible.
   const ew = video.clientWidth;
   const eh = video.clientHeight;
-  const scale = Math.max(ew / vw, eh / vh);
+  const scale = fitScale(video, ew, eh, vw, vh);
   const visW = ew / scale;
   const visH = eh / scale;
   const offX = (vw - visW) / 2;
@@ -301,7 +309,7 @@ export function regionToVideo(video, rect) {
   const vh = video.videoHeight;
   const ew = video.clientWidth;
   const eh = video.clientHeight;
-  const scale = Math.max(ew / vw, eh / vh);
+  const scale = fitScale(video, ew, eh, vw, vh);
   const visW = ew / scale;
   const visH = eh / scale;
   const offX = (vw - visW) / 2;
@@ -333,7 +341,7 @@ export function videoToScreen(video, x, y) {
   const vh = video.videoHeight;
   const ew = video.clientWidth;
   const eh = video.clientHeight;
-  const scale = Math.max(ew / vw, eh / vh);
+  const scale = fitScale(video, ew, eh, vw, vh);
   const visW = ew / scale;
   const visH = eh / scale;
   return { x: (x - (vw - visW) / 2) / visW, y: (y - (vh - visH) / 2) / visH };

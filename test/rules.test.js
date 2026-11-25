@@ -710,3 +710,102 @@ test('hechizos en masa y sacrificio obligado del bot', () => {
   s = act(s, { t: 'play', by: 'a', card: normalize({ name: 'Wrath', manaCost: '{2}{W}{W}', typeLine: 'Sorcery', oracle: 'Destroy all creatures. They can\'t be regenerated.' }), force: true });
   assert.equal(s.players[1].battlefield.filter((p) => p.card.isCreature).length, 0);
 });
+
+test('modos: «Elige uno —» aplica sólo el modo elegido', () => {
+  const charm = normalize({ name: 'Test Charm', manaCost: '{R}', typeLine: 'Instant', oracle: 'Choose one —\n• Test Charm deals 2 damage to target creature.\n• You gain 4 life.' });
+  assert.equal(charm.effects.modes.length, 2);
+  let s = duel();
+  let foe;
+  [s, foe] = put(s, 'b', creature('Elf', 1, 1));
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: { ...charm, chosenModes: [0] }, force: true, targets: [{ uid: foe }] });
+  assert.ok(!s.players[1].battlefield.some((p) => p.uid === foe));
+  const life = s.players[0].life;
+  s = act(s, { t: 'play', by: 'a', card: charm, modes: [1], force: true });
+  assert.equal(s.players[0].life, life + 4);
+});
+
+test('estímulo, ciclo y retrospectiva', () => {
+  const drake = normalize({ name: 'Kick Drake', manaCost: '{2}{U}', power: '2', toughness: '2', typeLine: 'Creature — Drake', oracle: 'Kicker {4}\nFlying\nIf this creature was kicked, it enters with two +1/+1 counters on it.' });
+  let s = duel();
+  for (let i = 0; i < 7; i++) [s] = put(s, 'a', BASICS.U);
+  s.step = 'main1'; s.stack = [];
+  s = act(s, { t: 'play', by: 'a', card: { ...drake, kicked: true } });
+  const d = s.players[0].battlefield.find((p) => p.card.name === 'Kick Drake');
+  assert.equal(d.counters, 2);
+  assert.equal(s.players[0].battlefield.filter((p) => p.card.isLand && !p.tapped).length, 0);
+  // ciclo
+  for (const p of s.players[0].battlefield) p.tapped = false;
+  const cyc = normalize({ name: 'Cycler', manaCost: '{5}', typeLine: 'Sorcery', oracle: 'Draw three cards.\nCycling {2}' });
+  const hand0 = s.players[0].handCount;
+  s = apply(s, { t: 'cycle', by: 'a', card: cyc });
+  assert.equal(s.players[0].graveyard.at(-1).name, 'Cycler');
+  assert.equal(s.players[0].handCount, hand0);
+  // retrospectiva desde el cementerio
+  const fb = normalize({ name: 'Back Bolt', manaCost: '{R}', typeLine: 'Instant', oracle: 'Back Bolt deals 1 damage to any target.\nFlashback {1}' });
+  s.players[0].graveyard.push(fb);
+  const lifeB = s.players[1].life;
+  s = act(s, { t: 'play', by: 'a', card: fb, alt: 'flashback', targets: [{ player: 'b' }] });
+  assert.equal(s.players[1].life, lifeB - 1);
+  assert.ok(s.players[0].exile.some((c) => c.name === 'Back Bolt'));
+  assert.ok(!s.players[0].graveyard.some((c) => c.name === 'Back Bolt'));
+});
+
+test('boca abajo (transfigurar) y ponerla boca arriba', () => {
+  const m = normalize({ name: 'Morpher', manaCost: '{4}{G}', power: '5', toughness: '5', typeLine: 'Creature — Beast', oracle: 'Morph {2}{G}' });
+  let s = duel();
+  for (let i = 0; i < 6; i++) [s] = put(s, 'a', BASICS.G);
+  s.step = 'main1'; s.stack = [];
+  s = act(s, { t: 'play', by: 'a', card: m, alt: 'morph' });
+  const fd = s.players[0].battlefield.find((p) => p.faceDown);
+  assert.ok(fd);
+  assert.equal(fd.card.power, 2);
+  s = apply(s, { t: 'unmorph', by: 'a', uid: fd.uid });
+  const up = s.players[0].battlefield.find((p) => p.uid === fd.uid);
+  assert.equal(up.card.name, 'Morpher');
+  assert.equal(up.faceDown, false);
+});
+
+test('resguardo encarece los hechizos del rival; convocar paga con criaturas', () => {
+  const warded = normalize({ name: 'Warded', manaCost: '{2}', power: '2', toughness: '2', typeLine: 'Creature — Test', keywords: ['Ward'], oracle: 'Ward {2}' });
+  let s = duel();
+  let w;
+  [s, w] = put(s, 'b', warded);
+  [s] = put(s, 'a', BASICS.R);
+  s.step = 'main1'; s.stack = [];
+  const shock = normalize({ name: 'Shock', manaCost: '{R}', typeLine: 'Instant', oracle: 'Shock deals 2 damage to any target.' });
+  s = apply(s, { t: 'play', by: 'a', card: shock, targets: [{ uid: w }] });
+  assert.equal(last(s).kind, 'illegal', 'con una sola tierra no paga el resguardo');
+  // convocar
+  let s2 = duel();
+  for (let i = 0; i < 3; i++) [s2] = put(s2, 'a', creature('Elf', 1, 1, [], { colors: ['G'] }));
+  s2.step = 'main1'; s2.stack = [];
+  const conv = normalize({ name: 'Convoker', manaCost: '{2}{G}', typeLine: 'Sorcery', oracle: 'Convoke\nYou gain 3 life.' });
+  const l0 = s2.players[0].life;
+  s2 = act(s2, { t: 'play', by: 'a', card: conv });
+  assert.equal(s2.players[0].life, l0 + 3);
+  assert.equal(s2.players[0].battlefield.filter((p) => p.tapped).length, 3);
+});
+
+test('robar el control hasta el final del turno, niebla y robo retrasado', () => {
+  let s = duel();
+  let foe;
+  [s, foe] = put(s, 'b', creature('Ogre', 3, 3));
+  s.players[1].battlefield[0].tapped = true;
+  s.step = 'main1'; s.stack = [];
+  const threaten = normalize({ name: 'Threaten', manaCost: '{2}{R}', typeLine: 'Sorcery', oracle: 'Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn.' });
+  s = act(s, { t: 'play', by: 'a', card: threaten, force: true, targets: [{ uid: foe }] });
+  const ogre = s.players[0].battlefield.find((p) => p.uid === foe);
+  assert.ok(ogre, 'ahora lo controla Ana');
+  assert.equal(ogre.tapped, false);
+  s.step = 'cleanup'; s = apply(s, { t: 'next', by: 'a' });
+  assert.ok(s.players[1].battlefield.some((p) => p.uid === foe), 'vuelve a su dueño');
+  const fog = normalize({ name: 'Fog', manaCost: '{G}', typeLine: 'Instant', oracle: 'Prevent all combat damage that would be dealt this turn.' });
+  assert.equal(fog.effects.spell[0].kind, 'fog');
+  const later = normalize({ name: 'Later', manaCost: '{U}', typeLine: 'Instant', oracle: 'Draw a card at the beginning of the next turn\'s upkeep.' });
+  s.step = 'main1'; s.stack = [];
+  s = act(s, { t: 'play', by: 'b', card: later, force: true });
+  const hb = s.players[1].handCount;
+  s.step = 'cleanup'; s = apply(s, { t: 'next', by: 'b' });
+  assert.ok(s.players[1].handCount >= hb + 1 || s.events.some((e) => e.kind === 'draw' && /Later/.test(e.text)));
+});

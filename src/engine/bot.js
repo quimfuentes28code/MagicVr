@@ -2,7 +2,7 @@
 // debería hacer algún bot (o null). El controlador la ejecuta con un pequeño
 // retardo para que se vea lo que pasa en la mesa.
 
-import { targetsFor } from './effects.js';
+import { targetsFor, effectFx } from './effects.js';
 import {
   activePlayer, canAttack, canBlock, canTarget, combatReadyPending, defenderOf, findPerm, has, opponents,
   pendingDefenders, planPayment, player, power, stackTop, toughness, permMatches, landLimit,
@@ -60,12 +60,21 @@ export function nextBotAction(s) {
       }
       // Hechizos útiles (eliminar, quemar, robar...) y criaturas, de mayor a menor coste.
       const options = [];
-      for (const c of me.hand) {
-        if (c.isLand || !planPayment(me, c.manaCost)) continue;
+      for (const c0 of me.hand) {
+        if (c0.isLand || !planPayment(me, c0.manaCost)) continue;
+        // modos: los primeros que tengan objetivos buenos
+        let c = c0;
+        let modes = null;
+        if (c0.effects?.modes) {
+          const k = Math.abs(c0.effects.choose || 1);
+          modes = c0.effects.modes.map((m, i) => [m, i]).filter(([m]) => m.fx.length && !chooseTargets(s, me, m.fx.filter((e) => ['any', 'creature', 'permanent', 'player', 'spell'].includes(e.target))).includes(null)).slice(0, k).map(([, i]) => i);
+          if (!modes.length) continue;
+          c = { ...c0, chosenModes: modes };
+        }
         const wanted = targetsFor(c);
         const targets = chooseTargets(s, me, wanted);
         if (!c.isPermanent && (!usefulSpell(c) || targets.includes(null))) continue;
-        options.push({ c, targets: targets.filter(Boolean), score: c.cmc + (c.isPermanent ? 0 : 3) });
+        options.push({ c, modes, targets: targets.filter(Boolean), score: c.cmc + (c.isPermanent ? 0 : 3) });
       }
       for (const c of fromExile) {
         if (c.isLand || !planPayment(me, c.manaCost)) continue;
@@ -85,7 +94,7 @@ export function nextBotAction(s) {
         return { t: 'castCommander', by: me.id };
       }
       if (options[0]?.ex) return { t: 'play', by: me.id, card: { ...options[0].c, fromExile: true }, targets: options[0].targets };
-      if (options[0]) return { t: 'play', by: me.id, handUid: options[0].c.uid, targets: options[0].targets };
+      if (options[0]) return { t: 'play', by: me.id, handUid: options[0].c.uid, targets: options[0].targets, ...(options[0].modes ? { modes: options[0].modes } : {}) };
       return { t: 'next', by: me.id };
     }
     case 'attack': {
@@ -181,7 +190,7 @@ function chooseBlocks(s, me) {
 
 /** ¿Merece la pena lanzar este hechizo ahora? (los trucos de combate se guardan) */
 function usefulSpell(card) {
-  const fx = card.effects?.spell || [];
+  const fx = effectFx(card);
   return fx.length > 0 && !fx.some((e) => (e.kind === 'pump' && e.t >= 0) || e.kind === 'counterspell');
 }
 

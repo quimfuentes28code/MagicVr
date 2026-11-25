@@ -8,7 +8,8 @@ import { openPicker } from './picker.js';
 import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
 import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, setCameraZoom } from '../camera.js';
 import { CardWatcher } from '../vision.js';
-import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES, targetEs } from '../engine/effects.js';
+import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES, targetEs, needsTarget, costEs } from '../engine/effects.js';
+import { activatedOf, keywordsOf } from '../engine/abilities.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
@@ -417,6 +418,11 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   function playRecognized(card) {
     // «Exilia la primera carta de tu biblioteca»: la carta escaneada va al exilio
+    const scan = !card.fromExile && player(S(), me())?.pendingScan;
+    if (scan && scan.length) {
+      session.dispatch({ t: 'scanPut', card });
+      return;
+    }
     const pend = !card.fromExile && player(S(), me())?.pendingExile;
     if (pend && pend.length) {
       session.dispatch({ t: 'exileTop', card });
@@ -572,9 +578,54 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     renderHud(s, myP);
     renderStack(s);
     processEvents(s);
+    handlePending(s);
     requestAnimationFrame(() => drawArrows(S()));
     if (s.winner && !ui.endShown) { ui.endShown = true; setTimeout(() => endScreen(S()), 1600); }
     for (const fn of ui.hooks) fn(s);
+  }
+
+  // ------------------------------------------- decisiones pendientes del motor
+  /** Habilidades disparadas con objetivo, sacrificios y preguntas: las resuelve el jugador. */
+  function handlePending(s) {
+    const p = player(s, me());
+    if (!p || ui.targeting || ui.pendingOpen) return;
+    const tr = (p.pendingTriggers || [])[0];
+    if (tr) {
+      const wanted = tr.fx.filter(needsTarget);
+      ui.pendingOpen = true;
+      setTimeout(() => {
+        ui.pendingOpen = false;
+        if (!(player(S(), me()).pendingTriggers || []).some((x) => x.id === tr.id)) return;
+        startTargeting({ ...tr.card }, wanted, (targets) => session.dispatch({ t: 'resolveTrigger', id: tr.id, targets }));
+      }, 450);
+      return;
+    }
+    const sac = (p.pendingSacrifice || [])[0];
+    if (sac) {
+      ui.pendingOpen = true;
+      const cands = p.battlefield.filter((x) => permMatches(s, sac.filter, x, p.id, null));
+      let close;
+      close = sheet(h('div', {},
+        h('h3', {}, `${sac.src}: sacrifica ${targetEs(sac.filter)}`),
+        h('p', { class: 'muted' }, 'Elige cuál sacrificas (va al cementerio).'),
+        h('div', { class: 'choice-list' }, cands.map((x) => h('button', { class: 'choice', onClick: () => { close(); session.dispatch({ t: 'sacrifice', uid: x.uid }); } },
+          cardFace(x.card), h('span', {}, displayName(x.card) + (x.card.isCreature ? ` — ${power(x)}/${toughness(x)}` : ''))))),
+      ), { onClose: () => { ui.pendingOpen = false; } });
+      return;
+    }
+    const ch = (p.pendingChoices || [])[0];
+    if (ch && ch.type === 'shock') {
+      ui.pendingOpen = true;
+      let close;
+      close = sheet(h('div', {},
+        h('h3', {}, ch.name),
+        h('p', {}, '¿Pagas 2 vidas para que entre enderezada? Si no, entra girada.'),
+        h('div', { class: 'actions' },
+          h('button', { class: 'act primary', onClick: () => { close(); session.dispatch({ t: 'choice', type: 'shock', uid: ch.uid, yes: true }); } }, 'Pagar 2 vidas'),
+          h('button', { class: 'act', onClick: () => { close(); session.dispatch({ t: 'choice', type: 'shock', uid: ch.uid, yes: false }); } }, 'Que entre girada'),
+        ),
+      ), { onClose: () => { ui.pendingOpen = false; } });
+    }
   }
 
   // ------------------------------------------------------------- la pila
@@ -1081,6 +1132,13 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       } else if (e.kind === 'out' || e.kind === 'win') {
         showBanner(e.kind === 'win' ? (e.player === me() ? '¡Victoria!' : 'Derrota') : 'Eliminado');
         toast(e.text, 'warn', 4000);
+      } else if (e.kind === 'trigger' || e.kind === 'activate') {
+        sfx('resolve');
+        const el = ui.els.get(e.uid);
+        if (el) burst(el, e.color || 'W', 10);
+        if (e.by === me() || e.kind === 'trigger') toast(e.text, 'info', 3200);
+      } else if (e.kind === 'sacrifice' && e.to === me()) {
+        toast(e.text, 'warn', 3500);
       } else if (e.kind === 'impulse' && e.to === me()) {
         impulseSheet(e);
       } else if ((e.kind === 'manual' || e.kind === 'draw' || e.kind === 'info') && e.to === me()) {
@@ -1304,9 +1362,10 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const btn = (label, a, cls = '') => h('button', { class: 'act ' + cls, onClick: act(a) }, label);
     close = sheet(cardInfo(perm.card, [
       h('p', { class: 'muted' }, mine ? 'Tu permanente.' : `Permanente de ${owner.name}. Usa estos botones cuando un hechizo tuyo le afecte.`),
+      mine ? abilityButtons(perm, () => close()) : null,
+      equipInfo(perm, mine, () => close()),
       perm.card.isCreature ? h('div', { class: 'dmg-row' }, 'Hacer daño:', [1, 2, 3, 4, 5].map((n) => btn(n, { t: 'damage', uid: perm.uid, amount: n }))) : null,
       perm.loyalty != null ? h('div', { class: 'dmg-row' }, `Lealtad ${perm.loyalty}:`, [-3, -2, -1, 1, 2].map((n) => btn((n > 0 ? '+' : '') + n, { t: 'loyalty', uid: perm.uid, delta: n }))) : null,
-      equipInfo(perm, mine, () => close()),
       h('div', { class: 'actions' },
         mine && !perm.card.isToken ? h('button', { class: 'act', onClick: () => { close(); openEditionPicker(perm.card, (ed) => session.dispatch({ t: 'setImage', uid: perm.uid, image: ed.image })); } }, 'Cambiar edición') : null,
         btn(perm.tapped ? 'Enderezar' : 'Girar', { t: 'tap', uid: perm.uid }),
@@ -1320,6 +1379,27 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         btn('Devolver a la mano', { t: 'move', uid: perm.uid, to: 'hand' }),
       ),
     ]));
+  }
+
+  /** Habilidades activadas de un permanente tuyo (y Tripular). */
+  function abilityButtons(perm, close) {
+    const list = activatedOf(perm.card).map((ab, idx) => ({ ab, idx })).filter(({ ab }) => ab.kind === 'activated' || !perm.card.isLand);
+    const crew = keywordsOf(perm.card).map((k) => k.match(/^crew (\d+)/)).find(Boolean);
+    if (!list.length && !crew) return null;
+    return h('div', { class: 'equip-box' },
+      h('p', {}, 'Habilidades:'),
+      h('div', { class: 'ability-list' },
+        list.map(({ ab, idx }) => h('button', { class: 'act ability', onClick: () => { close(); activateFlow(perm, ab, idx); } },
+          h('b', {}, costEs(ab.cost)), h('span', {}, ': ' + (ab.fx.map(describeEffect).filter(Boolean).join(', ') || ab.text)))),
+        crew ? h('button', { class: 'act ability', onClick: () => { close(); session.dispatch({ t: 'crew', uid: perm.uid }); } }, h('b', {}, `Tripular ${crew[1]}`), h('span', {}, ': gira criaturas con fuerza total ' + crew[1] + ' y se convierte en criatura')) : null,
+      ),
+    );
+  }
+
+  function activateFlow(perm, ab, idx) {
+    const wanted = ab.fx.filter(needsTarget);
+    if (wanted.length) startTargeting({ ...perm.card }, wanted, (targets) => session.dispatch({ t: 'activate', uid: perm.uid, idx, targets }));
+    else session.dispatch({ t: 'activate', uid: perm.uid, idx, targets: [] });
   }
 
   /** Botones de Equipar / Desequipar y lo que da el equipo o aura. */
@@ -1379,6 +1459,18 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   /** Aviso: coge la(s) carta(s) de arriba de tu biblioteca y escanéala(s). */
   function impulseSheet(e) {
     let close;
+    if (e.scan === 'battlefield') {
+      close = sheet(h('div', {},
+        h('h3', {}, 'Pon una carta en el campo de batalla'),
+        h('p', {}, e.text),
+        h('div', { class: 'actions' },
+          h('button', { class: 'act primary', onClick: () => close() }, 'Voy a escanearla'),
+          h('button', { class: 'act', onClick: () => { close(); openPicker((c) => playRecognized(c)); } }, 'Buscarla en el grimorio'),
+          h('button', { class: 'act', onClick: () => { close(); session.dispatch({ t: 'scanPut', cancel: true }); } }, 'No la registro'),
+        ),
+      ));
+      return;
+    }
     close = sheet(h('div', {},
       h('h3', {}, 'Exilia la primera carta de tu biblioteca'),
       h('p', {}, e.text),

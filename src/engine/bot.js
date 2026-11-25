@@ -129,7 +129,7 @@ function chooseAttackers(s, me) {
   if (mine.length && unblockedDamage >= target.life) return mine.map((p) => [p.uid, target.id]);
 
   for (const att of mine) {
-    const able = blockers.filter((b) => canBlock(b, att));
+    const able = blockers.filter((b) => canBlock(b, att, s));
     const killers = able.filter((b) => power(b) >= toughness(att) || has(b, 'deathtouch'));
     const safe = killers.length === 0;
     // intercambio favorable: muere pero se lleva algo igual o mejor
@@ -151,7 +151,7 @@ function chooseBlocks(s, me) {
   let incoming = attackers.reduce((a, p) => a + power(p), 0);
 
   for (const att of attackers) {
-    const cands = available.filter((b) => !used.has(b.uid) && canBlock(b, att));
+    const cands = available.filter((b) => !used.has(b.uid) && canBlock(b, att, s));
     if (!cands.length) continue;
     const kills = (b) => power(b) >= toughness(att) || has(b, 'deathtouch');
     const survives = (b) => power(att) < toughness(b) && !has(att, 'deathtouch');

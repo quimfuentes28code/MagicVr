@@ -616,3 +616,97 @@ test('Lanza de dragontino: «Gae Bolg — Equip {4}» y Job select crea un Héro
   assert.equal(hero.bonus.p, 1);
   assert.ok(hero.bonus.kw.includes('flying'));
 });
+
+// ------------------------------------------------ habilidades ampliadas (abilities.js)
+import { activatedOf } from '../src/engine/abilities.js';
+
+test('habilidad activada: «{T}: hace 1 de daño a cualquier objetivo» (Hechicero pródigo)', () => {
+  const tim = normalize({ name: 'Prodigal Sorcerer', manaCost: '{2}{U}', power: '1', toughness: '1', typeLine: 'Creature — Human Wizard', oracle: '{T}: This creature deals 1 damage to any target.' });
+  assert.equal(activatedOf(tim).length, 1);
+  let s = duel();
+  let me, foe;
+  [s, me] = put(s, 'a', tim);
+  [s, foe] = put(s, 'b', creature('Elf', 1, 1));
+  s = apply(s, { t: 'activate', by: 'a', uid: me, idx: 0, targets: [{ uid: foe }] });
+  assert.ok(!s.players[1].battlefield.some((p) => p.uid === foe));
+  assert.ok(s.players[0].battlefield.find((p) => p.uid === me).tapped);
+  // ya girada: no puede otra vez
+  s = apply(s, { t: 'activate', by: 'a', uid: me, idx: 0, targets: [{ player: 'b' }] });
+  assert.equal(last(s).kind, 'illegal');
+});
+
+test('lealtad: un planeswalker activa una habilidad por turno', () => {
+  const pw = normalize({ name: 'Test Walker', manaCost: '{3}', typeLine: 'Legendary Planeswalker — Test', loyalty: '4',
+    oracle: '+1: You gain 2 life.\n−3: Destroy target creature.' });
+  let s = duel();
+  let w, foe;
+  [s, w] = put(s, 'a', pw);
+  [s, foe] = put(s, 'b', creature('Ogre', 3, 3));
+  s.step = 'main1'; s.stack = [];
+  s = apply(s, { t: 'activate', by: 'a', uid: w, idx: 1, targets: [{ uid: foe }] });
+  assert.ok(!s.players[1].battlefield.some((p) => p.uid === foe));
+  s = apply(s, { t: 'activate', by: 'a', uid: w, idx: 0, targets: [] });
+  assert.equal(last(s).kind, 'illegal');
+});
+
+test('señor: «Las demás criaturas Elfo que controlas obtienen +1/+1»', () => {
+  const lord = normalize({ name: 'Elf Lord', manaCost: '{1}{G}', power: '2', toughness: '2', typeLine: 'Creature — Elf', oracle: 'Other Elf creatures you control get +1/+1.' });
+  let s = duel();
+  let l, e, b;
+  [s, l] = put(s, 'a', lord);
+  [s, e] = put(s, 'a', normalize({ name: 'Elf', manaCost: '{G}', power: '1', toughness: '1', typeLine: 'Creature — Elf Warrior' }));
+  [s, b] = put(s, 'a', creature('Bear', 2, 2));
+  const get = (u) => s.players[0].battlefield.find((p) => p.uid === u);
+  assert.equal(get(e).bonus.p, 1);
+  assert.ok(!get(b).bonus || get(b).bonus.p === 0);
+  assert.ok(!get(l).bonus || get(l).bonus.p === 0);
+});
+
+test('disparadas: aterrizaje, «cuando ataque» y destreza', () => {
+  const lf = normalize({ name: 'Lander', manaCost: '{1}{G}', power: '1', toughness: '1', typeLine: 'Creature — Test', oracle: 'Landfall — Whenever a land you control enters, you gain 1 life.' });
+  const att = normalize({ name: 'Raider', manaCost: '{1}{R}', power: '2', toughness: '1', typeLine: 'Creature — Test', oracle: 'Whenever this creature attacks, each opponent loses 1 life.' });
+  const pro = normalize({ name: 'Monk', manaCost: '{1}{R}', power: '1', toughness: '1', typeLine: 'Creature — Monk', keywords: ['Prowess'], oracle: 'Prowess' });
+  let s = duel();
+  let r, m;
+  [s] = put(s, 'a', lf);
+  [s, r] = put(s, 'a', att);
+  [s, m] = put(s, 'a', pro);
+  const life0 = s.players[0].life;
+  s.step = 'main1';
+  s = apply(s, { t: 'play', by: 'a', card: BASICS.G });
+  assert.equal(s.players[0].life, life0 + 1);
+  // destreza: lanzar algo que no sea criatura
+  s = act(s, { t: 'play', by: 'a', card: normalize({ name: 'Shock', manaCost: '{R}', typeLine: 'Instant', oracle: 'Shock deals 2 damage to any target.' }), force: true, targets: [{ player: 'b' }] });
+  assert.equal(s.players[0].battlefield.find((p) => p.uid === m).pump.p, 1);
+  // ataque
+  s = toAttack(s);
+  s = apply(s, { t: 'attack', by: 'a', uid: r, target: 'b' });
+  const lifeB = s.players[1].life;
+  s = apply(s, { t: 'next', by: 'a' });
+  assert.equal(s.players[1].life, lifeB - 1);
+});
+
+test('tierras que entran giradas y Tesoros', () => {
+  let s = duel();
+  s.step = 'main1';
+  s = apply(s, { t: 'play', by: 'a', card: normalize({ name: 'Gate', typeLine: 'Land — Gate', oracle: 'This land enters tapped.\n{T}: Add {W} or {U}.' }) });
+  assert.ok(s.players[0].battlefield.at(-1).tapped);
+  s = act(s, { t: 'play', by: 'a', card: normalize({ name: 'Find Gold', manaCost: '{R}', typeLine: 'Sorcery', oracle: 'Create two Treasure tokens.' }), force: true });
+  assert.equal(s.players[0].battlefield.filter((p) => p.card.subtype === 'Treasure').length, 2);
+  // pagar con Tesoros: se sacrifican
+  s = act(s, { t: 'play', by: 'a', card: creature('Bear', 2, 2, [], { manaCost: '{1}{G}' }) });
+  assert.equal(s.players[0].battlefield.filter((p) => p.card.subtype === 'Treasure').length, 0);
+  assert.ok(s.players[0].battlefield.some((p) => p.card.name === 'Bear'));
+});
+
+test('hechizos en masa y sacrificio obligado del bot', () => {
+  let s = createGame({ mode: '1v1', seed: 3, first: 0, players: [{ id: 'a', name: 'Ana' }, { id: 'b', name: 'Bot', isBot: true, deck: buildBotDeck('G', 40) }] });
+  [s] = put(s, 'b', creature('Ogre', 3, 3));
+  [s] = put(s, 'b', creature('Elf', 1, 1));
+  s.step = 'main1'; s.stack = [];
+  s = act(s, { t: 'play', by: 'a', card: normalize({ name: 'Edict', manaCost: '{1}{B}', typeLine: 'Instant', oracle: 'Each opponent sacrifices a creature.' }), force: true });
+  assert.equal(s.players[1].battlefield.filter((p) => p.card.isCreature).length, 1);
+  assert.ok(s.players[1].battlefield.some((p) => p.card.name === 'Ogre'), 'sacrifica la peor');
+  s = act(s, { t: 'play', by: 'a', card: normalize({ name: 'Wrath', manaCost: '{2}{W}{W}', typeLine: 'Sorcery', oracle: 'Destroy all creatures. They can\'t be regenerated.' }), force: true });
+  assert.equal(s.players[1].battlefield.filter((p) => p.card.isCreature).length, 0);
+});

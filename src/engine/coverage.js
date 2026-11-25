@@ -4,15 +4,15 @@ import { parseAbilities } from './abilities.js';
 
 /** Efectos que el motor aplica (kind, y una comprobación opcional de variantes). */
 export const FX_SUPPORTED = {
-  damage: (e) => ['any', 'creature', 'permanent', 'player', 'opponents', 'all', 'allPlayers', 'self'].includes(e.target) && e.amount !== 'X',
+  damage: (e) => ['any', 'creature', 'permanent', 'player', 'opponents', 'all', 'allPlayers', 'self'].includes(e.target),
   destroy: () => true, exile: () => true, bounce: () => true, destroyAll: () => true, exileAll: () => true, bounceAll: () => true,
   bounceSelf: () => true, tuck: () => true,
-  pump: (e) => e.p !== 'X' && e.t !== 'X', pumpAll: () => true,
-  counter: (e) => e.amount !== 'X', counterAll: () => true, proliferate: () => true,
-  counterspell: (e) => !e.unless,
-  drain: () => true, gain: (e) => e.amount !== 'X', lose: () => true, loseAll: () => true, gainAll: () => true,
-  draw: (e) => e.amount !== 'X', drawOther: () => true, discard: () => true,
-  token: (e) => e.power !== 'X', artifactToken: () => true, amass: () => true, tokenAttach: () => true,
+  pump: () => true, pumpAll: () => true,
+  counter: () => true, counterAll: () => true, proliferate: () => true,
+  counterspell: () => true,
+  drain: () => true, gain: () => true, lose: () => true, loseAll: () => true, gainAll: () => true,
+  draw: () => true, drawOther: () => true, discard: () => true,
+  token: () => true, artifactToken: () => true, amass: () => true, tokenAttach: () => true,
   regrow: () => true, reanimate: () => true,
   impulse: () => true, extraLand: () => true, tapHost: () => true, tap: () => true, untap: () => true, tapAll: () => true, untapAll: () => true,
   untapSelf: () => true, tapSelf: () => true, freeze: () => true,
@@ -24,6 +24,7 @@ export const FX_SUPPORTED = {
   adapt: () => true, chargeCounter: () => true, prevent: () => true, fog: () => true, threaten: () => true, steal: () => true,
   untapLast: () => true, hasteLast: () => true, controllerLife: () => true, controllerLifePower: () => true, delayedDraw: () => true,
   delayedSac: () => true, support: () => true, bolster: () => true, exileGraveCard: () => true, exileGraveyard: () => true, damageEach: () => true,
+  extraTurn: () => true, freezeLast: () => true, returnExiled: () => true, switchPT: () => true, canAttackDefender: () => true, putLand: () => true,
 };
 export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', 'blocks', 'blocked', 'combatDamagePlayer', 'upkeep', 'anyUpkeep',
   'endstep', 'anyEndstep', 'begincombat', 'main1', 'drawstep', 'otherEtbMine', 'otherEtbMineNontoken', 'creatureEtbMine', 'otherEtbAny',
@@ -33,7 +34,8 @@ export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', '
   'oppEndstep', 'cycled', 'castAuraEquip']);
 export const STATICS_SUPPORTED = new Set(['attach', 'extraLand', 'info', 'anthem', 'selfBuff', 'noBlockSelf', 'noAttackSelf', 'unblockableSelf',
   'menaceLike', 'noUntapSelf', 'entersTapped', 'entersCounters', 'blockOnlyFlyers', 'attackOnlyIf', 'evadePower', 'evadeSmaller', 'afterlife',
-  'controlHost', 'addSac', 'addDiscard', 'addLife', 'persist', 'undying', 'kw', 'cumulative', 'echo', 'levelUp', 'levelInfo']);
+  'controlHost', 'addSac', 'addDiscard', 'addLife', 'persist', 'undying', 'kw', 'cumulative', 'echo', 'levelUp', 'levelInfo', 'varPT', 'forEach',
+  'costReducer', 'selfReduce', 'noLifeGain', 'lifeBonus', 'skipDraw', 'sacUnless', 'lifelinkLike', 'evadeType']);
 export const KEYWORDS_SUPPORTED = new Set(['flying', 'reach', 'first strike', 'double strike', 'deathtouch', 'trample', 'lifelink', 'haste',
   'vigilance', 'menace', 'defender', 'hexproof', 'shroud', 'indestructible', 'flash', 'infect', 'wither', 'protection', 'enchant', 'equip',
   'job select', 'living weapon', 'for mirrodin!', 'partner', 'partner with', 'choose a background', 'prowess', 'exalted', 'toxic', 'fear',

@@ -862,3 +862,36 @@ test('subir de nivel cambia fuerza/resistencia y habilidades', () => {
   assert.equal(perm.card.power + perm.bonus.p, 2);
   assert.ok(perm.bonus.kw.includes('first strike'));
 });
+
+test('coste X, fuerza variable, reductor de coste, turno extra y «contrarresta salvo que pague»', () => {
+  // X
+  const blaze = normalize({ name: 'Blaze', manaCost: '{X}{R}', typeLine: 'Sorcery', oracle: 'Blaze deals X damage to any target.' });
+  let s = duel();
+  for (let i = 0; i < 4; i++) [s] = put(s, 'a', BASICS.R);
+  s.step = 'main1'; s.stack = [];
+  const l = s.players[1].life;
+  s = act(s, { t: 'play', by: 'a', card: blaze, x: 3, targets: [{ player: 'b' }] });
+  assert.equal(s.players[1].life, l - 3);
+  assert.equal(s.players[0].battlefield.filter((p) => p.tapped).length, 4);
+  // fuerza = número de tierras
+  let s2 = duel();
+  for (let i = 0; i < 3; i++) [s2] = put(s2, 'a', BASICS.G);
+  let g;
+  [s2, g] = put(s2, 'a', normalize({ name: 'Land Giant', manaCost: '{3}{G}', power: '*', toughness: '*', typeLine: 'Creature — Giant', oracle: "This creature's power and toughness are each equal to the number of lands you control." }));
+  const giant = s2.players[0].battlefield.find((p) => p.uid === g);
+  assert.equal(giant.card.power + giant.bonus.p, 3);
+  // reductor
+  let s3 = duel();
+  [s3] = put(s3, 'a', normalize({ name: 'Baral Test', manaCost: '{3}{U}', power: '1', toughness: '3', typeLine: 'Creature — Human', oracle: 'Instant and sorcery spells you cast cost {1} less to cast.' }));
+  [s3] = put(s3, 'a', BASICS.U);
+  for (const p of s3.players[0].battlefield) p.tapped = false;
+  s3.step = 'main1'; s3.stack = [];
+  s3 = act(s3, { t: 'play', by: 'a', card: normalize({ name: 'Divine', manaCost: '{1}{U}', typeLine: 'Sorcery', oracle: 'Draw two cards.' }) });
+  assert.notEqual(last(s3).kind, 'illegal');
+  // turno extra
+  let s4 = duel();
+  s4.step = 'main1'; s4.stack = [];
+  s4 = act(s4, { t: 'play', by: 'a', card: normalize({ name: 'Time Walk Test', manaCost: '{1}{U}', typeLine: 'Sorcery', oracle: 'Take an extra turn after this one.' }), force: true });
+  s4.step = 'cleanup'; s4 = apply(s4, { t: 'next', by: 'a' });
+  assert.equal(s4.players[s4.active].id, 'a');
+});

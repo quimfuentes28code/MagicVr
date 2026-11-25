@@ -513,6 +513,11 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       const opts = castOptions(card);
       if (opts.length) { castOptionSheet(card, opts); return; }
     }
+    // coste X: cuánto vale X
+    if (/\{X\}/.test(card.manaCost || '') && card.xValue == null && !card.castAlt) {
+      chooseX(card, card.manaCost, (x) => playRecognized({ ...card, xValue: x }));
+      return;
+    }
     // modos («Elige uno —»)
     if (card.effects?.modes && !card.chosenModes && !card.castAlt?.match(/morph|disguise/)) {
       chooseModes(card, (modes) => playRecognized({ ...card, chosenModes: modes }));
@@ -524,6 +529,20 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       return;
     }
     dispatchPlay(card, []);
+  }
+
+  /** Elegir el valor de X (hasta lo que te permite tu maná). */
+  function chooseX(card, cost, done) {
+    const m = manaAvailable(player(S(), me()));
+    const fixed = (cost.match(/\{(\d+)\}/g) || []).reduce((a, x) => a + +x.slice(1, -1), 0) + (cost.match(/\{[WUBRGC](?:\/[WUBRGCP])?\}/g) || []).length;
+    const nx = Math.max(1, (cost.match(/\{X\}/g) || []).length);
+    const max = Math.max(0, Math.floor((m.total - fixed) / nx));
+    let close;
+    close = sheet(h('div', {},
+      h('h3', {}, `${displayName(card)}: ¿cuánto vale X?`),
+      h('p', { class: 'muted' }, `Con tu maná disponible, X puede ser hasta ${max}.`),
+      h('div', { class: 'row-btns x-pick' }, Array.from({ length: Math.min(16, max + 3) }, (_, i) => h('button', { class: 'act' + (i === max ? ' primary' : ''), onClick: () => { close(); done(i); } }, String(i)))),
+    ));
   }
 
   /** Formas de lanzar la carta además de la normal. */
@@ -598,7 +617,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     }
     const before = S().eventSeq;
     if (!card.edition) card = withPreferredEdition(card);
-    session.dispatch({ t: 'play', card, targets, ...(card.castAlt ? { alt: card.castAlt } : {}), ...(card.castBuyback ? { buyback: true } : {}), ...(card.sacUid != null ? { sacUid: card.sacUid } : {}), ...(card.castEntwine ? { entwine: true } : {}) });
+    session.dispatch({ t: 'play', card, targets, ...(card.xValue != null ? { x: card.xValue } : {}), ...(card.castAlt ? { alt: card.castAlt } : {}), ...(card.castBuyback ? { buyback: true } : {}), ...(card.sacUid != null ? { sacUid: card.sacUid } : {}), ...(card.castEntwine ? { entwine: true } : {}) });
     findEdition(card);
     // Aviso con opción de deshacer por si la cámara leyó mal.
     setTimeout(() => {
@@ -1569,7 +1588,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     );
   }
 
-  function activateFlow(perm, ab, idx) {
+  function activateFlow(perm, ab, idx, x) {
+    if (x == null && /\{X\}/.test(ab.cost.mana || '')) { chooseX(perm.card, ab.cost.mana, (v) => activateFlow(perm, ab, idx, v)); return; }
+    if (x != null) {
+      const wanted0 = ab.fx.filter(needsTarget);
+      if (wanted0.length) startTargeting({ ...perm.card }, wanted0, (targets) => session.dispatch({ t: 'activate', uid: perm.uid, idx, targets, x }));
+      else session.dispatch({ t: 'activate', uid: perm.uid, idx, targets: [], x });
+      return;
+    }
     const wanted = ab.fx.filter(needsTarget);
     if (wanted.length) startTargeting({ ...perm.card }, wanted, (targets) => session.dispatch({ t: 'activate', uid: perm.uid, idx, targets }));
     else session.dispatch({ t: 'activate', uid: perm.uid, idx, targets: [] });

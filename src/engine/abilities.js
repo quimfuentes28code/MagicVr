@@ -137,7 +137,9 @@ const T = [
   [/^destroy (?:up to )?(two|three) target (.+)$/i, (m) => { const p = permT(m[2]); return p ? Array.from({ length: num(m[1]) }, () => ({ kind: 'destroy', ...p })) : null; }],
   [/^destroy all (.+?)(?:\. they can't be regenerated)?$/i, (m) => { const f = parseTargetPhrase(m[1]); return f ? { kind: 'destroyAll', filter: f } : null; }],
   [/^destroy each (.+)$/i, (m) => { const f = parseTargetPhrase(m[1]); return f ? { kind: 'destroyAll', filter: f } : null; }],
-  [/^exile (?:up to one )?(?:another )?target (.+?)(?: until CARDNAME leaves the battlefield)?$/i, (m) => { if (/card|spell|graveyard|player/.test(m[1])) return null; const p = permT(m[1]); return p ? { kind: 'exile', ...p } : null; }],
+  [/^exile (?:up to one )?(?:another )?target (.+?)( until CARDNAME leaves the battlefield)?$/i, (m) => { if (/card|spell|graveyard|player/.test(m[1])) return null; const p = permT(m[1]); return p ? { kind: 'exile', ...p, untilLeaves: !!m[2] } : null; }],
+  [/^return the exiled card(?:s)? to the battlefield under (?:its|their) owners?'s? control$/i, () => ({ kind: 'returnExiled' })],
+  [/^return the exiled card(?:s)? to (?:its|their) owners?'s? hands?$/i, () => ({ kind: 'returnExiled', toHand: true })],
   [/^exile all (.+)$/i, (m) => { if (/card|graveyard/.test(m[1])) return null; const f = parseTargetPhrase(m[1]); return f ? { kind: 'exileAll', filter: f } : null; }],
   [/^return (?:up to one )?(?:another )?target (.+?) to (?:its|their) owner's hand$/i, (m) => { if (/card|spell/.test(m[1])) return null; const p = permT(m[1]); return p ? { kind: 'bounce', ...p } : null; }],
   [/^return all (.+?) to their owners' hands$/i, (m) => { const f = parseTargetPhrase(m[1]); return f ? { kind: 'bounceAll', filter: f } : null; }],
@@ -299,6 +301,25 @@ const T = [
   [/^learn$/i, () => ({ kind: 'instruct', text: 'Aprende: puedes coger una carta de Lección de fuera del juego, o descartar una carta para robar otra.' })],
   [/^(?:untap|tap) (two|three|up to two|up to three) target (lands|creatures|permanents)$/i, (m) => Array.from({ length: num(m[1].replace('up to ', '')) }, () => ({ kind: /^untap/i.test(m[0]) ? 'untap' : 'tap', ...permT(m[2].replace(/s$/, '')) }))],
   [/^each player draws (a|one|two|three) cards?$/i, (m) => ({ kind: 'drawOther', who: 'each player', amount: num(m[1]) })],
+  [new RegExp(`^target player draws ${NUMW} cards? and loses ${NUMW} life$`, 'i'), (m) => [{ kind: 'draw', amount: num(m[1]) }, { kind: 'lose', amount: num(m[2]) }]],
+  [new RegExp(`^(?:you )?draw ${NUMW} cards? and (?:you )?lose ${NUMW} life$`, 'i'), (m) => [{ kind: 'draw', amount: num(m[1]) }, { kind: 'lose', amount: num(m[2]) }]],
+  [/^(?:target opponent|target player) reveals their hand\. you choose a (nonland|noncreature, nonland|creature|instant or sorcery)? ?card from it\. that player discards that card$/i, () => ({ kind: 'discard', amount: 1, who: 'target opponent', choose: true })],
+  [/^take an extra turn after this one$/i, () => ({ kind: 'extraTurn' })],
+  [new RegExp(`^up to ${NUMW} target creatures can't block this turn$`, 'i'), (m) => Array.from({ length: num(m[1]) }, () => ({ kind: 'noBlock', target: 'creature' }))],
+  [new RegExp(`^return up to ${NUMW} target (creatures|nonland permanents|permanents) to their owners' hands$`, 'i'), (m) => Array.from({ length: num(m[1]) }, () => ({ kind: 'bounce', ...permT(m[2].replace(/s$/, '')) }))],
+  [new RegExp(`^put a \\+1/\\+1 counter on each of up to ${NUMW} target creatures$`, 'i'), (m) => Array.from({ length: num(m[1]) }, () => ({ kind: 'counter', amount: 1, target: 'creature' }))],
+  [/^(?:those creatures|they) don't untap during their controller's next untap step$/i, () => ({ kind: 'freezeLast' })],
+  [/^if (?:that creature|it|a creature dealt damage this way) would die this turn, exile it instead$/i, () => []],
+  [/^(?:then )?put (?:one|two|a card|one of them|two of them|the rest|them|those cards|that card|the other|the others|any number of them).*$/i, () => []],
+  [/^(?:you may )?reveal (?:it|that card|a [\w ]+ card from among them).*$/i, () => []],
+  [/^(?:that player|they) shuffles?$/i, () => []],
+  [/^roll a d20$/i, () => ({ kind: 'instruct', text: 'Tira un dado de 20 caras y aplica el resultado de la tabla.' })],
+  [/^flip a coin$/i, () => ({ kind: 'instruct', text: 'Lanza una moneda y aplica el resultado.' })],
+  [/^CARDNAME deals damage equal to (?:the number of|its power|your devotion|twice).+$/i, (m) => ({ kind: 'instruct', text: 'Calcula el daño (' + m[0].replace(/^CARDNAME deals damage equal to /i, '') + ') y aplícalo con los botones de daño o de vida.' })],
+  [/^switch CARDNAME's power and toughness until end of turn$/i, () => ({ kind: 'switchPT' })],
+  [/^CARDNAME can attack this turn as though it didn't have defender$/i, () => ({ kind: 'canAttackDefender' })],
+  [/^(?:you may )?put a land card from your hand onto the battlefield(?: tapped)?$/i, (m) => ({ kind: 'putLand', tapped: /tapped/i.test(m[0]) })],
+  [/^copy target instant or sorcery spell(?: you control)?\. you may choose new targets for the copy$/i, () => ({ kind: 'instruct', text: 'Copia el hechizo objetivo (vuelve a aplicar su efecto, puedes elegir nuevos objetivos).' })],
 ];
 
 /** Partes que no hace falta aplicar (texto de ayuda o ya implícito). */
@@ -474,6 +495,14 @@ export function parseStatic(text, card) {
   if ((m = s.match(/^(Other )?((?:[A-Z][a-z]+ )*?)[Cc]reatures you control get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?$/))) {
     return { kind: 'anthem', who: 'mine', other: !!m[1], sub: m[2].trim() || null, p: +m[3], t: +m[4], kw: kwList(m[5]) };
   }
+  if ((m = s.match(/^(Other )?(white|blue|black|red|green|artifact|nontoken|tapped|attacking|legendary|multicolored|colorless|token) creatures you control get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?$/i))) {
+    return { kind: 'anthem', who: 'mine', other: !!m[1], adj: m[2].toLowerCase(), p: +m[3], t: +m[4], kw: kwList(m[5]) };
+  }
+  if ((m = s.match(/^(Other )?(?:[Cc]reatures you control with flying|[Cc]reatures you control with (\w+)) get ([+-]\d+)\/([+-]\d+)$/))) return { kind: 'anthem', who: 'mine', other: !!m[1], withKw: m[2] || 'flying', p: +m[3], t: +m[4], kw: [] };
+  if ((m = s.match(/^(Other )?([A-Z][a-z]+(?:s|es|ves)) you control get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?$/))) {
+    const sing = m[2].replace(/ves$/, 'f').replace(/ies$/, 'y').replace(/(ss|sh|ch|x)es$/, '$1').replace(/s$/, '');
+    return { kind: 'anthem', who: 'mine', other: !!m[1], sub: sing === 'Elve' ? 'Elf' : sing, p: +m[3], t: +m[4], kw: kwList(m[5]) };
+  }
   if ((m = s.match(/^(Other )?((?:[A-Z][a-z]+ )*?)[Cc]reatures you control have (.+)$/)) && kwList(m[3]).every((k) => new RegExp('^' + KWS + '$').test(k))) {
     return { kind: 'anthem', who: 'mine', other: !!m[1], sub: m[2].trim() || null, p: 0, t: 0, kw: kwList(m[3]) };
   }
@@ -524,6 +553,35 @@ export function parseStatic(text, card) {
   if ((m = s.match(/^CARDNAME enters with (two|three|one|a) -1\/-1 counters? on it$/))) return { kind: 'entersCounters', amount: -num(m[1]) };
   if ((m = s.match(/^If CARDNAME was kicked, it enters with (\w+) \+1\/\+1 counters? on it$/))) return { kind: 'entersCounters', amount: num(m[1]), kicked: true };
   if ((m = s.match(/^Afterlife (\d+)$/))) return { kind: 'afterlife', amount: +m[1] };
+  // fuerza/resistencia que dependen de algo que se puede contar
+  if ((m = s.match(/^CARDNAME's (power and toughness are each|power is|toughness is) equal to (?:the number of )?(.+)$/))) {
+    const what = countWhat(m[2]);
+    if (what) return { kind: 'varPT', which: /and toughness/.test(m[1]) ? 'both' : /power/.test(m[1]) ? 'p' : 't', what, k: /twice/.test(m[2]) ? 2 : 1 };
+  }
+  if ((m = s.match(/^CARDNAME gets \+(\d+)\/\+(\d+) for each (.+)$/))) {
+    const what = countWhat(m[3]);
+    if (what) return { kind: 'forEach', p: +m[1], t: +m[2], what };
+  }
+  if ((m = s.match(/^(Instant and sorcery|Noncreature|Creature|Artifact|Enchantment|Aura|Equipment|Dragon|Elf|Goblin|Zombie|Spirit|Wizard|[A-Z][a-z]+) spells you cast cost \{(\d+)\} less to cast$/))) return { kind: 'costReducer', what: m[1].toLowerCase(), n: +m[2] };
+  if (/^Spells you cast cost \{(\d)\} less to cast$/.test(s)) return { kind: 'costReducer', what: 'any', n: +s.match(/\{(\d)\}/)[1] };
+  if ((m = s.match(/^This spell costs \{(\d+)\} less to cast for each (.+)$/))) { const what = countWhat(m[2]); if (what) return { kind: 'selfReduce', n: +m[1], what }; }
+  if (/^Players can't gain life$/.test(s)) return { kind: 'noLifeGain', who: 'all' };
+  if (/^Your opponents can't gain life$/.test(s)) return { kind: 'noLifeGain', who: 'opp' };
+  if ((m = s.match(/^If you would gain life, you gain that much life plus (\d+) instead$/))) return { kind: 'lifeBonus', plus: +m[1] };
+  if (/^If you would gain life, you gain twice that much life instead$/.test(s)) return { kind: 'lifeBonus', twice: true };
+  if (/^Skip your draw step$/.test(s)) return { kind: 'skipDraw' };
+  if ((m = s.match(/^When you control no (Islands|Swamps|Forests|Mountains|Plains|artifacts|other creatures), sacrifice CARDNAME$/))) return { kind: 'sacUnless', what: m[1] };
+  if (/^Whenever CARDNAME deals damage, you gain that much life$/.test(s)) return { kind: 'lifelinkLike' };
+  if ((m = s.match(/^CARDNAME can't be blocked by (artifact creatures|creatures with flying|Walls|black creatures|white creatures|red creatures|green creatures|blue creatures|more than one creature)$/))) return { kind: 'evadeType', what: m[1] };
+  if (/^All creatures able to block CARDNAME do so$/.test(s)) return { kind: 'info', text: 'Todas las criaturas que puedan bloquearla deben hacerlo.' };
+  if (/^A deck can have any number of cards named CARDNAME$/.test(s)) return { kind: 'info' };
+  if (/^Partner—/.test(s)) return { kind: 'info' };
+  if ((m = s.match(/^CARDNAME enters with (a|one|two|three|four|five|X) (?:charge|oil|shield|time|loyalty|lore|\w+) counters? on it$/))) return { kind: 'info', text: 'Entra con contadores.' };
+  if ((m = s.match(/^CARDNAME enters tapped unless a player has (\d+) or less life$/))) return { kind: 'entersTapped', unlessLowLife: +m[1] };
+  if ((m = s.match(/^CARDNAME enters tapped unless you control two or more basic lands$/))) return { kind: 'entersTapped', unlessBasics: 2 };
+  if ((m = s.match(/^CARDNAME enters tapped unless you have two or more opponents$/))) return { kind: 'entersTapped', unlessOpps: 2 };
+  if ((m = s.match(/^CARDNAME enters tapped unless you control a planeswalker$/))) return { kind: 'entersTapped', unlessPW: true };
+  if ((m = s.match(/^CARDNAME enters tapped unless your opponents control eight or more lands$/))) return { kind: 'entersTapped', unlessOppLands: 8 };
   if (/^You control enchanted (?:creature|permanent|artifact|land)$/.test(s)) return { kind: 'controlHost' };
   if ((m = s.match(/^As an additional cost to cast this spell, sacrifice (?:a|an) (creature|artifact|land|permanent|artifact or creature|creature or artifact|nonland permanent)$/))) return { kind: 'addSac', filter: parseTargetPhrase(m[1]) };
   if ((m = s.match(/^As an additional cost to cast this spell, discard (a|one|two) cards?$/))) return { kind: 'addDiscard', amount: num(m[1]) };
@@ -696,4 +754,28 @@ export function levelsOf(card) {
     for (const k of l.split(/,\s*/)) { const kw = keywordOf(k); if (kw) cur.kw.push(kw); }
   }
   return out;
+}
+
+
+/** Qué se cuenta en «igual al número de …» / «por cada …». */
+export function countWhat(t) {
+  const x = t.toLowerCase().replace(/\.$/, '').replace(/^twice /, '');
+  if (/^lands you control$/.test(x)) return 'myLands';
+  if (/^(?:other )?creatures you control$/.test(x)) return /other/.test(x) ? 'myOtherCreatures' : 'myCreatures';
+  if (/^artifacts? you control$/.test(x)) return 'myArtifacts';
+  if (/^enchantments? you control$/.test(x)) return 'myEnchantments';
+  if (/^cards in your hand$/.test(x)) return 'myHand';
+  if (/^(?:creature )?cards? in your graveyard$/.test(x)) return /creature/.test(x) ? 'myGraveCreatures' : 'myGrave';
+  if (/^creatures? cards? in your graveyard$/.test(x)) return 'myGraveCreatures';
+  if (/^(?:basic )?(plains|islands?|swamps?|mountains?|forests?) you control$/.test(x)) return 'myLandType:' + x.match(/(plains|island|swamp|mountain|forest)/)[1];
+  if (/^creatures? on the battlefield$/.test(x)) return 'allCreatures';
+  if (/^creature card in your graveyard$/.test(x)) return 'myGraveCreatures';
+  if (/^artifact you control$/.test(x)) return 'myArtifacts';
+  if (/^land you control$/.test(x)) return 'myLands';
+  if (/^other creature you control$/.test(x)) return 'myOtherCreatures';
+  if (/^creature you control$/.test(x)) return 'myCreatures';
+  if (/^enchantment you control$/.test(x)) return 'myEnchantments';
+  if (/^card in your hand$/.test(x)) return 'myHand';
+  if (/^opponent you have$/.test(x)) return 'opponents';
+  return null;
 }

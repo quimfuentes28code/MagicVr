@@ -895,3 +895,28 @@ test('coste X, fuerza variable, reductor de coste, turno extra y «contrarresta 
   s4.step = 'cleanup'; s4 = apply(s4, { t: 'next', by: 'a' });
   assert.equal(s4.players[s4.active].id, 'a');
 });
+
+test('pagos opcionales, copias de ficha, parpadeo y elegir color', () => {
+  // «puedes pagar {1}. Si lo haces, …» (bot: paga si puede y le conviene)
+  const gnat = normalize({ name: 'Pay Test', manaCost: '{1}', power: '1', toughness: '1', typeLine: 'Creature — Test',
+    oracle: 'When this creature enters, you may pay {1}. If you do, draw a card.' });
+  assert.equal(gnat.effects.etb[0].kind, 'mayPay');
+  let s = duel();
+  s.step = 'main1'; s.stack = [];
+  s = act(s, { t: 'play', by: 'a', card: gnat, force: true });
+  [s] = put(s, 'a', BASICS.U);
+  [s] = put(s, 'a', BASICS.U);
+  s.players[0].pendingChoices = [];
+  s = act(s, { t: 'play', by: 'a', card: gnat, force: true });
+  const ch = s.players[0].pendingChoices.find((x) => x.type === 'mayPay');
+  assert.ok(ch, 'el humano decide');
+  const h0 = s.players[0].handCount;
+  s = apply(s, { t: 'choice', by: 'a', type: 'mayPay', uid: ch.uid, yes: true });
+  assert.equal(s.players[0].handCount, h0 + 1);
+  // copia como ficha
+  const cl = normalize({ name: 'Cloner', manaCost: '{3}', power: '2', toughness: '2', typeLine: 'Creature — Shapeshifter', oracle: 'When this creature enters, create a token that\'s a copy of target creature you control.' });
+  [s] = put(s, 'a', creature('Ogre', 3, 3));
+  const ogre = s.players[0].battlefield.at(-1).uid;
+  s = act(s, { t: 'play', by: 'a', card: cl, force: true, targets: [{ uid: ogre }] });
+  assert.equal(s.players[0].battlefield.filter((p) => p.card.name === 'Ogre').length, 2);
+});

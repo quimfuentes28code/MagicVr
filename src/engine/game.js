@@ -241,6 +241,7 @@ function refreshStatics(s) {
               if (!ok) continue;
             }
             if (st.withKw && !has(c, st.withKw)) continue;
+            if (st.chosenType && (!src.chosen || !(new RegExp('\\b' + src.chosen + '\\b').test(c.card.typeLine) || keywordsOf(c.card).includes('changeling')))) continue;
             const b = B(c);
             b.p += st.p; b.t += st.t;
             for (const k of st.kw) if (!b.kw.includes(k)) b.kw.push(k);
@@ -484,10 +485,16 @@ function stripCard(c) {
 
 // ------------------------------------------------------------------ maná
 
+/** Colores que produce un permanente (incluido «el color elegido»). */
+export function producesOf(p) {
+  if (p.chosen && 'WUBRG'.includes(p.chosen) && /the chosen color/i.test(p.card.oracle || '')) return [...new Set([p.chosen, ...p.card.produces.filter((c) => c !== 'C' || /\{C\}/.test(p.card.oracle))])];
+  return p.card.produces;
+}
+
 /** Fuentes de maná enderezadas de un jugador. */
 export function manaSources(pl) {
   return pl.battlefield.filter(
-    (p) => !p.tapped && p.card.produces.length > 0 && (p.card.isLand || !p.card.isCreature || !p.sick),
+    (p) => !p.tapped && producesOf(p).length > 0 && (p.card.isLand || !p.card.isCreature || !p.sick),
   );
 }
 
@@ -514,7 +521,7 @@ export function planPayment(pl, cost, extraGeneric = 0, extra = []) {
   const base = manaSources(pl);
   const sources = [
     ...(pl.manaPool || []).map((colors, i) => ({ uid: 'pool:' + i, colors, w: -10 + colors.length })),
-    ...base.map((p) => ({ uid: p.uid, colors: p.card.produces, w: (p.card.isCreature ? 10 : 0) + p.card.produces.length })),
+    ...base.map((p) => ({ uid: p.uid, colors: producesOf(p), w: (p.card.isCreature ? 10 : 0) + producesOf(p).length })),
     // convocar / improvisar: criaturas o artefactos enderezados que pagan girándose
     ...extra.filter((p) => !base.includes(p)).map((p) => ({ uid: p.uid, colors: p.convokeColors || [], w: 30 })),
   ];
@@ -1046,6 +1053,21 @@ const HANDLERS = {
     const i = list.findIndex((x) => x.uid === a.uid && x.type === a.type);
     if (i < 0) return s;
     const [ch] = list.splice(i, 1);
+    if (ch.type === 'mayPay') {
+      const src = findPerm(s, ch.uid)?.perm || null;
+      const paid = !!a.yes && (ch.life ? pl.life > ch.life : !!planPayment(pl, ch.cost || ''));
+      if (paid) payCost(s, pl, ch);
+      const rest = ch.rest.filter((x) => (x.ifPaid ? paid : x.ifNotPaid ? !paid : true));
+      const card = { ...ch.card, _paid: paid };
+      if (rest.some(needsTarget) && !(ch.targets || []).length) pl.pendingTriggers = [...(pl.pendingTriggers || []), { id: s.eventSeq + 1, uid: ch.uid, card, fx: rest }];
+      else resolveEffects(s, pl, card, rest, ch.targets || [], src);
+      return s;
+    }
+    if (ch.type === 'chooseOnEnter') {
+      const f = findPerm(s, ch.uid);
+      if (f) { f.perm.chosen = a.value; pushEvent(s, 'info', `${ch.name}: eliges ${a.value}.`, { uid: ch.uid }); refreshStatics(s); }
+      return s;
+    }
     if (ch.type === 'upkeep') {
       const f = findPerm(s, ch.uid);
       if (!f) return s;
@@ -1576,11 +1598,11 @@ function resolveCombat(s, phase) {
  * Aplica las habilidades de una carta. targets: [{ uid } | { player } | { stack }]
  * en el orden en que la carta los pide. Si falta un objetivo, avisa para hacerlo a mano.
  */
-function resolveEffects(s, pl, card, fx, targets, source) {
+function resolveEffects(s, pl, card, fx, targets, source, info = null) {
   const name = displayName(card);
   const since = s.eventSeq;
   try {
-    resolveEffectsInner(s, pl, card, fx, targets, name, source);
+    resolveEffectsInner(s, pl, card, fx, targets, name, source, info);
   } finally {
     // Los efectos llevan el color de la carta: la mesa dibuja el hechizo (rayo, fuego, agua…).
     const spell = { colors: card.colors.length ? card.colors.slice(0, 3) : ['C'], by: pl.id, src: source ? source.uid : null };
@@ -1589,11 +1611,27 @@ function resolveEffects(s, pl, card, fx, targets, source) {
   stateBased(s);
 }
 
-function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
+function resolveEffectsInner(s, pl, card, fx, targets, name, source = null, info = null) {
   let ti = 0;
-  const ctx = { chosen: null };
-  for (let e of fx) {
+  const ctx = { chosen: null, that: info && info.player ? info.player : null, paid: card._paid ?? null, tokens: [] };
+  for (let fi = 0; fi < fx.length; fi++) {
+    let e = fx[fi];
     if (e.kicked && !card.kicked) continue;
+    if (e.ifPaid && ctx.paid === false) continue;
+    if (e.ifNotPaid && ctx.paid !== false) continue;
+    if (e.kind === 'mayPay') {
+      const rest = fx.slice(fi + 1);
+      const can = e.life ? pl.life > e.life : !!planPayment(pl, e.cost || '');
+      if (pl.isBot || !can) {
+        ctx.paid = can && (pl.isBot ? rest.some((x) => x.ifPaid) : false);
+        if (ctx.paid) payCost(s, pl, e);
+        continue;
+      }
+      // humano: pregunta y sigue después
+      pl.pendingChoices = [...(pl.pendingChoices || []), { type: 'mayPay', uid: source ? source.uid : -1, cost: e.cost, life: e.life, name, card: stripCard(card), rest, targets: targets.slice(ti) }];
+      pushEvent(s, 'choice', `${name}: ¿pagas ${e.life ? e.life + ' vidas' : e.cost}?`, { to: pl.id });
+      return;
+    }
     if (s.winner) return;
     if (card.xValue != null) e = substX(e, card.xValue);
     let tgt = null;
@@ -1605,7 +1643,7 @@ function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
       }
     }
     const perm = tgt && tgt.uid != null ? findPerm(s, tgt.uid) : null;
-    const target = tgt && tgt.player ? player(s, tgt.player) : null;
+    const target = tgt && tgt.player ? player(s, tgt.player) : (e.target === 'that' ? ctx.that || opponents(s, pl.id)[0] : null);
     if (perm) ctx.last = perm;
     switch (e.kind) {
       case 'damage':
@@ -1708,6 +1746,7 @@ function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
           pl.battlefield.push(perm2);
           pushEvent(s, 'play', `${name} crea una ${perm2.card.printedName.toLowerCase()} ${e.power}/${e.toughness}.`, { uid: perm2.uid, by: pl.id, color: e.colors[0] || 'C', token: true });
           ctx.lastToken = perm2;
+          ctx.tokens.push(perm2);
           fireEnterTriggers(s, pl, perm2);
         }
         break;
@@ -2115,7 +2154,10 @@ function execMore(s, pl, card, e, { perm, target, tgt, name, source, ctx }) {
     case 'discard':
       for (const p of playersFor(s, pl, e.who, target)) {
         const n = e.amount === 'all' ? (p.isBot ? p.hand.length : p.handCount) : e.amount;
-        if (p.isBot) botDiscard(s, p, n);
+        if (p.isBot && e.choose) {
+          const best = [...p.hand].filter((c) => !c.isLand).sort((x, y) => y.cmc - x.cmc)[0];
+          if (best) { p.hand.splice(p.hand.indexOf(best), 1); p.graveyard.push(stripCard(best)); pushEvent(s, 'info', `${p.name} descarta ${displayName(best)} (elegida por ${pl.name}).`); }
+        } else if (p.isBot) botDiscard(s, p, n);
         else { p.handCount = Math.max(0, p.handCount - n); pushEvent(s, 'manual', `${name}: descarta ${e.amount === 'all' ? 'toda tu mano' : n === 1 ? 'una carta' : n + ' cartas'}.`, { to: p.id }); }
       }
       break;
@@ -2241,6 +2283,7 @@ function execMore(s, pl, card, e, { perm, target, tgt, name, source, ctx }) {
       break;
     default:
       if (execMore2(s, pl, card, e, { perm, target, name, source, ctx })) break;
+      if (execMore3(s, pl, card, e, { perm, target, tgt, name, source, ctx })) break;
       if (human) pushEvent(s, 'manual', `${name}: ${describeEffect(e) || 'aplica este efecto a mano'}.`, { to: pl.id });
   }
 }
@@ -2320,8 +2363,8 @@ function runTrigger(s, p, perm, tr, info) {
   const name = displayName(perm.card);
   const wanted = tr.fx.filter(needsTarget);
   pushEvent(s, 'trigger', `Se dispara ${name}: ${tr.fx.map(describeEffect).filter(Boolean).join(', ')}.`, { uid: perm.uid, by: p.id });
-  if (!wanted.length) { resolveEffects(s, p, perm.card, tr.fx, [], perm); return; }
-  if (p.isBot) { resolveEffects(s, p, perm.card, tr.fx, autoTargets(s, p, wanted, perm), perm); return; }
+  if (!wanted.length) { resolveEffects(s, p, perm.card, tr.fx, [], perm, info); return; }
+  if (p.isBot) { resolveEffects(s, p, perm.card, tr.fx, autoTargets(s, p, wanted, perm), perm, info); return; }
   // humano: elige los objetivos en la mesa
   p.pendingTriggers = [...(p.pendingTriggers || []), { id: s.eventSeq, uid: perm.uid, card: stripCard(perm.card), fx: tr.fx }];
 }
@@ -2465,6 +2508,19 @@ function blockTriggers(s) {
 // ------------------------------------------------- estáticas al entrar
 
 function applyEntersStatics(s, pl, perm) {
+  const coe = staticsOf(perm.card).find((x) => x.kind === 'chooseOnEnter');
+  if (coe) {
+    if (coe.tapped) perm.tapped = true;
+    if (pl.isBot) {
+      const counts = {};
+      if (coe.what === 'color') { for (const x of pl.battlefield) for (const c of x.card.colors || []) counts[c] = (counts[c] || 0) + 1; perm.chosen = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'G'; }
+      else if (coe.what === 'creature type') { for (const x of [...pl.battlefield, ...pl.hand.map((c) => ({ card: c }))]) for (const t of ((x.card.typeLine || '').split('—')[1] || '').trim().split(' ').filter(Boolean)) counts[t] = (counts[t] || 0) + 1; perm.chosen = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Human'; }
+      else perm.chosen = opponents(s, pl.id)[0]?.id;
+    } else {
+      pl.pendingChoices = [...(pl.pendingChoices || []), { type: 'chooseOnEnter', uid: perm.uid, what: coe.what, name: displayName(perm.card) }];
+      pushEvent(s, 'choice', `${displayName(perm.card)}: elige ${coe.what === 'color' ? 'un color' : coe.what === 'creature type' ? 'un tipo de criatura' : 'un rival'}.`, { to: pl.id });
+    }
+  }
   for (const k of keywordsOf(perm.card)) {
     let m;
     if ((m = k.match(/^(modular|fabricate) (\d+)/))) perm.counters += +m[2];
@@ -2528,6 +2584,11 @@ function runDelayed(s, at) {
       if (!wanted.length) resolveEffects(s, pl, d.card, fx, [], null);
       else if (pl.isBot) resolveEffects(s, pl, d.card, fx, autoTargets(s, pl, wanted, null), null);
       else pl.pendingTriggers = [...(pl.pendingTriggers || []), { id: s.eventSeq, uid: -1, card: d.card, fx }];
+    } else if (d.kind === 'return') {
+      const k = pl.exile.findIndex((c) => c.name === d.card.name);
+      if (k >= 0) pl.exile.splice(k, 1);
+      const np = enterPerm(s, pl, d.card, { from: '(vuelve al final del turno)' });
+      resolveEtbOf(s, pl, np);
     } else if (d.kind === 'hand') {
       const f = findPerm(s, d.uid);
       if (f) leaveBattlefield(s, f.owner, f.perm, 'hand', 'vuelve a la mano (arremetida)');
@@ -2721,4 +2782,160 @@ function upkeepKeywords(s, pl) {
       }
     }
   }
+}
+
+function payCost(s, pl, e) {
+  if (e.life) { pl.life -= e.life; pushEvent(s, 'life', `${pl.name} paga ${e.life} vidas (${pl.life}).`, { target: pl.id, delta: -e.life }); return; }
+  const en = (e.cost.match(/\{E\}/g) || []).length;
+  const mana = e.cost.replace(/\{E\}/g, '');
+  if (en) pl.energy = (pl.energy || 0) - en;
+  if (mana) { const plan = planPayment(pl, mana); if (plan) tapForPayment(pl, plan); }
+  pushEvent(s, 'info', `${pl.name} paga ${e.cost}.`, { to: pl.id });
+}
+
+/** Tercer bloque de efectos (copias, parpadeo, descubrir, incubar…). */
+function execMore3(s, pl, card, e, { perm, target, tgt, name, source, ctx }) {
+  const tell = (text) => { if (!pl.isBot) pushEvent(s, 'manual', `${name}: ${text}`, { to: pl.id }); };
+  switch (e.kind) {
+    case 'copySpell': {
+      const it = tgt && tgt.stack ? s.stack.find((x) => x.id === tgt.stack) : null;
+      if (!it) return true;
+      const fx2 = effectFx(it.card);
+      pushEvent(s, 'info', `${name} copia ${displayName(it.card)}.`);
+      resolveEffects(s, pl, it.card, fx2, fx2.some(needsTarget) ? (pl.isBot ? autoTargets(s, pl, fx2.filter(needsTarget), null) : it.targets || []) : [], null);
+      return true;
+    }
+    case 'hasteLast': {
+      const list = ctx.tokens.length ? ctx.tokens : ctx.last ? [ctx.last.perm] : source ? [source] : [];
+      for (const x of list) x.eot = { ...(x.eot || {}), kw: [...new Set([...(x.eot?.kw || []), 'haste'])] };
+      return true;
+    }
+    case 'flicker':
+      if (perm) {
+        const c = perm.perm.card;
+        const owner = perm.owner;
+        leaveBattlefield(s, owner, perm.perm, 'exile', 'se exilia');
+        const k = owner.exile.findIndex((x) => x.name === c.name);
+        if (k >= 0) owner.exile.splice(k, 1);
+        if (!c.isToken) { const np = enterPerm(s, owner, c, { from: '(vuelve del exilio)' }); resolveEtbOf(s, owner, np); }
+      }
+      return true;
+    case 'flickerBack': {
+      const last = ctx.last;
+      if (!last) return true;
+      const c = last.perm.card;
+      const owner = player(s, last.perm.ownerId) || last.owner;
+      const back = () => {
+        const k = owner.exile.findIndex((x) => x.name === c.name);
+        if (k >= 0) owner.exile.splice(k, 1);
+        const np = enterPerm(s, owner, c, { from: '(vuelve del exilio)' });
+        resolveEtbOf(s, owner, np);
+      };
+      if (e.delayed) (s.delayed ||= []).push({ at: 'end', from: s.turn, pid: owner.id, kind: 'return', card: c });
+      else if (!findPerm(s, last.perm.uid)) back();
+      return true;
+    }
+    case 'reanimateAny': {
+      const all = s.players.flatMap((p) => p.graveyard.map((c, i) => [p, c, i])).filter(([, c]) => c.isCreature).sort((a, b) => b[1].cmc - a[1].cmc);
+      if (!all.length) return true;
+      if (pl.isBot || all[0][0].isBot) {
+        const [p, c, i] = all.find(([p]) => p.isBot) || all[0];
+        p.graveyard.splice(i, 1);
+        enterPerm(s, pl, c, { from: `desde el cementerio de ${p.name}` });
+      } else {
+        pl.pendingScan = [...(pl.pendingScan || []), { dest: 'battlefield', fromGrave: true, src: name, until: s.turn + 99 }];
+        pushEvent(s, 'impulse', `${name}: elige una criatura de un cementerio y escanéala: entrará bajo tu control.`, { to: pl.id, amount: 1, scan: 'battlefield' });
+      }
+      return true;
+    }
+    case 'copyToken': {
+      const base = e.self ? source : perm && perm.perm;
+      if (!base) return true;
+      const c = { ...stripCard(base.card), isToken: true, id: 'tokencopy:' + base.card.id, printedName: (base.card.printedName || base.card.name) + ' (ficha)' };
+      const tk = enterPerm(s, pl, c, { from: '(ficha copia)' });
+      ctx.tokens.push(tk);
+      ctx.lastToken = tk;
+      return true;
+    }
+    case 'returnLand': {
+      const lands = pl.battlefield.filter((x) => x.card.isLand && (!source || x.uid !== source.uid || pl.battlefield.filter((y) => y.card.isLand).length === 1));
+      const pick = [...lands].sort((a, b) => (b.tapped ? 1 : 0) - (a.tapped ? 1 : 0) || (/Basic/.test(b.card.typeLine) ? 1 : 0) - (/Basic/.test(a.card.typeLine) ? 1 : 0))[0];
+      if (pick) leaveBattlefield(s, pl, pick, 'hand', 'vuelve a la mano');
+      return true;
+    }
+    case 'discover':
+      if (pl.isBot) {
+        const k = pl.library.findIndex((c) => !c.isLand && c.cmc <= e.amount);
+        if (k >= 0) {
+          const [c] = pl.library.splice(k, 1);
+          pushEvent(s, 'info', `${pl.name} descubre ${displayName(c)} y la lanza gratis.`);
+          if (c.isPermanent) enterPerm(s, pl, c);
+          else { const fx2 = effectFx(c); resolveEffects(s, pl, c, fx2, autoTargets(s, pl, fx2.filter(needsTarget), null), null); pl.graveyard.push(stripCard(c)); }
+        }
+      } else tell(`descubre ${e.amount}: exilia cartas de arriba de tu biblioteca hasta una que no sea tierra con valor de maná ${e.amount} o menos. Puedes lanzarla gratis (pásala por el círculo) o ponerla en tu mano; el resto, debajo en orden aleatorio.`);
+      return true;
+    case 'incubate': {
+      const tk = enterPerm(s, pl, { ...artifactTokenCard('Incubator'), printedName: 'Ficha de Incubadora', oracle: '{2}: Transform this artifact.', printedText: '{2}: transforma este artefacto (se convierte en una criatura artefacto Pirexiana 0/0 con sus contadores).' }, { from: '(incubar)' });
+      tk.counters = e.amount === 'X' ? 0 : e.amount;
+      return true;
+    }
+    case 'manifest': {
+      if (pl.isBot && pl.library.length) {
+        const c = pl.library.shift();
+        const fd = { id: 'facedown:m', name: 'Face-down creature', printedName: 'Criatura boca abajo', image: null, manaCost: '', cmc: 0, typeLine: 'Creature', oracle: '', power: 2, toughness: 2, colors: [], keywords: [], isCreature: true, isPermanent: true, produces: [], effects: { etb: [], spell: [], dies: [] } };
+        const np = enterPerm(s, pl, fd, { from: '(manifestada)' });
+        np.faceDown = true; np.hidden = stripCard(c); np.morphCost = c.isCreature ? c.manaCost : null;
+      } else if (!pl.isBot) {
+        const fd = { id: 'facedown:m', name: 'Face-down creature', printedName: 'Criatura boca abajo', image: null, manaCost: '', cmc: 0, typeLine: 'Creature', oracle: '', power: 2, toughness: 2, colors: [], keywords: [], isCreature: true, isPermanent: true, produces: [], effects: { etb: [], spell: [], dies: [] } };
+        const np = enterPerm(s, pl, fd, { from: '(manifestada)' });
+        np.faceDown = true;
+        tell(e.dread ? 'manifiesta el pavor: mira las 2 primeras cartas de tu biblioteca, pon una boca abajo en la mesa (ya está registrada como criatura 2/2) y la otra en tu cementerio.' : 'pon la primera carta de tu biblioteca boca abajo en la mesa (registrada como criatura 2/2).');
+      }
+      return true;
+    }
+    case 'earthbend':
+      if (perm && perm.perm.card.isLand) {
+        const l = perm.perm;
+        l.card = { ...l.card, isCreature: true, power: 0, toughness: 0, typeLine: l.card.typeLine.replace(/^/, 'Creature ') };
+        l.counters += e.amount === 'X' ? 0 : e.amount;
+        l.eot = { ...(l.eot || {}), kw: ['haste'] };
+        pushEvent(s, 'pump', `${name}: ${displayName(l.card)} se convierte en una criatura 0/0 con ${e.amount} contador${e.amount === 1 ? '' : 'es'} +1/+1 y prisa.`, { uid: l.uid });
+      }
+      return true;
+    case 'regenHost': {
+      const host = hostOf(s, source);
+      if (host) { host.regen = true; pushEvent(s, 'info', `${displayName(host.card)} se regenerará la próxima vez que vaya a ser destruida.`, { uid: host.uid }); }
+      return true;
+    }
+    case 'payOrSac':
+      if (!source || !findPerm(s, source.uid)) return true;
+      if (pl.isBot) {
+        const plan = planPayment(pl, e.cost);
+        if (plan) tapForPayment(pl, plan); else leaveBattlefield(s, pl, source, 'graveyard', 'se sacrifica (no paga)');
+      } else {
+        pl.pendingChoices = [...(pl.pendingChoices || []), { type: 'upkeep', uid: source.uid, cost: e.cost, name, what: 'pay' }];
+      }
+      return true;
+    case 'addChosen': {
+      const c = source && source.chosen && 'WUBRG'.includes(source.chosen) ? source.chosen : null;
+      (pl.manaPool ||= []).push(...Array.from({ length: e.amount }, () => (c ? [c] : ['W', 'U', 'B', 'R', 'G'])));
+      return true;
+    }
+    case 'win':
+      pushEvent(s, 'info', `${name}: ¡${pl.name} gana la partida!`);
+      for (const o of opponents(s, pl.id)) eliminate(s, o, `pierde por ${name}`);
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Vuelve a aplicar la habilidad «al entrar» de un permanente que reaparece (parpadeo). */
+function resolveEtbOf(s, pl, perm) {
+  const fx = perm.card.effects?.etb || [];
+  if (!fx.length) return;
+  const wanted = fx.filter(needsTarget);
+  if (!wanted.length) resolveEffects(s, pl, perm.card, fx, [], perm);
+  else if (pl.isBot) resolveEffects(s, pl, perm.card, fx, autoTargets(s, pl, wanted, perm), perm);
+  else pl.pendingTriggers = [...(pl.pendingTriggers || []), { id: s.eventSeq + 1, uid: perm.uid, card: stripCard(perm.card), fx }];
 }

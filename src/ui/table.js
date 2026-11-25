@@ -23,7 +23,7 @@ import { openEditionPicker, autoMatchEdition, withPreferredEdition } from './edi
 import {
   STEPS, PHASES, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
   power, toughness, displayName, canAttack, manaSources, manaAvailable, planPayment,
-  stackTop, waitingOn, combatReadyPending, has, attachOf, permMatches,
+  stackTop, waitingOn, combatReadyPending, has, attachOf, permMatches, landLimit,
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
@@ -416,6 +416,12 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const pick = (card) => ({ image: card.image, edition: card.edition, printedName: card.printedName, printedText: card.printedText, printedType: card.printedType, id: card.id });
 
   function playRecognized(card) {
+    // «Exilia la primera carta de tu biblioteca»: la carta escaneada va al exilio
+    const pend = !card.fromExile && player(S(), me())?.pendingExile;
+    if (pend && pend.length) {
+      session.dispatch({ t: 'exileTop', card });
+      return;
+    }
     if (card.faces && card.faces.length > 1 && CHOOSE_LAYOUTS.includes(card.layout) && !card.faceIndex && card.faceIndex !== 0) {
       chooseFace(card, (face) => playRecognized(face));
       return;
@@ -834,7 +840,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const lands = support.filter((x) => x.card.isLand);
     const others = support.filter((x) => !x.card.isLand);
 
-    const zone = (cls, label, content, count, onClick) => h('button', { class: 'zone ' + cls, 'data-zone': cls, onClick },
+    const zone = (cls, label, content, count, onClick) => h('button', { class: 'zone ' + cls, 'data-zone': cls.split(' ')[0], onClick },
       content, h('span', { class: 'zl' }, label), count != null ? h('span', { class: 'n' }, count) : null);
     const topGrave = p.graveyard[p.graveyard.length - 1];
     const topExile = p.exile[p.exile.length - 1];
@@ -842,7 +848,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     clear(parts.zones).append(
       zone('library', 'Mazo', h('div', { class: 'card-back' }), p.isBot ? p.library.length : null, () => toast('Biblioteca: el mazo, boca abajo. Se roba de aquí.')),
       zone('graveyard', 'Cementerio', topGrave ? cardFace(topGrave) : null, p.graveyard.length, () => showZone(p, 'graveyard')),
-      zone('exile', 'Exilio', topExile ? cardFace(topExile) : null, p.exile.length || null, () => showZone(p, 'exile')),
+      zone('exile' + (p.id === me() && p.exile.some((c) => c.playable) ? ' playable' : ''), 'Exilio', topExile ? cardFace(topExile) : null, p.exile.length || null, () => showZone(p, 'exile')),
       s.mode === 'commander' ? zone('command', 'Mando', commandZone(p), null, () => commandAction(p)) : null,
     );
 
@@ -983,7 +989,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   function manaHint(p) {
     const m = manaAvailable(p);
-    return `Tienes ${m.total} maná disponible${m.pool ? ` (${m.pool} ya en tu reserva)` : ''}: la app gira tus tierras al pagar, o tócalas para girarlas tú.` + (p.landsPlayed ? ' Ya jugaste tierra este turno.' : ' Aún puedes jugar una tierra.');
+    return `Tienes ${m.total} maná disponible${m.pool ? ` (${m.pool} ya en tu reserva)` : ''}: la app gira tus tierras al pagar, o tócalas para girarlas tú.` + (p.landsPlayed >= landLimit(p) ? ' Ya jugaste tierra este turno.' : landLimit(p) - p.landsPlayed > 1 ? ` Aún puedes jugar ${landLimit(p) - p.landsPlayed} tierras.` : ' Aún puedes jugar una tierra.') + (p.pendingExile?.length ? ' Escanea la carta de arriba de tu biblioteca: irá al exilio.' : '');
   }
 
   // ------------------------------------------------------------ eventos
@@ -1071,6 +1077,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       } else if (e.kind === 'out' || e.kind === 'win') {
         showBanner(e.kind === 'win' ? (e.player === me() ? '¡Victoria!' : 'Derrota') : 'Eliminado');
         toast(e.text, 'warn', 4000);
+      } else if (e.kind === 'impulse' && e.to === me()) {
+        impulseSheet(e);
       } else if ((e.kind === 'manual' || e.kind === 'draw' || e.kind === 'info') && e.to === me()) {
         toast(e.text, 'info', 4500);
       } else if (e.kind === 'pump' || e.kind === 'hit') {
@@ -1364,12 +1372,42 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     ));
   }
 
+  /** Aviso: coge la(s) carta(s) de arriba de tu biblioteca y escanéala(s). */
+  function impulseSheet(e) {
+    let close;
+    close = sheet(h('div', {},
+      h('h3', {}, 'Exilia la primera carta de tu biblioteca'),
+      h('p', {}, e.text),
+      h('p', { class: 'muted' }, `Ponla en el círculo de invocación (o búscala en el grimorio): no se jugará, se quedará en tu Exilio. Desde ahí la puedes ${e.play === 'cast' ? 'lanzar' : 'jugar'} ${e.until === 'next' ? 'hasta el final de tu próximo turno' : 'durante este turno'}, pagando su coste y respetando las reglas normales (una tierra jugada así cuenta como tu tierra del turno).`),
+      h('div', { class: 'actions' },
+        h('button', { class: 'act primary', onClick: () => close() }, 'Voy a escanearla'),
+        h('button', { class: 'act', onClick: () => { close(); openPicker((c) => playRecognized(c)); } }, 'Buscarla en el grimorio'),
+        h('button', { class: 'act', onClick: () => { close(); session.dispatch({ t: 'exileTop', cancel: true }); } }, 'No la registro'),
+      ),
+    ));
+  }
+
+  /** Jugar una carta exiliada que se puede jugar. */
+  function playFromExile(c) {
+    playRecognized({ ...c, fromExile: true });
+  }
+
   function showZone(p, zone) {
     const cards = p[zone];
-    sheet(h('div', {},
+    const mine = p.id === me();
+    let close;
+    const open = (c) => {
+      if (!(zone === 'exile' && mine && c.playable)) { sheet(cardInfo(c)); return; }
+      let close2;
+      close2 = sheet(cardInfo(c, [
+        h('p', {}, `Puedes ${c.playable.cast ? 'lanzarla' : 'jugarla'} desde el exilio ${c.playable.until === S().turn ? 'hasta el final de este turno' : 'hasta el final de tu próximo turno'}.`),
+        h('div', { class: 'actions' }, h('button', { class: 'act primary', onClick: () => { close2(); close(); playFromExile(c); } }, c.isLand ? 'Jugar la tierra' : 'Lanzar')),
+      ]));
+    };
+    close = sheet(h('div', {},
       h('h3', {}, `${zone === 'graveyard' ? 'Cementerio' : 'Exilio'} de ${p.name} (${cards.length})`),
-      cards.length ? h('p', { class: 'muted' }, 'Toca una carta para leer su descripción.') : null,
-      cards.length ? h('div', { class: 'zone-grid' }, [...cards].reverse().map((c) => h('button', { class: 'zone-card', onClick: () => sheet(cardInfo(c)) }, cardFace(c, { big: true }))))
+      cards.length ? h('p', { class: 'muted' }, zone === 'exile' && mine && cards.some((c) => c.playable) ? 'Las cartas marcadas «Jugable» las puedes jugar: tócalas.' : 'Toca una carta para leer su descripción.') : null,
+      cards.length ? h('div', { class: 'zone-grid' }, [...cards].reverse().map((c) => h('button', { class: 'zone-card' + (mine && c.playable ? ' playable' : ''), onClick: () => open(c) }, cardFace(c, { big: true }), mine && c.playable ? h('span', { class: 'play-tag' }, 'Jugable') : null)))
         : h('p', { class: 'muted' }, zone === 'graveyard' ? 'Aquí van las criaturas que mueren y los hechizos ya usados.' : 'Aquí van las cartas exiliadas: quedan fuera de la partida.'),
     ));
   }

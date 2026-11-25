@@ -5,7 +5,7 @@
 import { targetsFor } from './effects.js';
 import {
   activePlayer, canAttack, canBlock, canTarget, combatReadyPending, defenderOf, findPerm, has, opponents,
-  pendingDefenders, planPayment, player, power, stackTop, toughness, permMatches,
+  pendingDefenders, planPayment, player, power, stackTop, toughness, permMatches, landLimit,
 } from './game.js';
 
 const smart = (pl) => pl.level !== 'easy';
@@ -50,7 +50,11 @@ export function nextBotAction(s) {
   switch (s.step) {
     case 'main1':
     case 'main2': {
-      if (me.landsPlayed === 0) {
+      const fromExile = me.exile.filter((c) => c.playable);
+      if (me.landsPlayed < landLimit(me)) {
+        // primero la tierra exiliada que caduca; luego la de la mano
+        const exLand = fromExile.find((c) => c.isLand && !c.playable.cast);
+        if (exLand) return { t: 'play', by: me.id, card: { ...exLand, fromExile: true } };
         const land = me.hand.find((c) => c.isLand);
         if (land) return { t: 'play', by: me.id, handUid: land.uid };
       }
@@ -63,6 +67,12 @@ export function nextBotAction(s) {
         if (!c.isPermanent && (!usefulSpell(c) || targets.includes(null))) continue;
         options.push({ c, targets: targets.filter(Boolean), score: c.cmc + (c.isPermanent ? 0 : 3) });
       }
+      for (const c of fromExile) {
+        if (c.isLand || !planPayment(me, c.manaCost)) continue;
+        const targets = chooseTargets(s, me, targetsFor(c));
+        if (!c.isPermanent && (!usefulSpell(c) || targets.includes(null))) continue;
+        options.push({ c, ex: true, targets: targets.filter(Boolean), score: c.cmc + (c.isPermanent ? 0 : 3) + 2 });
+      }
       options.sort((a, b) => b.score - a.score);
       // Equipar un equipo suelto a la mejor criatura (si no hay nada mejor que lanzar)
       if (!options[0]) {
@@ -74,6 +84,7 @@ export function nextBotAction(s) {
       if (cmdCost && (!options[0] || me.commander.cmc + me.commanderTax >= options[0].c.cmc)) {
         return { t: 'castCommander', by: me.id };
       }
+      if (options[0]?.ex) return { t: 'play', by: me.id, card: { ...options[0].c, fromExile: true }, targets: options[0].targets };
       if (options[0]) return { t: 'play', by: me.id, handUid: options[0].c.uid, targets: options[0].targets };
       return { t: 'next', by: me.id };
     }

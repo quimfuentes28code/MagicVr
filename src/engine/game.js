@@ -745,6 +745,10 @@ const HANDLERS = {
       if (activePlayer(s).id !== pl.id || !isMain(s) || s.stack.length) return illegal(s, pl.id, 'Equipar es como un conjuro: sólo en tu turno, en una fase principal y con la pila vacía.', a);
       if (eq.attachedTo === tf.perm.uid) return illegal(s, pl.id, `${displayName(eq.card)} ya está equipado a ${displayName(tf.perm.card)}.`, a);
       const cost = att?.equip || '';
+      if (att?.equipLife) {
+        pl.life -= att.equipLife;
+        pushEvent(s, 'life', `${pl.name} paga ${att.equipLife} vidas para equipar (${pl.life}).`, { target: pl.id, delta: -att.equipLife });
+      } else if (att?.equipNote) pushEvent(s, 'manual', `Coste de equipar: ${att.equipNote}. Págalo a mano.`, { to: pl.id });
       if (cost) {
         const plan = planPayment(pl, cost);
         if (!plan) {
@@ -1263,6 +1267,27 @@ function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
         }
         break;
       }
+      case 'tokenAttach': {
+        // la ficha entra y el equipo se le une (Job select, Living weapon, For Mirrodin!)
+        const tk = makePerm(s, tokenCard({ ...e, subtype: e.subtype.split(' ').pop() }), pl.id);
+        if (e.subtype.includes(' ')) { tk.card.typeLine = `Token Creature — ${e.subtype}`; }
+        pl.battlefield.push(tk);
+        pushEvent(s, 'play', `${name} crea una ${tk.card.printedName.toLowerCase()} ${e.power}/${e.toughness}.`, { uid: tk.uid, by: pl.id, color: e.colors[0] || 'C', token: true });
+        if (source) {
+          source.attachedTo = tk.uid;
+          refreshStatics(s);
+          const what = describeAttach(attachOf(source.card));
+          pushEvent(s, 'pump', `${name} se equipa a la ficha${what ? ' (' + what + ')' : ''}.`, { uid: tk.uid, by: pl.id });
+        }
+        break;
+      }
+      case 'attachTo':
+        if (perm && source && perm.perm.card.isCreature) {
+          source.attachedTo = perm.perm.uid;
+          refreshStatics(s);
+          pushEvent(s, 'pump', `${name} se equipa a ${displayName(perm.perm.card)}.`, { uid: perm.perm.uid, by: pl.id });
+        }
+        break;
       case 'tapHost': {
         const host = source && source.attachedTo != null ? findPerm(s, source.attachedTo) : null;
         if (host) {

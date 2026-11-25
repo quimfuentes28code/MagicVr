@@ -1333,7 +1333,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('p', {}, what ? `Da a la criatura ${att.aura ? 'encantada' : 'equipada'}: ${what}.` : 'Sus efectos se aplican a mano.'),
       h('p', { class: 'muted' }, host ? `Está ${att.aura ? 'encantando' : 'equipado'} a ${displayName(host.perm.card)}.` : att.aura ? 'No encanta a ninguna criatura.' : 'No está equipado a ninguna criatura.'),
       mine && att.equip != null ? h('div', { class: 'actions' },
-        h('button', { class: 'act primary', onClick: () => { close(); equipFlow(perm, false); } }, `Equipar (${att.equip.replace(/[{}]/g, '') || '0'})`),
+        h('button', { class: 'act primary', onClick: () => { close(); equipFlow(perm, false); } }, att.equipLife ? `Equipar (pagar ${att.equipLife} vidas)` : att.equipNote ? 'Equipar (coste especial)' : `Equipar (${att.equip.replace(/[{}]/g, '') || '0'})`),
         h('button', { class: 'act', onClick: () => { close(); equipFlow(perm, true); } }, 'Mover sin pagar (a mano)'),
         host ? h('button', { class: 'act', onClick: () => { close(); session.dispatch({ t: 'equip', uid: perm.uid, target: null }); } }, 'Desequipar') : null,
       ) : null,

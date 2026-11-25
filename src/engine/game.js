@@ -10,6 +10,7 @@
 import { pips } from './cards.js';
 import { tokenCard, describeEffect, needsTarget, parseAttach, describeAttach, targetsFor, artifactTokenCard, kwEs, targetEs, effectFx } from './effects.js';
 import { staticsOf, triggersOf, activatedOf, keywordsOf, abilitiesOf, altCosts, levelsOf } from './abilities.js';
+import { manualParts } from './coverage.js';
 
 // Etapas del turno en orden. Las marcadas como automáticas pasan solas
 // (como en los juegos digitales) salvo que haya algo en la pila.
@@ -616,6 +617,13 @@ function resolveItem(s, item) {
   const pl = player(s, item.by);
   const card = item.card;
   const name = displayName(card);
+  // aviso de lo que hay que aplicar a mano (sólo humanos)
+  if (!pl.isBot && !card.faceDown) {
+    try {
+      const parts = manualParts(card);
+      if (parts.length) pushEvent(s, 'manualParts', `${name}: esto no se aplica solo, hazlo a mano`, { to: pl.id, parts, card: stripCard(card) });
+    } catch { /* */ }
+  }
   // ¿Siguen siendo legales sus objetivos? (regla 608.2b)
   const fx = effectFx(card);
   const needed = fx.filter(needsTarget);

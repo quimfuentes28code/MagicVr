@@ -788,6 +788,41 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       return;
     }
     const ch = (p.pendingChoices || [])[0];
+    if (ch && ch.type === 'mayPay') {
+      ui.pendingOpen = true;
+      let close;
+      const what = ch.life ? `${ch.life} vidas` : ch.cost;
+      close = sheet(h('div', {},
+        h('h3', {}, ch.name),
+        h('p', {}, `¿Pagas ${what}? ${ch.rest.filter((x) => x.ifPaid).map(describeEffect).filter(Boolean).join(', ') ? 'Si pagas: ' + ch.rest.filter((x) => x.ifPaid).map(describeEffect).filter(Boolean).join(', ') + '.' : ''}`),
+        h('div', { class: 'actions' },
+          h('button', { class: 'act primary', onClick: () => { close(); session.dispatch({ t: 'choice', type: 'mayPay', uid: ch.uid, yes: true }); } }, `Pagar ${what}`),
+          h('button', { class: 'act', onClick: () => { close(); session.dispatch({ t: 'choice', type: 'mayPay', uid: ch.uid, yes: false }); } }, 'No pagar'),
+        ),
+      ), { onClose: () => { ui.pendingOpen = false; } });
+      return;
+    }
+    if (ch && ch.type === 'chooseOnEnter') {
+      ui.pendingOpen = true;
+      let close;
+      const pick = (v) => { close(); session.dispatch({ t: 'choice', type: 'chooseOnEnter', uid: ch.uid, value: v }); };
+      let body;
+      if (ch.what === 'color') {
+        body = h('div', { class: 'row-btns' }, [['W', 'Blanco'], ['U', 'Azul'], ['B', 'Negro'], ['R', 'Rojo'], ['G', 'Verde']].map(([c, n]) => h('button', { class: 'act', onClick: () => pick(c) }, n)));
+      } else if (ch.what === 'creature type') {
+        const types = {};
+        for (const x of p.battlefield) for (const t of ((x.card.typeLine || '').split('—')[1] || '').trim().split(' ').filter(Boolean)) types[t] = (types[t] || 0) + 1;
+        const common = Object.keys(types).sort((a, b) => types[b] - types[a]);
+        for (const t of ['Human', 'Elf', 'Goblin', 'Zombie', 'Soldier', 'Wizard', 'Spirit', 'Dragon', 'Angel', 'Vampire', 'Merfolk', 'Knight']) if (!common.includes(t)) common.push(t);
+        const inp = h('input', { type: 'text', placeholder: 'Otro tipo (en inglés, p. ej. Sliver)', class: 'type-input' });
+        body = h('div', {}, h('div', { class: 'row-btns' }, common.slice(0, 14).map((t) => h('button', { class: 'act', onClick: () => pick(t) }, (TYPE_ES[t] || t)))),
+          h('div', { class: 'row-btns' }, inp, h('button', { class: 'act primary', onClick: () => inp.value.trim() && pick(inp.value.trim().replace(/^./, (c) => c.toUpperCase())) }, 'Elegir')));
+      } else {
+        body = h('div', { class: 'row-btns' }, s.players.filter((o) => o.id !== me() && !o.eliminated).map((o) => h('button', { class: 'act', onClick: () => pick(o.id) }, o.name)));
+      }
+      close = sheet(h('div', {}, h('h3', {}, `${ch.name}: elige ${ch.what === 'color' ? 'un color' : ch.what === 'creature type' ? 'un tipo de criatura' : 'un rival'}`), body), { onClose: () => { ui.pendingOpen = false; } });
+      return;
+    }
     if (ch && ch.type === 'upkeep') {
       ui.pendingOpen = true;
       let close;

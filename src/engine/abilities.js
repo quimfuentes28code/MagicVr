@@ -319,7 +319,39 @@ const T = [
   [/^switch CARDNAME's power and toughness until end of turn$/i, () => ({ kind: 'switchPT' })],
   [/^CARDNAME can attack this turn as though it didn't have defender$/i, () => ({ kind: 'canAttackDefender' })],
   [/^(?:you may )?put a land card from your hand onto the battlefield(?: tapped)?$/i, (m) => ({ kind: 'putLand', tapped: /tapped/i.test(m[0]) })],
-  [/^copy target instant or sorcery spell(?: you control)?\. you may choose new targets for the copy$/i, () => ({ kind: 'instruct', text: 'Copia el hechizo objetivo (vuelve a aplicar su efecto, puedes elegir nuevos objetivos).' })],
+  [/^copy target (?:instant or sorcery |instant |sorcery )?spell(?: you control)?$/i, () => ({ kind: 'copySpell', target: 'spell' })],
+  [/^copy (?:it|that spell)(?: (?:twice|for each .+))?$/i, () => ({ kind: 'instruct', text: 'Copia ese hechizo (vuelve a aplicar su efecto; puedes elegir nuevos objetivos).' })],
+  [/^you may choose new targets for the cop(?:y|ies)$/i, () => []],
+  [/^(?:target opponent|target player|each opponent) reveals (?:their|his or her) hand$/i, () => []],
+  [/^you choose (?:a|an|up to one|one) (?:nonland|noncreature, nonland|creature|instant or sorcery|nonartifact, nonland|artifact or creature|land|nonlegendary)? ?card from (?:it|that player's hand)$/i, () => []],
+  [/^(?:that player|they) discards? (?:that card|those cards)$/i, () => ({ kind: 'discard', amount: 1, who: 'target opponent', choose: true })],
+  [/^if you search your library this way, shuffle$/i, () => []],
+  [/^until end of turn, you don't lose this mana as steps and phases end$/i, () => []],
+  [/^(?:it|they|those creatures|those tokens|that creature|the token|the tokens) gains? haste(?: until end of turn)?$/i, () => ({ kind: 'hasteLast' })],
+  [/^sacrifice (?:it|that creature|them|those tokens|the token) at the beginning of the next end step$/i, () => ({ kind: 'delayedSac' })],
+  [/^exile (?:it|that creature|them|those tokens|the token) at the beginning of the next end step$/i, () => ({ kind: 'delayedSac', exile: true })],
+  [/^(?:look at|reveal) the top card of your library$/i, () => ({ kind: 'instruct', text: 'Mira la primera carta de tu biblioteca y sigue lo que dice la carta.' })],
+  [/^exile the top (\w+) cards? of your library$/i, (m) => ({ kind: 'instruct', text: `Exilia las ${m[1] === 'card' ? 1 : num(m[1])} primeras cartas de tu biblioteca.` })],
+  [/^add (\w+) mana in any combination of colors$/i, (m) => ({ kind: 'addMana', mana: Array.from({ length: num(m[1]) }, () => ['W', 'U', 'B', 'R', 'G']) })],
+  [/^add (one|two|three) mana of the chosen color$/i, (m) => ({ kind: 'addChosen', amount: num(m[1]) })],
+  [/^you win the game$/i, () => ({ kind: 'win' })],
+  [/^(?:target player|each player|that player|you) (?:shuffles their hand and graveyard into their library, then )?draws seven cards$/i, () => ({ kind: 'drawOther', who: 'each player', amount: 7 })],
+  [/^return (?:that card|it|the exiled card|that creature) to the battlefield under (?:its owner's|your) control(?: at the beginning of the next end step)?$/i, (m) => ({ kind: 'flickerBack', delayed: /next end step/i.test(m[0]) })],
+  [/^exile (?:another )?target (creature|artifact|permanent|nonland permanent|creature or artifact|creature you control|artifact or creature you control), then return (?:that card|it) to the battlefield under (?:its owner's|your) control$/i, (m) => ({ kind: 'flicker', ...permT(m[1]) })],
+  [/^put target creature card from a graveyard onto the battlefield under your control$/i, () => ({ kind: 'reanimateAny' })],
+  [/^exile (?:up to one )?target (?:creature )?card from a graveyard$/i, () => ({ kind: 'exileGraveCard' })],
+  [/^create a token that's a copy of (CARDNAME|target creature you control|it|that creature)$/i, (m) => ({ kind: 'copyToken', ...(/target/.test(m[1]) ? { target: 'creature', filter: { types: ['creature'], non: [], you: true } } : { self: true }) })],
+  [/^CARDNAME deals (\d+) damage to (?:that player|defending player|that creature's controller)$/i, (m) => ({ kind: 'damage', amount: +m[1], target: 'that' })],
+  [/^return (?:a|one) land you control to its owner's hand$/i, () => ({ kind: 'returnLand' })],
+  [/^discover (\d+)$/i, (m) => ({ kind: 'discover', amount: +m[1] })],
+  [/^incubate (\d+|X)$/i, (m) => ({ kind: 'incubate', amount: num(m[1]) })],
+  [/^manifest dread$/i, () => ({ kind: 'manifest', dread: true })],
+  [/^manifest the top card of your library$/i, () => ({ kind: 'manifest' })],
+  [/^earthbend (\d+|X)$/i, (m) => ({ kind: 'earthbend', amount: num(m[1]), target: 'permanent', filter: { types: ['land'], non: [], you: true } })],
+  [/^target attacking creature gets ([+-]\d+)\/([+-]\d+) until end of turn$/i, (m) => ({ kind: 'pump', p: +m[1], t: +m[2], kw: [], target: 'creature', filter: { types: ['creature'], non: [], combat: true } })],
+  [/^target creature with power (\d+) or less can't be blocked this turn$/i, (m) => ({ kind: 'unblockable', target: 'creature', filter: { types: ['creature'], non: [], powMax: +m[1] } })],
+  [/^regenerate (?:enchanted|equipped) creature$/i, () => ({ kind: 'regenHost' })],
+  [/^sacrifice CARDNAME unless you pay ((?:\{[^}]+\})+)$/i, (m) => ({ kind: 'payOrSac', cost: m[1] })],
 ];
 
 /** Partes que no hace falta aplicar (texto de ayuda o ya implícito). */
@@ -327,7 +359,10 @@ const NOOP = [/^(?:then )?shuffle$/i, /^it can't be regenerated$/i, /^they can't
 
 /** Divide un texto de efecto en cláusulas («X. Then Y», «X, then Y», «X and Y»). */
 function clauses(text) {
-  const sentences = text.replace(/\s+/g, ' ').trim().replace(/\.$/, '').split(/\.\s+(?=[A-Z])/);
+  const t0 = text.replace(/\s+/g, ' ').trim()
+    .replace(/(of your library)\. (?=(?:Until (?:the )?end of|You may (?:play|cast) (?:that card|it|them|those cards)))/g, '$1 ')
+    .replace(/\. (If you do|If you don't), /g, '. $1, ');
+  const sentences = t0.replace(/\.$/, '').split(/\.\s+(?=[A-Z])/);
   const out = [];
   for (let s of sentences) {
     s = s.replace(/\.$/, '').trim();
@@ -365,10 +400,22 @@ function matchClause(c) {
 export function parseEffectText(text) {
   const fx = [];
   const missing = [];
-  for (const c of clauses(text)) {
+  let paid = false;
+  for (let c of clauses(text)) {
     if (!c) continue;
+    // «Puedes pagar {2}. Si lo haces, …»
+    const mp = c.match(/^(?:you may )?pay ((?:\{[^}]+\})+|(\d+) life)(?:\. if you do,|\.?$| and)?\s*(.*)$/i);
+    if (mp && /^you may pay/i.test(c.trim())) {
+      fx.push({ kind: 'mayPay', cost: mp[2] ? '' : mp[1], life: mp[2] ? +mp[2] : 0 });
+      paid = true;
+      c = mp[3] || '';
+      if (!c) continue;
+    }
+    const ifDo = c.match(/^if you do, (.+)$/i);
+    if (ifDo && paid) c = ifDo[1];
+    else if (/^if you don't, /i.test(c) && paid) { const r = matchClause(c.replace(/^if you don't, /i, '')); if (r) { fx.push(...r.map((e) => ({ ...e, ifNotPaid: true }))); continue; } }
     const r = matchClause(c);
-    if (r) fx.push(...r);
+    if (r) fx.push(...(paid && ifDo ? r.map((e) => ({ ...e, ifPaid: true })) : r));
     else missing.push(c);
   }
   return { fx, ok: missing.length === 0 && (fx.length > 0 || clauses(text).every((c) => NOOP.some((r) => r.test(c)))), missing };
@@ -553,6 +600,9 @@ export function parseStatic(text, card) {
   if ((m = s.match(/^CARDNAME enters with (two|three|one|a) -1\/-1 counters? on it$/))) return { kind: 'entersCounters', amount: -num(m[1]) };
   if ((m = s.match(/^If CARDNAME was kicked, it enters with (\w+) \+1\/\+1 counters? on it$/))) return { kind: 'entersCounters', amount: num(m[1]), kicked: true };
   if ((m = s.match(/^Afterlife (\d+)$/))) return { kind: 'afterlife', amount: +m[1] };
+  if ((m = s.match(/^(?:CARDNAME enters tapped\. )?As CARDNAME enters, choose (a|an) (color|creature type|opponent|basic land type|card type)$/))) return { kind: 'chooseOnEnter', what: m[2], tapped: /enters tapped/.test(s) };
+  if ((m = s.match(/^(?:Other )?[Cc]reatures you control of the chosen type get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?$/))) return { kind: 'anthem', who: 'mine', chosenType: true, other: /^Other/.test(s), p: +m[1], t: +m[2], kw: kwList(m[3]) };
+  if ((m = s.match(/^(?:Other )?[Cc]reatures of the chosen type (?:you control )?get ([+-]\d+)\/([+-]\d+)$/))) return { kind: 'anthem', who: 'mine', chosenType: true, other: /^Other/.test(s), p: +m[1], t: +m[2], kw: [] };
   // fuerza/resistencia que dependen de algo que se puede contar
   if ((m = s.match(/^CARDNAME's (power and toughness are each|power is|toughness is) equal to (?:the number of )?(.+)$/))) {
     const what = countWhat(m[2]);

@@ -24,6 +24,9 @@ export const FX_SUPPORTED = {
   adapt: () => true, chargeCounter: () => true, prevent: () => true, fog: () => true, threaten: () => true, steal: () => true,
   untapLast: () => true, hasteLast: () => true, controllerLife: () => true, controllerLifePower: () => true, delayedDraw: () => true,
   delayedSac: () => true, support: () => true, bolster: () => true, exileGraveCard: () => true, exileGraveyard: () => true, damageEach: () => true,
+  mayPay: () => true, copySpell: () => true, flicker: () => true, flickerBack: () => true, reanimateAny: () => true, copyToken: () => true,
+  returnLand: () => true, discover: () => true, incubate: () => true, manifest: () => true, earthbend: () => true, regenHost: () => true,
+  payOrSac: () => true, addChosen: () => true, win: () => true,
   extraTurn: () => true, freezeLast: () => true, returnExiled: () => true, switchPT: () => true, canAttackDefender: () => true, putLand: () => true,
 };
 export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', 'blocks', 'blocked', 'combatDamagePlayer', 'upkeep', 'anyUpkeep',
@@ -35,7 +38,7 @@ export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', '
 export const STATICS_SUPPORTED = new Set(['attach', 'extraLand', 'info', 'anthem', 'selfBuff', 'noBlockSelf', 'noAttackSelf', 'unblockableSelf',
   'menaceLike', 'noUntapSelf', 'entersTapped', 'entersCounters', 'blockOnlyFlyers', 'attackOnlyIf', 'evadePower', 'evadeSmaller', 'afterlife',
   'controlHost', 'addSac', 'addDiscard', 'addLife', 'persist', 'undying', 'kw', 'cumulative', 'echo', 'levelUp', 'levelInfo', 'varPT', 'forEach',
-  'costReducer', 'selfReduce', 'noLifeGain', 'lifeBonus', 'skipDraw', 'sacUnless', 'lifelinkLike', 'evadeType']);
+  'costReducer', 'selfReduce', 'noLifeGain', 'lifeBonus', 'skipDraw', 'sacUnless', 'lifelinkLike', 'evadeType', 'chooseOnEnter']);
 export const KEYWORDS_SUPPORTED = new Set(['flying', 'reach', 'first strike', 'double strike', 'deathtouch', 'trample', 'lifelink', 'haste',
   'vigilance', 'menace', 'defender', 'hexproof', 'shroud', 'indestructible', 'flash', 'infect', 'wither', 'protection', 'enchant', 'equip',
   'job select', 'living weapon', 'for mirrodin!', 'partner', 'partner with', 'choose a background', 'prowess', 'exalted', 'toxic', 'fear',

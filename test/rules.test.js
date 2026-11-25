@@ -600,3 +600,19 @@ test('Pacifismo y «gira la criatura objetivo» al entrar', () => {
   s = act(s, { t: 'play', by: 'a', card: tapper, force: true, targets: [{ uid: foe }] });
   assert.equal(s.players[1].battlefield.find((p) => p.uid === foe).tapped, true);
 });
+
+test('Lanza de dragontino: «Gae Bolg — Equip {4}» y Job select crea un Héroe ya equipado', () => {
+  const lance = normalize({ name: "Dragoon's Lance", manaCost: '{1}{W}', typeLine: 'Artifact — Equipment', colors: ['W'],
+    oracle: "Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+0 and is a Knight in addition to its other types.\nDuring your turn, equipped creature has flying.\nGae Bolg — Equip {4}" });
+  assert.equal(lance.attach.equip, '{4}');
+  let s = duel();
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: lance, force: true });
+  const bf = s.players[0].battlefield;
+  const hero = bf.find((p) => p.card.isToken);
+  const eq = bf.find((p) => p.card.name === "Dragoon's Lance");
+  assert.ok(hero, 'crea la ficha de Héroe');
+  assert.equal(eq.attachedTo, hero.uid);
+  assert.equal(hero.bonus.p, 1);
+  assert.ok(hero.bonus.kw.includes('flying'));
+});

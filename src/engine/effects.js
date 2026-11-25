@@ -20,6 +20,11 @@ export function parseEffects(card) {
   if (red && /^(?:tapped |untapped |attacking |blocking |attacking or blocking )?(?:creature|permanent|artifact|enchantment|planeswalker|land)(?: or (?:creature|planeswalker|artifact|enchantment))?(?: you control| an opponent controls| you don't control)?$/i.test(red[2].trim().replace(/[’]/g, "'"))) {
     out.reduce = { n: +red[1], filter: parseTargetPhrase(red[2]) };
   }
+  // Equipos que traen su criatura: Job select (Héroe 1/1), Living weapon (Germen 0/0), For Mirrodin! (Rebelde 2/2)
+  const ownToken = /\bJob select\b/i.test(text) ? { subtype: 'Hero', power: 1, toughness: 1, colors: [] }
+    : /\bLiving weapon\b/i.test(text) ? { subtype: 'Phyrexian Germ', power: 0, toughness: 0, colors: ['B'] }
+      : /\bFor Mirrodin!/i.test(text) ? { subtype: 'Rebel', power: 2, toughness: 2, colors: ['R'] } : null;
+  if (ownToken) out.etb.push({ kind: 'tokenAttach', amount: 1, keywords: [], ...ownToken });
   if (card.isInstant || card.isSorcery) {
     out.spell = parseSentence(clean);
   } else {
@@ -131,6 +136,7 @@ function parseSentence(t) {
   }
   if ((m = t.match(/[Yy]ou may play (an|one|two|three) additional lands? this turn/))) fx.push({ kind: 'extraLand', amount: num(m[1]) });
   // girar / enderezar: la criatura encantada o equipada, o un objetivo
+  if (/attach (?:it|this Equipment) to target creature you control/i.test(t)) fx.push({ kind: 'attachTo', target: 'creature', filter: { types: ['creature'], non: [], you: true } });
   if (/\btap (?:enchanted|equipped) creature/i.test(t)) fx.push({ kind: 'tapHost' });
   else if ((m = t.match(/\b(tap|untap) (?:up to one )?(?:another )?target ([^.\n]+?)(?:\.|,|$| and )/i)) && permTarget(m[2])) fx.push({ kind: m[1].toLowerCase() === 'tap' ? 'tap' : 'untap', ...permTarget(m[2]) });
   return fx;
@@ -203,6 +209,8 @@ export function describeEffect(e) {
     case 'counterspell': return 'contrarresta un hechizo';
     case 'impulse': return `exilia ${e.amount === 1 ? 'la primera carta' : 'las ' + e.amount + ' primeras cartas'} de tu biblioteca y puedes ${e.play === 'cast' ? 'lanzarla' : 'jugarla'} ${e.until === 'next' ? 'hasta el final de tu próximo turno' : 'este turno'}`;
     case 'tapHost': return 'gira la criatura encantada';
+    case 'tokenAttach': return `crea una ficha ${e.power}/${e.toughness} y se le equipa`;
+    case 'attachTo': return 'se equipa a una criatura tuya';
     case 'tap': return 'gira ' + targetEs(e.filter);
     case 'untap': return 'endereza ' + targetEs(e.filter);
     case 'extraLand': return `puedes jugar ${e.amount === 1 ? 'una tierra adicional' : e.amount + ' tierras adicionales'} este turno`;
@@ -227,7 +235,10 @@ export function parseAttach(card) {
   const isAura = /\bAura\b/.test(type);
   if (!isEquip && !isAura) return null;
   const text = (card.oracle || '').replace(/\([^)]*\)/g, '');
-  const em = text.match(/^Equip(?: [a-z ]+)?\s*((?:\{[^}]+\})+)/im);
+  // «Equip {4}», «Gae Bolg — Equip {4}», «Equip—Pay {3} or discard a card», «Equip—Pay 3 life»
+  const eqLine = (text.match(/(?:^|—\s*)Equip\b[^\n]*/im) || [''])[0].replace(/^—\s*/, '');
+  const em = eqLine.match(/^Equip(?: [a-z ]+)?\s*(?:—\s*Pay\s*)?((?:\{[^}]+\})+)/i);
+  const lifeM = eqLine.match(/^Equip\s*—\s*Pay (\d+) life/i);
   const mods = [];
   for (const raw of text.split(/\n|\.\s+/)) {
     const m = raw.match(/^\s*(During your turn, )?(?:equipped|enchanted) creature (.+)$/i);
@@ -248,7 +259,8 @@ export function parseAttach(card) {
     if (/can['’]t (?:attack or )?block/i.test(own) && !/alone/i.test(own)) mod.cantBlock = true;
     if (mod.p || mod.t || mod.kw.length || mod.types.length || mod.noUntap || mod.cantAttack || mod.cantBlock) mods.push(mod);
   }
-  return { equip: isEquip ? (em ? em[1] : null) : null, aura: isAura, mods };
+  const equip = !isEquip || !eqLine ? null : em ? em[1] : '';
+  return { equip, equipLife: lifeM ? +lifeM[1] : 0, equipNote: equip === '' && !lifeM ? eqLine.replace(/^Equip\s*—\s*/i, '') : '', aura: isAura, mods };
 }
 
 /** Texto en español de lo que da un equipo/aura. */

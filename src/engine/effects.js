@@ -62,7 +62,10 @@ export const needsTarget = (e) => ['any', 'creature', 'player', 'spell'].include
 /** Lista de objetivos que pide una carta al jugarse (en orden). */
 export function targetsFor(card) {
   const fx = card.isPermanent ? card.effects?.etb : card.effects?.spell;
-  return (fx || []).filter(needsTarget);
+  const out = (fx || []).filter(needsTarget);
+  // Aura: se lanza sobre una criatura (va al final para no mover los objetivos de sus efectos)
+  if (/\bAura\b/.test(card.typeLine || '') && /^Enchant creature/im.test(card.oracle || '')) out.push({ kind: 'aura', target: 'creature', attach: true, oracle: card.oracle });
+  return out;
 }
 
 const TOKEN_ES = { Hero: 'Héroe', Construct: 'Constructo', Thopter: 'Tóptero', Elemental: 'Elemental', Faerie: 'Hada', Dog: 'Perro', Squirrel: 'Ardilla',
@@ -116,6 +119,58 @@ export function describeEffect(e) {
     case 'token': return `crea ${e.amount} ficha${e.amount > 1 ? 's' : ''} de ${e.power}/${e.toughness}`;
     case 'regrow': return 'recupera una criatura de tu cementerio';
     case 'counterspell': return 'contrarresta un hechizo';
+    case 'aura': return 'elige la criatura que encanta';
+    case 'equip': return 'elige la criatura a la que lo equipas';
     default: return '';
   }
 }
+
+// ------------------------------------------------------------ equipo y auras
+
+const ATTACH_KW = ['first strike', 'double strike', 'flying', 'vigilance', 'lifelink', 'haste', 'trample', 'deathtouch', 'reach', 'menace',
+  'hexproof', 'indestructible', 'shroud', 'defender'];
+
+/**
+ * Lo que da un Equipo o un Aura a la criatura equipada/encantada, leído del oracle:
+ * { equip: '{4}' | null, mods: [{ p, t, kw: [], types: [], myTurn }] }.
+ */
+export function parseAttach(card) {
+  const type = card.typeLine || '';
+  const isEquip = /\bEquipment\b/.test(type);
+  const isAura = /\bAura\b/.test(type);
+  if (!isEquip && !isAura) return null;
+  const text = (card.oracle || '').replace(/\([^)]*\)/g, '');
+  const em = text.match(/^Equip(?: [a-z ]+)?\s*((?:\{[^}]+\})+)/im);
+  const mods = [];
+  for (const raw of text.split(/\n|\.\s+/)) {
+    const m = raw.match(/^\s*(During your turn, )?(?:equipped|enchanted) creature (.+)$/i);
+    if (!m) continue;
+    const rest = m[2];
+    const mod = { p: 0, t: 0, kw: [], types: [], myTurn: !!m[1] };
+    const g = rest.match(/gets ([+-]\d+)\/([+-]\d+)/i);
+    if (g) { mod.p = +g[1]; mod.t = +g[2]; }
+    const hasM = rest.match(/\bha(?:s|ve) ([a-z ,]+?)(?:\.|$| and gets| as long| until)/i);
+    if (hasM) for (const k of ATTACH_KW) if (new RegExp('\\b' + k + '\\b', 'i').test(hasM[1])) mod.kw.push(k);
+    // «dañar dos veces» incluye «dañar primero» en el texto: no duplicar
+    if (mod.kw.includes('double strike')) mod.kw = mod.kw.filter((k) => k !== 'first strike' || /first strike/i.test(hasM[1].replace(/double strike/ig, '')));
+    const ty = rest.match(/is an? ([A-Z][\w ]*?) in addition to its other types/);
+    if (ty) mod.types.push(ty[1].trim());
+    if (mod.p || mod.t || mod.kw.length || mod.types.length) mods.push(mod);
+  }
+  return { equip: isEquip ? (em ? em[1] : null) : null, aura: isAura, mods };
+}
+
+/** Texto en español de lo que da un equipo/aura. */
+export function describeAttach(att) {
+  if (!att) return '';
+  const fmt = (n) => (n >= 0 ? '+' : '') + n;
+  return att.mods.map((m) => {
+    const parts = [];
+    if (m.p || m.t) parts.push(`${fmt(m.p)}/${fmt(m.t)}`);
+    if (m.types.length) parts.push(`es ${m.types.map((t) => TOKEN_ES[t] || t).join(', ')}`);
+    if (m.kw.length) parts.push(m.kw.map((k) => KW_ES[k] || k).join(', '));
+    return parts.join(', ') + (m.myTurn ? ' (en tu turno)' : '');
+  }).filter(Boolean).join('; ');
+}
+export const kwEs = (k) => KW_ES[k] || k;
+export const TYPE_ES = TOKEN_ES;

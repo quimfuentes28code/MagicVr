@@ -23,7 +23,7 @@ export function parseEffects(card) {
   if (card.isInstant || card.isSorcery) {
     out.spell = parseSentence(clean);
   } else {
-    const m = clean.match(/When (?:CARDNAME|this creature) enters(?: the battlefield)?,\s*([^\n]+)/i);
+    const m = clean.match(/When (?:CARDNAME|this (?:creature|Aura|enchantment|artifact|Equipment|Vehicle|permanent|land)) enters(?: the battlefield)?,\s*([^\n]+)/i);
     if (m) out.etb = parseSentence(m[1]);
     // «Cuando muera…» (disparada al ir del campo de batalla al cementerio)
     const d = clean.match(/When (?:CARDNAME|this creature) (?:dies|is put into a graveyard from the battlefield),\s*([^\n]+)/i);
@@ -130,6 +130,9 @@ function parseSentence(t) {
     fx.push({ kind: 'impulse', amount: m[1] === 'card' ? 1 : num(m[1].split(' ')[0]), until: /next/.test(m[2] || m[5] || '') ? 'next' : 'turn', play: m[3] || m[4] });
   }
   if ((m = t.match(/[Yy]ou may play (an|one|two|three) additional lands? this turn/))) fx.push({ kind: 'extraLand', amount: num(m[1]) });
+  // girar / enderezar: la criatura encantada o equipada, o un objetivo
+  if (/\btap (?:enchanted|equipped) creature/i.test(t)) fx.push({ kind: 'tapHost' });
+  else if ((m = t.match(/\b(tap|untap) (?:up to one )?(?:another )?target ([^.\n]+?)(?:\.|,|$| and )/i)) && permTarget(m[2])) fx.push({ kind: m[1].toLowerCase() === 'tap' ? 'tap' : 'untap', ...permTarget(m[2]) });
   return fx;
 }
 
@@ -199,6 +202,9 @@ export function describeEffect(e) {
     case 'regrow': return 'recupera una criatura de tu cementerio';
     case 'counterspell': return 'contrarresta un hechizo';
     case 'impulse': return `exilia ${e.amount === 1 ? 'la primera carta' : 'las ' + e.amount + ' primeras cartas'} de tu biblioteca y puedes ${e.play === 'cast' ? 'lanzarla' : 'jugarla'} ${e.until === 'next' ? 'hasta el final de tu próximo turno' : 'este turno'}`;
+    case 'tapHost': return 'gira la criatura encantada';
+    case 'tap': return 'gira ' + targetEs(e.filter);
+    case 'untap': return 'endereza ' + targetEs(e.filter);
     case 'extraLand': return `puedes jugar ${e.amount === 1 ? 'una tierra adicional' : e.amount + ' tierras adicionales'} este turno`;
     case 'aura': return 'elige la criatura que encanta';
     case 'equip': return 'elige la criatura a la que lo equipas';
@@ -227,6 +233,7 @@ export function parseAttach(card) {
     const m = raw.match(/^\s*(During your turn, )?(?:equipped|enchanted) creature (.+)$/i);
     if (!m) continue;
     const rest = m[2];
+    const own = rest.replace(/[“"][^”"]*[”"]/g, ''); // sin habilidades entre comillas que se le dan
     const mod = { p: 0, t: 0, kw: [], types: [], myTurn: !!m[1] };
     const g = rest.match(/gets ([+-]\d+)\/([+-]\d+)/i);
     if (g) { mod.p = +g[1]; mod.t = +g[2]; }
@@ -236,7 +243,10 @@ export function parseAttach(card) {
     if (mod.kw.includes('double strike')) mod.kw = mod.kw.filter((k) => k !== 'first strike' || /first strike/i.test(hasM[1].replace(/double strike/ig, '')));
     const ty = rest.match(/is an? ([A-Z][\w ]*?) in addition to its other types/);
     if (ty) mod.types.push(ty[1].trim());
-    if (mod.p || mod.t || mod.kw.length || mod.types.length) mods.push(mod);
+    if (/doesn['’]t untap during/i.test(own)) mod.noUntap = true;
+    if (/can['’]t attack(?! you)/i.test(own) && !/can['’]t attack or block alone/i.test(own)) mod.cantAttack = true;
+    if (/can['’]t (?:attack or )?block/i.test(own) && !/alone/i.test(own)) mod.cantBlock = true;
+    if (mod.p || mod.t || mod.kw.length || mod.types.length || mod.noUntap || mod.cantAttack || mod.cantBlock) mods.push(mod);
   }
   return { equip: isEquip ? (em ? em[1] : null) : null, aura: isAura, mods };
 }
@@ -250,6 +260,10 @@ export function describeAttach(att) {
     if (m.p || m.t) parts.push(`${fmt(m.p)}/${fmt(m.t)}`);
     if (m.types.length) parts.push(`es ${m.types.map((t) => TOKEN_ES[t] || t).join(', ')}`);
     if (m.kw.length) parts.push(m.kw.map((k) => KW_ES[k] || k).join(', '));
+    if (m.cantAttack && m.cantBlock) parts.push('no puede atacar ni bloquear');
+    else if (m.cantAttack) parts.push('no puede atacar');
+    else if (m.cantBlock) parts.push('no puede bloquear');
+    if (m.noUntap) parts.push('no se endereza en su paso de enderezar');
     return parts.join(', ') + (m.myTurn ? ' (en tu turno)' : '');
   }).filter(Boolean).join('; ');
 }

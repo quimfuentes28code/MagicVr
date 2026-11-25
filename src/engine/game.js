@@ -208,11 +208,14 @@ function refreshStatics(s) {
         continue;
       }
       const att = attachOf(perm.card);
-      const b = (f.perm.bonus ||= { p: 0, t: 0, kw: [], types: [], from: [] });
+      const b = (f.perm.bonus ||= { p: 0, t: 0, kw: [], types: [], from: [], noUntap: false, cantAttack: false, cantBlock: false });
       b.from.push(perm.uid);
       for (const m of att?.mods || []) {
         if (m.myTurn && active !== p.id) continue;
         b.p += m.p; b.t += m.t;
+        if (m.noUntap) b.noUntap = true;
+        if (m.cantAttack) b.cantAttack = true;
+        if (m.cantBlock) b.cantBlock = true;
         for (const k of m.kw) if (!b.kw.includes(k)) b.kw.push(k);
         for (const t of m.types) if (!b.types.includes(t)) b.types.push(t);
       }
@@ -254,8 +257,16 @@ export function defenderOf(s, target) {
   return target;
 }
 
+/** ¿Le impide algo enderezarse en su paso de enderezar? */
+export function noUntap(perm) {
+  if (perm.bonus && perm.bonus.noUntap) return true;
+  const o = (perm.card.oracle || '').split(perm.card.name).join('CARDNAME');
+  return /^(?:CARDNAME|This [a-z]+) doesn['’]t untap during your untap step\.?$/im.test(o);
+}
+
 export function canAttack(s, perm) {
   if (!perm.card.isCreature || perm.tapped) return false;
+  if (perm.bonus && perm.bonus.cantAttack) return false;
   if (has(perm, 'defender') || /can.t attack/i.test(perm.card.oracle)) return false;
   if (perm.sick && !has(perm, 'haste')) return false;
   return true;
@@ -263,6 +274,7 @@ export function canAttack(s, perm) {
 
 export function canBlock(perm, attacker) {
   if (!perm.card.isCreature || perm.tapped) return false;
+  if (perm.bonus && perm.bonus.cantBlock) return false;
   if (/can.t block/i.test(perm.card.oracle)) return false;
   if (has(attacker, 'flying') && !has(perm, 'flying') && !has(perm, 'reach')) return false;
   if (unblockable(attacker)) return false;
@@ -999,7 +1011,9 @@ function enterStep(s, step) {
   const pl = activePlayer(s);
   if (step === 'untap') {
     for (const perm of pl.battlefield) {
-      perm.tapped = false;
+      // «no se endereza durante el paso de enderezar» (aura o la propia carta)
+      if (perm.tapped && noUntap(perm)) pushEvent(s, 'info', `${displayName(perm.card)} no se endereza (su efecto se lo impide).`, { uid: perm.uid });
+      else perm.tapped = false;
       perm.sick = false;
     }
     pl.landsPlayed = 0;
@@ -1141,7 +1155,7 @@ function resolveEffects(s, pl, card, fx, targets, source) {
   const name = displayName(card);
   const since = s.eventSeq;
   try {
-    resolveEffectsInner(s, pl, card, fx, targets, name);
+    resolveEffectsInner(s, pl, card, fx, targets, name, source);
   } finally {
     // Los efectos llevan el color de la carta: la mesa dibuja el hechizo (rayo, fuego, agua…).
     const spell = { colors: card.colors.length ? card.colors.slice(0, 3) : ['C'], by: pl.id, src: source ? source.uid : null };
@@ -1150,7 +1164,7 @@ function resolveEffects(s, pl, card, fx, targets, source) {
   stateBased(s);
 }
 
-function resolveEffectsInner(s, pl, card, fx, targets, name) {
+function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
   let ti = 0;
   for (const e of fx) {
     let tgt = null;
@@ -1249,6 +1263,21 @@ function resolveEffectsInner(s, pl, card, fx, targets, name) {
         }
         break;
       }
+      case 'tapHost': {
+        const host = source && source.attachedTo != null ? findPerm(s, source.attachedTo) : null;
+        if (host) {
+          host.perm.tapped = true;
+          pushEvent(s, 'pump', `${name} gira a ${displayName(host.perm.card)}.`, { uid: host.perm.uid });
+        } else if (!pl.isBot) pushEvent(s, 'manual', `${name} gira la criatura encantada: gírala a mano.`, { to: pl.id });
+        break;
+      }
+      case 'tap':
+      case 'untap':
+        if (perm) {
+          perm.perm.tapped = e.kind === 'tap';
+          pushEvent(s, 'pump', `${name} ${e.kind === 'tap' ? 'gira' : 'endereza'} a ${displayName(perm.perm.card)}.`, { uid: perm.perm.uid });
+        }
+        break;
       case 'extraLand':
         pl.extraLands = (pl.extraLands || 0) + e.amount;
         pushEvent(s, 'info', `${pl.name} puede jugar ${e.amount === 1 ? 'una tierra adicional' : e.amount + ' tierras adicionales'} este turno.`, { to: pl.id });

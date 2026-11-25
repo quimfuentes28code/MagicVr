@@ -261,9 +261,16 @@ export function chooseTargets(s, me, wanted) {
       const killable = foeCreatures.filter((p) => toughness(p) + e.t <= p.damage).sort((a, b) => value(b) - value(a));
       return killable[0] ? { uid: killable[0].uid } : null;
     }
+    if (e.kind === 'tap' || e.kind === 'untap') {
+      const own = e.kind === 'untap';
+      const pool = own ? me.battlefield.filter((p) => p.tapped && permMatches(s, e.filter, p, me.id, me.id) && canTarget(s, me.id, p, me))
+        : opps.flatMap((o) => o.battlefield.filter((p) => !p.tapped && permMatches(s, e.filter, p, o.id, me.id) && canTarget(s, me.id, p, o)));
+      const best = [...pool].sort((a, b) => (b.card.isCreature ? value(b) : 0) - (a.card.isCreature ? value(a) : 0))[0];
+      return best ? { uid: best.uid } : null;
+    }
     if (e.kind === 'aura') {
       // aura que perjudica (p. ej. −X/−X o «no puede atacar») → a una criatura rival
-      const bad = /can.t (attack|block)|gets -/i.test(e.oracle || '');
+      const bad = /can.t (attack|block)|gets -|doesn.t untap|tap enchanted/i.test(e.oracle || '');
       const pool = bad ? foeCreatures : me.battlefield.filter((p) => p.card.isCreature && !has(p, 'shroud'));
       const best = [...pool].sort((a, b) => value(b) - value(a))[0];
       return best ? { uid: best.uid, attach: true } : null;

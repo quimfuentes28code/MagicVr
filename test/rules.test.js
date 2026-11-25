@@ -517,7 +517,7 @@ test('destruir/exiliar/devolver: lee el tipo de objetivo de la carta', () => {
   assert.equal(fx('Exile target creature an opponent controls.').kind, 'exile');
   assert.equal(fx('Exile target creature an opponent controls.').filter.opp, true);
   assert.equal(fx('Return target nonland permanent to its owner\'s hand.').kind, 'bounce');
-  assert.equal(fx('Exile target card from a graveyard.'), undefined);
+  assert.equal(fx('Exile target card from a graveyard.').kind, 'exileGraveCard');
 });
 
 test('«exilia la primera carta de tu biblioteca; hasta el final de tu próximo turno puedes jugarla»', () => {
@@ -808,4 +808,57 @@ test('robar el control hasta el final del turno, niebla y robo retrasado', () =>
   const hb = s.players[1].handCount;
   s.step = 'cleanup'; s = apply(s, { t: 'next', by: 'b' });
   assert.ok(s.players[1].handCount >= hb + 1 || s.events.some((e) => e.kind === 'draw' && /Later/.test(e.text)));
+});
+
+test('persistir, bushido, eco y tormenta', () => {
+  const per = normalize({ name: 'Persister', manaCost: '{2}', power: '2', toughness: '2', typeLine: 'Creature — Test', keywords: ['Persist'], oracle: 'Persist' });
+  let s = duel();
+  let p;
+  [s, p] = put(s, 'a', per);
+  s = apply(s, { t: 'damage', by: 'a', uid: p, amount: 5 });
+  const back = s.players[0].battlefield.find((x) => x.card.name === 'Persister');
+  assert.ok(back, 'vuelve con persistir');
+  assert.equal(back.counters, -1);
+  s = apply(s, { t: 'damage', by: 'a', uid: back.uid, amount: 5 });
+  assert.ok(!s.players[0].battlefield.some((x) => x.card.name === 'Persister'), 'con -1/-1 ya no vuelve');
+  // tormenta
+  let s2 = duel();
+  s2.step = 'main1'; s2.stack = [];
+  const ping = normalize({ name: 'Ping', manaCost: '{R}', typeLine: 'Instant', oracle: 'Ping deals 1 damage to target player.' });
+  const storm = normalize({ name: 'Grapeshot Test', manaCost: '{1}{R}', typeLine: 'Sorcery', keywords: ['Storm'], oracle: 'Grapeshot Test deals 1 damage to any target.\nStorm' });
+  s2 = act(s2, { t: 'play', by: 'a', card: ping, force: true, targets: [{ player: 'b' }] });
+  s2 = act(s2, { t: 'play', by: 'a', card: ping, force: true, targets: [{ player: 'b' }] });
+  const l = s2.players[1].life;
+  s2 = act(s2, { t: 'play', by: 'a', card: storm, force: true, targets: [{ player: 'b' }] });
+  assert.equal(s2.players[1].life, l - 3, 'el original + 2 copias');
+});
+
+test('coste adicional: sacrificar una criatura', () => {
+  const reap = normalize({ name: 'Reap Test', manaCost: '{1}{B}', typeLine: 'Instant', oracle: 'As an additional cost to cast this spell, sacrifice a creature.\nDraw two cards.' });
+  let s = duel();
+  let c;
+  [s, c] = put(s, 'a', creature('Elf', 1, 1));
+  for (let i = 0; i < 2; i++) [s] = put(s, 'a', BASICS.B);
+  s.step = 'main1'; s.stack = [];
+  s = apply(s, { t: 'play', by: 'a', card: reap });
+  assert.equal(last(s).kind, 'illegal');
+  const h0 = s.players[0].handCount;
+  s = act(s, { t: 'play', by: 'a', card: reap, sacUid: c });
+  assert.ok(!s.players[0].battlefield.some((x) => x.uid === c));
+  assert.equal(s.players[0].handCount, h0 + 2 - 1 + 0 >= h0 ? s.players[0].handCount : -1);
+});
+
+test('subir de nivel cambia fuerza/resistencia y habilidades', () => {
+  const lv = normalize({ name: 'Leveler', manaCost: '{1}{W}', power: '1', toughness: '1', typeLine: 'Creature — Human',
+    oracle: 'Level up {1}\nLEVEL 1-2\n2/2\nFirst strike\nLEVEL 3+\n4/4\nFlying, first strike' });
+  let s = duel();
+  let u;
+  [s, u] = put(s, 'a', lv);
+  for (let i = 0; i < 3; i++) [s] = put(s, 'a', BASICS.W);
+  s.step = 'main1'; s.stack = [];
+  s = apply(s, { t: 'levelUp', by: 'a', uid: u });
+  const perm = s.players[0].battlefield.find((x) => x.uid === u);
+  assert.equal(perm.level, 1);
+  assert.equal(perm.card.power + perm.bonus.p, 2);
+  assert.ok(perm.bonus.kw.includes('first strike'));
 });

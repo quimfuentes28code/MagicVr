@@ -8,7 +8,7 @@ import { parseTargetPhrase, targetEs, parseAttach } from './effects.js';
 
 const NUM = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twice: 2, X: 'X', x: 'X' };
 export const num = (s) => (s == null ? 1 : /^\d+$/.test(s) ? parseInt(s, 10) : NUM[s] ?? NUM[s.toLowerCase()] ?? 1);
-const NUMW = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|\\d+)';
+const NUMW = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|X|\\d+)';
 const COLOR_WORD = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G', colorless: 'C' };
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -64,6 +64,7 @@ export function splitAbilities(card, text) {
     line = line.trim();
     if (!line || line === '//') continue;
     let word = null;
+    if (/^Exhaust — /.test(line)) { out.push({ text: line.replace(/^Exhaust — /, ''), word: 'Exhaust' }); continue; }
     const aw = line.match(/^([A-Z][\w'!,\- ]{1,40}?) — (.+)$/);
     if (aw && !/^(Equip|Ward|Kicker|Flashback|Cycling|Crew|Escape|Echo|Buyback|Madness|Morph|Suspend|Cumulative upkeep|Disguise|Plot|Warp|Foretell|Bestow|Unearth|Evoke|Ninjutsu|Reconfigure|Saddle|Station|Megamorph|Mutate|Entwine|Splice|Dash|Blitz|Overload|Spectacle|Surge|Emerge|Prototype|Squad|Offspring|Exhaust|Boast|Outlast|Scavenge|Embalm|Eternalize|Encore|Transmute|Forecast|Channel|Craft|Disturb|Cleave|Harmonize|Sneak|Impending|Miracle|Companion|Visit|Replicate|Awaken|Specialize|Multikicker|Retrace|Max speed)$/i.test(aw[1].split(' ').pop())) {
       word = aw[1];
@@ -97,7 +98,7 @@ function damageTarget(ph) {
   if (/^(?:target )?(?:creature or player|player or creature)$/i.test(ph)) return { target: 'any' };
   if (/^each (creature|creature and each player|creature and planeswalker|other creature|creature you don't control|creature your opponents control|creature without flying|creature with flying|attacking creature|blocking creature|opponent and each creature (?:your opponents control|they control))$/i.test(ph)) {
     const m = ph.toLowerCase();
-    return { target: 'all', players: /player|opponent and/.test(m), opp: /don't control|opponents control|opponent and|they control/.test(m),
+    return { target: 'all', players: /player|opponent and/.test(m), opp: /don't control|opponents control|opponent and|they control/.test(m), oppPlayers: /opponent and/.test(m),
       flying: /without flying/.test(m) ? false : /with flying/.test(m) ? true : null, other: /other/.test(m), combat: /attacking|blocking/.test(m) ? m.match(/attacking|blocking/)[0] : null };
   }
   const m = ph.match(/^(?:up to one )?(?:another )?target (.+)$/i);
@@ -211,7 +212,7 @@ const T = [
   [new RegExp(`^each player gains ${NUMW} life$`, 'i'), (m) => ({ kind: 'gainAll', amount: num(m[1]) })],
   [/^you gain life equal to (.+)$/i, (m) => ({ kind: 'instruct', text: `Ganas vidas igual a ${m[1]} (súmalas con el botón + de tu vida).` })],
   // --- fichas
-  [new RegExp(`^create ${NUMW} (tapped )?(\\d+|X)/(\\d+|X) ((?:white|blue|black|red|green|colorless)(?:,? (?:and )?(?:white|blue|black|red|green))*) ([A-Z][\\w' -]*?) (?:artifact |enchantment )?creature tokens?(?: with (.+?))?(?: that's tapped and attacking| tapped and attacking)?$`, ''), (m) => ({
+  [new RegExp(`^[Cc]reate ${NUMW} (tapped )?(\\d+|X)/(\\d+|X) ((?:white|blue|black|red|green|colorless)(?:,? (?:and )?(?:white|blue|black|red|green))*) ([A-Z][\\w' -]*?) (?:artifact |enchantment )?creature tokens?(?: with (.+?))?(?: that's tapped and attacking| tapped and attacking)?$`, ''), (m) => ({
     kind: 'token', amount: num(m[1]), tapped: !!m[2], power: m[3] === 'X' ? 'X' : +m[3], toughness: m[4] === 'X' ? 'X' : +m[4],
     colors: m[5].split(/,? (?:and )?/).map((w) => COLOR_WORD[w]).filter((c) => c && c !== 'C'), subtype: m[6].trim(),
     keywords: kwList(m[7]).filter((k) => !k.includes('"')),
@@ -236,6 +237,14 @@ const T = [
     (m) => ({ kind: 'tutor', what: m[2], amount: num(m[1] || 'one'), toBattlefield: /battlefield/.test(m[0]), tapped: !!m[3] })],
   [/^search your library for .+$/i, (m) => ({ kind: 'instruct', text: 'Busca en tu biblioteca lo que indica la carta, ponlo donde diga y baraja.', raw: m[0] })],
   [/^(?:then )?shuffle(?: your library)?$/i, () => ({ kind: 'instruct', text: 'Baraja tu biblioteca.', silent: true })],
+  [/^(?:then )?shuffle and put (?:that card|the revealed card|it) on top(?: of your library)?$/i, () => ({ kind: 'instruct', text: 'Baraja y pon esa carta encima de tu biblioteca.', silent: true })],
+  [/^exile CARDNAME, then return it to the battlefield transformed under (?:your|its owner's) control$/i, () => ({ kind: 'instruct', text: 'Exilia esta carta y vuelve a ponerla en el campo de batalla transformada (por su otra cara).' })],
+  [/^exile target card from a graveyard$/i, () => ({ kind: 'exileGraveCard' })],
+  [/^exile (?:up to (?:one|two|three) )?target cards? from (?:a single|target player's|an opponent's) graveyard$/i, () => ({ kind: 'exileGraveCard' })],
+  [/^exile target player's graveyard$/i, () => ({ kind: 'exileGraveyard' })],
+  [/^exile each opponent's graveyard$/i, () => ({ kind: 'exileGraveyard', all: true })],
+  [/^fabricate (\d+)$/i, (m) => ({ kind: 'counter', amount: +m[1], self: true })],
+  [/^CARDNAME deals (\d+) damage to each opponent and each creature (?:your opponents control|they control)$/i, (m) => [{ kind: 'damage', amount: +m[1], target: 'opponents' }, { kind: 'damageEach', amount: +m[1], opp: true }]],
   [/^look at the top (\w+) cards? of your library.*$/i, (m) => ({ kind: 'instruct', text: `Mira las ${num(m[1])} primeras cartas de tu biblioteca y sigue lo que dice la carta.`, raw: m[0] })],
   [/^reveal the top (\w+) cards? of your library.*$/i, (m) => ({ kind: 'instruct', text: `Muestra las ${num(m[1])} primeras cartas de tu biblioteca y sigue lo que dice la carta.`, raw: m[0] })],
   [/^exile the top (card|two cards|three cards|\w+ cards) of your library\.?\s*(?:until (?:the )?end of (your next turn|turn), you may (play|cast) (?:that card|it|them|those cards)|you may (play|cast) (?:that card|it|them|those cards) (this turn|until the end of your next turn))$/i,
@@ -366,6 +375,28 @@ export function parseTrigger(cond) {
     || R(/^At the beginning of each upkeep$/i, 'anyUpkeep')
     || R(/^At the beginning of your end step$/i, 'endstep')
     || R(/^At the beginning of each end step$/i, 'anyEndstep')
+    || R(/^At the beginning of the end step$/i, 'anyEndstep')
+    || R(/^At the beginning of each combat$/i, 'anyCombat')
+    || R(/^Whenever CARDNAME or another creature you control enters$/i, 'creatureEtbMine')
+    || R(/^Whenever CARDNAME or another creature you control dies$/i, 'creatureDiesMine')
+    || R(/^Whenever another creature you control attacks$/i, 'creatureAttacksMine')
+    || R(/^Whenever you cast a noncreature spell, if/i, null)
+    || R(/^Whenever an artifact you control enters$/i, 'artifactEtbMine')
+    || R(/^Whenever an enchantment you control enters$/i, 'enchantmentEtbMine')
+    || R(/^Whenever a nontoken creature you control dies$/i, 'creatureDiesMine')
+    || R(/^Whenever a creature you control with power (\d+) or greater enters$/i, 'creatureEtbMine')
+    || R(/^Whenever CARDNAME attacks or blocks$/i, 'attacks')
+    || R(/^Whenever you cast a historic spell$/i, 'castHistoric')
+    || R(/^Whenever you cast a Spirit or Arcane spell$/i, 'castSpiritArcane')
+    || R(/^Whenever you cast an Aura, Equipment, or Vehicle spell$/i, 'castAuraEquip')
+    || R(/^Whenever you cast your first spell each turn$/i, 'castFirst')
+    || R(/^Whenever a player casts a spell$/i, 'castAnyone')
+    || R(/^Whenever CARDNAME becomes the target of a spell or ability an opponent controls$/i, 'targeted')
+    || R(/^At the beginning of your second main phase$/i, 'main2')
+    || R(/^At the beginning of each opponent's upkeep$/i, 'oppUpkeep')
+    || R(/^At the beginning of each opponent's end step$/i, 'oppEndstep')
+    || R(/^Whenever you cycle CARDNAME$/i, 'cycled')
+    || R(/^When you cycle CARDNAME$/i, 'cycled')
     || R(/^At the beginning of combat on your turn$/i, 'begincombat')
     || R(/^At the beginning of your precombat main phase$/i, 'main1')
     || R(/^At the beginning of your draw step$/i, 'drawstep')
@@ -493,6 +524,17 @@ export function parseStatic(text, card) {
   if ((m = s.match(/^CARDNAME enters with (two|three|one|a) -1\/-1 counters? on it$/))) return { kind: 'entersCounters', amount: -num(m[1]) };
   if ((m = s.match(/^If CARDNAME was kicked, it enters with (\w+) \+1\/\+1 counters? on it$/))) return { kind: 'entersCounters', amount: num(m[1]), kicked: true };
   if ((m = s.match(/^Afterlife (\d+)$/))) return { kind: 'afterlife', amount: +m[1] };
+  if (/^You control enchanted (?:creature|permanent|artifact|land)$/.test(s)) return { kind: 'controlHost' };
+  if ((m = s.match(/^As an additional cost to cast this spell, sacrifice (?:a|an) (creature|artifact|land|permanent|artifact or creature|creature or artifact|nonland permanent)$/))) return { kind: 'addSac', filter: parseTargetPhrase(m[1]) };
+  if ((m = s.match(/^As an additional cost to cast this spell, discard (a|one|two) cards?$/))) return { kind: 'addDiscard', amount: num(m[1]) };
+  if (/^As an additional cost to cast this spell, pay (\d+) life$/.test(s)) return { kind: 'addLife', amount: +s.match(/pay (\d+)/)[1] };
+  if (/^(?:Myriad|Banding|Split second|Daybound|Nightbound|Changeling|Devoid|Rampage \d+|Soulbond|Partner|Assist|Teamwork \d+|Ravenous|Conspire)$/i.test(s)) return { kind: 'info' };
+  if ((m = s.match(/^(Persist|Undying)$/i))) return { kind: m[1].toLowerCase() };
+  if ((m = s.match(/^(Bushido|Flanking|Modular|Bloodthirst|Renown|Vanishing|Fading|Firebending|Backup|Evolve|Mentor|Extort|Storm|Rebound|Fabricate|Exhaust)(?: (\d+))?$/i))) return { kind: 'kw', kw: m[1].toLowerCase(), n: +(m[2] || 1) };
+  if ((m = s.match(/^Cumulative upkeep ((?:\{[^}]+\})+)$/i))) return { kind: 'cumulative', cost: m[1] };
+  if ((m = s.match(/^Echo ((?:\{[^}]+\})+)$/i))) return { kind: 'echo', cost: m[1] };
+  if ((m = s.match(/^Level up ((?:\{[^}]+\})+)$/i))) return { kind: 'levelUp', cost: m[1] };
+  if (/^LEVEL \d+(?:-\d+|\+)$/.test(s) || /^\d+\/\d+$/.test(s)) return { kind: 'levelInfo' };
   if ((m = s.match(/^Soulshift (\d+)$/))) return { kind: 'info', text: 'Al morir, puedes devolver a tu mano una carta de Espíritu de tu cementerio con valor de maná ' + m[1] + ' o menos.' };
   if (/^\{T\}: Add /.test(s)) return null; // las activadas de maná se tratan aparte
   return null;
@@ -554,10 +596,10 @@ export function parseAbilities(card) {
       let body = am[2];
       const sorcery = /Activate only as a sorcery/i.test(body);
       const once = /Activate only once each turn/i.test(body);
-      body = body.replace(/\s*Activate only (?:as a sorcery|once each turn|during your turn|if [^.]+)\.?/gi, '').trim();
+      body = body.replace(/\s*Activate only (?:as a sorcery|once each turn|during your turn|during your upkeep|during combat|before blockers are declared|if [^.]+)\.?/gi, '').trim();
       const r = parseEffectText(body);
       const isMana = r.fx.length > 0 && r.fx.every((e) => e.kind === 'addMana');
-      out.push({ kind: isMana ? 'mana' : 'activated', text, cost, fx: r.fx, sorcery: sorcery || cost.loyalty != null, once: once || cost.loyalty != null,
+      out.push({ kind: isMana ? 'mana' : 'activated', text, cost, fx: r.fx, sorcery: sorcery || cost.loyalty != null, once: once || cost.loyalty != null, exhaust: word === 'Exhaust',
         ok: r.ok && cost.other.length === 0, missing: r.missing });
       continue;
     }
@@ -627,6 +669,7 @@ export function altCosts(card) {
   out.escape = get(/(?:^|\n|, )Escape—((?:\{[^}]+\})+)/i);
   out.unearth = get(/(?:^|\n|, )Unearth ((?:\{[^}]+\})+)/i);
   out.buyback = get(/(?:^|\n|, )Buyback ((?:\{[^}]+\})+)/i);
+  out.entwine = get(/(?:^|\n|, )Entwine ((?:\{[^}]+\})+)/i);
   const w = t.match(/(?:^|\n|, )Ward(?: |—)(?:((?:\{[^}]+\})+)|Pay (\d+) life)/i);
   if (w) out.ward = w[1] ? { mana: w[1] } : { life: +w[2] };
   out.convoke = /(?:^|\n|, )Convoke\b/i.test(t);
@@ -635,5 +678,22 @@ export function altCosts(card) {
   const af = t.match(/(?:^|\n|, )Affinity for (\w+)/i);
   if (af) out.affinity = af[1].replace(/s$/, '');
   for (const k of Object.keys(out)) if (out[k] == null || out[k] === false) delete out[k];
+  return out;
+}
+
+
+/** Niveles («Level up»): [{ min, max, p, t, kw: [] }] a partir del texto. */
+export function levelsOf(card) {
+  const lines = (card.oracle || '').split('\n').map((x) => x.trim());
+  const out = [];
+  let cur = null;
+  for (const l of lines) {
+    const m = l.match(/^LEVEL (\d+)(?:-(\d+)|\+)$/);
+    if (m) { cur = { min: +m[1], max: m[2] ? +m[2] : 99, p: null, t: null, kw: [] }; out.push(cur); continue; }
+    if (!cur) continue;
+    const pt = l.match(/^(\d+)\/(\d+)$/);
+    if (pt) { cur.p = +pt[1]; cur.t = +pt[2]; continue; }
+    for (const k of l.split(/,\s*/)) { const kw = keywordOf(k); if (kw) cur.kw.push(kw); }
+  }
   return out;
 }

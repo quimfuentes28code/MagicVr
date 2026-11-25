@@ -8,7 +8,7 @@ import { openPicker } from './picker.js';
 import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
 import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, setCameraZoom } from '../camera.js';
 import { CardWatcher } from '../vision.js';
-import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES } from '../engine/effects.js';
+import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES, targetEs } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
@@ -23,7 +23,7 @@ import { openEditionPicker, autoMatchEdition, withPreferredEdition } from './edi
 import {
   STEPS, PHASES, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
   power, toughness, displayName, canAttack, manaSources, manaAvailable, planPayment,
-  stackTop, waitingOn, combatReadyPending, has, attachOf,
+  stackTop, waitingOn, combatReadyPending, has, attachOf, permMatches,
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
@@ -181,6 +181,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         spell: (e) => spellVisual(S(), { id: 0, ...e }, new Set()),
         normalize: normalizeCard,
         tokenImage,
+        seen: (c) => playRecognized(normalizeCard(c)),
         act: (a) => { session.state = applyAction(session.state, a); session.emit(); return session.state; },
       };
     }
@@ -384,7 +385,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const main = s.step === 'main1' || s.step === 'main2';
     const fast = card.isInstant || card.keywords.includes('flash');
     if (!fast && !(myTurn && main && !s.stack.length)) return false;
-    return card.isLand || !!planPayment(player(s, me()), card.manaCost);
+    return card.isLand || !!planPayment(player(s, me()), card.manaCost, card.effects?.reduce ? -card.effects.reduce.n : 0);
   }
 
   /** Cartas de dos caras/mitades (aventura, doble cara modal, partidas): eliges cuál jugar. */
@@ -486,6 +487,13 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     render(S());
   }
 
+  /** ¿Vale este permanente para lo que pide el objetivo actual? */
+  function wantOk(s, want, perm, owner) {
+    if (want.target === 'spell' || want.target === 'player') return false;
+    if (want.target === 'any') return perm.card.isCreature || /Planeswalker/.test(perm.card.typeLine);
+    return permMatches(s, want.filter, perm, owner.id, me());
+  }
+
   function currentWant() {
     const t = ui.targeting;
     return t && t.wanted[t.picked.length];
@@ -515,12 +523,12 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const t = ui.targeting;
     const want = currentWant();
     const s = S();
-    const players = want.target === 'creature' || want.target === 'spell' ? [] : s.players.filter((p) => !p.eliminated);
+    const players = want.target === 'creature' || want.target === 'permanent' || want.target === 'spell' ? [] : s.players.filter((p) => !p.eliminated);
     const spells = want.target === 'spell' ? s.stack : [];
     targetBar.hidden = false;
     clear(targetBar).append(
       h('div', { class: 'tb-title' }, displayName(t.card), ': ', describeEffect(want)),
-      h('div', { class: 'tb-hint' }, want.target === 'spell' ? (spells.length ? 'Elige el hechizo de la pila.' : 'No hay ningún hechizo en la pila.') : want.target === 'creature' ? 'Toca la criatura objetivo en el tablero.' : want.target === 'player' ? 'Elige el jugador objetivo.' : 'Toca una criatura o elige un jugador.'),
+      h('div', { class: 'tb-hint' }, want.target === 'spell' ? (spells.length ? 'Elige el hechizo de la pila.' : 'No hay ningún hechizo en la pila.') : want.target === 'creature' || want.target === 'permanent' ? `Toca ${targetEs(want.filter)} en el tablero.` + (t.card.effects?.reduce ? ` (Cuesta ${t.card.effects.reduce.n} menos si eliges ${targetEs(t.card.effects.reduce.filter)}.)` : '') : want.target === 'player' ? 'Elige el jugador objetivo.' : 'Toca una criatura o elige un jugador.'),
       h('div', { class: 'row-btns' },
         spells.map((it) => h('button', { class: 'act primary', onClick: () => pickTarget({ stack: it.id }) }, displayName(it.card))),
         players.map((p) => h('button', { class: 'act' + (p.id === me() ? '' : ' primary'), onClick: () => pickTarget({ player: p.id }) }, p.id === me() ? 'A mí' : p.name)),
@@ -879,7 +887,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     el.classList.toggle('sick', perm.card.isCreature && perm.sick && isActive);
     el.classList.toggle('can-attack', s.step === 'attack' && owner.id === me() && isActive && canAttack(s, perm) && !attacking);
     el.classList.toggle('commander', perm.isCommander);
-    el.classList.toggle('targetable', !!currentWant() && perm.card.isCreature);
+    el.classList.toggle('targetable', !!currentWant() && wantOk(s, currentWant(), perm, owner));
     const b = el.querySelector('.badges');
     clear(b);
     if (perm.card.isCreature) {
@@ -1229,8 +1237,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const want = currentWant();
     if (want) {
       if (want.target === 'spell') toast('Este hechizo tiene que apuntar a un hechizo de la pila.', 'warn');
-      else if (perm.card.isCreature) pickTarget({ uid });
-      else toast('Ese objetivo no vale: tiene que ser una criatura.', 'warn');
+      else if (wantOk(s, want, perm, owner)) pickTarget({ uid });
+      else toast(`Ese objetivo no vale: tiene que ser ${targetEs(want.filter)}.`, 'warn');
       return;
     }
     if (s.step === 'attack' && activePlayer(s).id === me() && owner.id === me() && perm.card.isCreature) {

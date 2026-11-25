@@ -14,6 +14,12 @@ export function parseEffects(card) {
   if (!text) return out;
   const self = new RegExp(escapeRe(card.name), 'g');
   const clean = text.replace(self, 'CARDNAME');
+  // «Este hechizo cuesta {N} menos si hace objetivo a…» (p. ej. una criatura girada)
+  const red = clean.match(/This spell costs \{(\d+)\} less to cast if it targets (?:a |an )?([^.\n]+)/i);
+  // sólo condiciones que sabemos comprobar (girada, tuya, de un rival…); el resto, a mano
+  if (red && /^(?:tapped |untapped |attacking |blocking |attacking or blocking )?(?:creature|permanent|artifact|enchantment|planeswalker|land)(?: or (?:creature|planeswalker|artifact|enchantment))?(?: you control| an opponent controls| you don't control)?$/i.test(red[2].trim().replace(/[’]/g, "'"))) {
+    out.reduce = { n: +red[1], filter: parseTargetPhrase(red[2]) };
+  }
   if (card.isInstant || card.isSorcery) {
     out.spell = parseSentence(clean);
   } else {
@@ -26,16 +32,83 @@ export function parseEffects(card) {
   return out;
 }
 
+const TYPE_WORDS = ['creature', 'artifact', 'enchantment', 'planeswalker', 'land', 'permanent', 'battle'];
+
+/**
+ * Lee la descripción de un objetivo («nonland permanent», «artifact or enchantment»,
+ * «creature an opponent controls», «tapped creature», «creature with mana value 3 or less»…).
+ */
+export function parseTargetPhrase(ph) {
+  const orig = ph.trim();
+  ph = ph.toLowerCase().replace(/[’]/g, "'").split(/,? (?:then|until|if|unless|and (?!\/or)(?:its|that|you|it|put|create|gain|draw|target))\b/)[0];
+  const f = { types: [], non: [], opp: false, you: false, tapped: false, untapped: false, combat: false, mvMax: null, powMin: null, powMax: null };
+  const plain = ph.replace(/\bnon-?\w+/g, '');
+  for (const w of TYPE_WORDS) if (new RegExp('\\b' + w + 's?\\b').test(plain)) f.types.push(w);
+  for (const m of ph.matchAll(/\bnon-?(\w+)/g)) f.non.push(m[1]);
+  if (/an opponent controls|you don't control|your opponents control/.test(ph)) f.opp = true;
+  else if (/\byou control\b/.test(ph)) f.you = true;
+  if (/\buntapped\b/.test(ph)) f.untapped = true;
+  else if (/\btapped\b/.test(ph)) f.tapped = true;
+  if (/\battacking\b|\bblocking\b/.test(ph)) f.combat = true;
+  let m;
+  if ((m = ph.match(/mana value (\d+) or less/))) f.mvMax = +m[1];
+  if ((m = ph.match(/power (\d+) or greater/))) f.powMin = +m[1];
+  if ((m = ph.match(/power (\d+) or less/))) f.powMax = +m[1];
+  if (!f.types.length) {
+    // jugadores, hechizos, cementerios o cartas: no son permanentes en juego
+    if (/\b(player|opponent|spell|graveyard|card|ability)/.test(ph)) return null;
+    // un subtipo («target Zombie», «target Equipment», «target Vehicle»)
+    const sub = orig.match(/\b([A-Z][a-z]+)\b/);
+    if (!sub) return null;
+    f.types.push('permanent');
+    f.sub = sub[1];
+  }
+  return f;
+}
+
+/** Objetivo de un efecto a partir de la frase: sólo criaturas → 'creature'; si no, 'permanent'. */
+function permTarget(ph) {
+  const filter = parseTargetPhrase(ph);
+  if (!filter) return null;
+  const onlyCreature = filter.types.length === 1 && filter.types[0] === 'creature';
+  return { target: onlyCreature ? 'creature' : 'permanent', filter };
+}
+
+const PTYPE_ES = { creature: ['criatura', 'f'], artifact: ['artefacto', 'm'], enchantment: ['encantamiento', 'm'], planeswalker: ['planeswalker', 'm'], land: ['tierra', 'f'], permanent: ['permanente', 'm'], battle: ['batalla', 'f'] };
+const NON_ES = { land: 'tierra', creature: 'criatura', artifact: 'artefacto', enchantment: 'encantamiento', planeswalker: 'planeswalker', token: 'ficha', legendary: 'legendario',
+  black: 'negro', white: 'blanco', blue: 'azul', red: 'rojo', green: 'verde' };
+
+/** «una criatura girada», «un permanente que no sea tierra», «un artefacto o encantamiento de un rival»… */
+export function targetEs(f) {
+  if (!f) return 'una criatura';
+  const ts = f.types.map((t) => PTYPE_ES[t] || [t, 'm']);
+  const fem = ts[0][1] === 'f';
+  let out = f.sub ? (TOKEN_ES[f.sub] || f.sub) : (fem ? 'una ' : 'un ') + ts.map(([w]) => w).join(' o ');
+  if (f.tapped) out += fem ? ' girada' : ' girado';
+  if (f.untapped) out += fem ? ' enderezada' : ' enderezado';
+  if (f.combat) out += ' que esté atacando o bloqueando';
+  if (f.non.length) out += ' que no sea ' + f.non.map((n) => NON_ES[n] || n).join(' ni ');
+  if (f.mvMax != null) out += ` de valor de maná ${f.mvMax} o menos`;
+  if (f.powMin != null) out += ` con fuerza ${f.powMin} o más`;
+  if (f.powMax != null) out += ` con fuerza ${f.powMax} o menos`;
+  if (f.opp) out += ' de un rival';
+  if (f.you) out += ' tuy' + (fem ? 'a' : 'o');
+  return out;
+}
+
 function parseSentence(t) {
   const fx = [];
   let m;
   if ((m = t.match(/deals (\d+) damage to any target/i))) fx.push({ kind: 'damage', amount: +m[1], target: 'any' });
-  else if ((m = t.match(/deals (\d+) damage to target (?:creature|attacking or blocking creature)/i))) fx.push({ kind: 'damage', amount: +m[1], target: 'creature' });
+  else if ((m = t.match(/deals (\d+) damage to (?:up to one )?target ((?:attacking or blocking |tapped )?creature(?: or planeswalker)?(?: an opponent controls| you don't control)?)/i))) fx.push({ kind: 'damage', amount: +m[1], ...permTarget(m[2]) });
   else if ((m = t.match(/deals (\d+) damage to (?:target player|target opponent|each opponent)/i))) fx.push({ kind: 'damage', amount: +m[1], target: /each opponent/i.test(t) ? 'opponents' : 'player' });
-  if (/Destroy target (?:attacking or blocking |nonblack |tapped )?creature/i.test(t)) fx.push({ kind: 'destroy', target: 'creature' });
+  if ((m = t.match(/\b(Destroy|Exile) (?:up to one )?(?:another )?target ([^.\n]+)/i)) && !/^[\w ,]*\bcards?\b/i.test(m[2])) {
+    const pt = permTarget(m[2]);
+    if (pt) fx.push({ kind: m[1].toLowerCase() === 'destroy' ? 'destroy' : 'exile', ...pt });
+  }
   if (/Counter target (?:creature |noncreature |instant or sorcery |instant |sorcery )?spell/i.test(t)) fx.push({ kind: 'counterspell', target: 'spell' });
   if ((m = t.match(/Target creature gets ([+-]\d+)\/([+-]\d+) until end of turn/i))) fx.push({ kind: 'pump', p: +m[1], t: +m[2], target: 'creature' });
-  if (/Return target (?:nonland permanent|creature) to its owner's hand/i.test(t)) fx.push({ kind: 'bounce', target: 'creature' });
+  if ((m = t.match(/Return (?:up to one )?(?:another )?target ([^.\n]+?) to (?:its|their) owner(?:'|’)s hand/i)) && !/\bcard\b/i.test(m[1]) && permTarget(m[1])) fx.push({ kind: 'bounce', ...permTarget(m[1]) });
   if (/[Pp]ut a \+1\/\+1 counter on (?:up to one )?target creature/.test(t)) fx.push({ kind: 'counter', target: 'creature' });
   if ((m = t.match(/(?:target opponent|each opponent) loses (\d+) life/i))) fx.push({ kind: 'drain', amount: +m[1] });
   if ((m = t.match(/[Yy]ou gain (\d+) life/))) fx.push({ kind: 'gain', amount: +m[1] });
@@ -57,7 +130,7 @@ function parseSentence(t) {
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-export const needsTarget = (e) => ['any', 'creature', 'player', 'spell'].includes(e.target);
+export const needsTarget = (e) => ['any', 'creature', 'permanent', 'player', 'spell'].includes(e.target);
 
 /** Lista de objetivos que pide una carta al jugarse (en orden). */
 export function targetsFor(card) {
@@ -107,10 +180,11 @@ export function tokenCard(e) {
 /** Texto en español de un efecto (para explicarlo al jugador). */
 export function describeEffect(e) {
   switch (e.kind) {
-    case 'damage': return `hace ${e.amount} de daño` + (e.target === 'creature' ? ' a una criatura' : e.target === 'opponents' ? ' a cada rival' : e.target === 'player' ? ' a un jugador' : ' a cualquier objetivo');
-    case 'destroy': return 'destruye una criatura';
+    case 'damage': return `hace ${e.amount} de daño` + (e.target === 'creature' || e.target === 'permanent' ? ' a ' + targetEs(e.filter) : e.target === 'opponents' ? ' a cada rival' : e.target === 'player' ? ' a un jugador' : ' a cualquier objetivo');
+    case 'destroy': return 'destruye ' + targetEs(e.filter);
+    case 'exile': return 'exilia ' + targetEs(e.filter);
     case 'pump': return `da ${e.p >= 0 ? '+' : ''}${e.p}/${e.t >= 0 ? '+' : ''}${e.t} a una criatura hasta el final del turno`;
-    case 'bounce': return 'devuelve una criatura a la mano de su propietario';
+    case 'bounce': return 'devuelve ' + targetEs(e.filter) + ' a la mano de su propietario';
     case 'counter': return 'pone un contador +1/+1 en una criatura';
     case 'drain': return `cada rival pierde ${e.amount} vidas`;
     case 'gain': return `ganas ${e.amount} vidas`;

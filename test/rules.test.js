@@ -480,3 +480,42 @@ test('aura: se lanza sobre una criatura y le da sus bonificaciones; sin criatura
   s = apply(s, { t: 'move', by: 'a', uid: cr, to: 'graveyard' });
   assert.ok(s.players[0].graveyard.some((c) => c.name === 'Test Aura'));
 });
+
+test('Destino del Cristal del Sol: destruye un permanente que no sea tierra y cuesta {2} menos contra una criatura girada', () => {
+  const fate = normalize({ name: 'Fate of the Sun-Cryst', manaCost: '{4}{W}', typeLine: 'Instant',
+    oracle: 'This spell costs {2} less to cast if it targets a tapped creature.\nDestroy target nonland permanent.', colors: ['W'] });
+  let s = duel();
+  let foe, art, land;
+  [s, foe] = put(s, 'b', creature('Ogre', 3, 3));
+  [s, art] = put(s, 'b', normalize({ name: 'Rock', manaCost: '{1}', typeLine: 'Artifact' }));
+  [s, land] = put(s, 'b', BASICS.G);
+  for (let i = 0; i < 3; i++) [s] = put(s, 'a', BASICS.W);
+  s.step = 'main1'; s.stack = [];
+  // una tierra no vale
+  s = apply(s, { t: 'play', by: 'a', card: fate, targets: [{ uid: land }] });
+  assert.equal(last(s).kind, 'illegal');
+  // criatura enderezada: cuesta 5 y sólo hay 3
+  s = apply(s, { t: 'play', by: 'a', card: fate, targets: [{ uid: foe }] });
+  assert.equal(last(s).kind, 'illegal');
+  // girada: cuesta 3 → se lanza y la destruye
+  s.players[1].battlefield.find((p) => p.uid === foe).tapped = true;
+  s = act(s, { t: 'play', by: 'a', card: fate, targets: [{ uid: foe }] });
+  assert.ok(!s.players[1].battlefield.some((p) => p.uid === foe));
+  assert.ok(s.players[1].graveyard.some((c) => c.name === 'Ogre'));
+  assert.equal(s.players[0].battlefield.filter((p) => p.tapped).length, 3);
+  // también destruye artefactos
+  for (const p of s.players[0].battlefield) p.tapped = false;
+  for (let i = 0; i < 2; i++) [s] = put(s, 'a', BASICS.W);
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: fate, targets: [{ uid: art }] });
+  assert.ok(!s.players[1].battlefield.some((p) => p.uid === art));
+});
+
+test('destruir/exiliar/devolver: lee el tipo de objetivo de la carta', () => {
+  const fx = (o) => normalize({ name: 'X', manaCost: '{1}', typeLine: 'Instant', oracle: o }).effects.spell[0];
+  assert.deepEqual(fx('Destroy target artifact or enchantment.').filter.types, ['artifact', 'enchantment']);
+  assert.equal(fx('Exile target creature an opponent controls.').kind, 'exile');
+  assert.equal(fx('Exile target creature an opponent controls.').filter.opp, true);
+  assert.equal(fx('Return target nonland permanent to its owner\'s hand.').kind, 'bounce');
+  assert.equal(fx('Exile target card from a graveyard.'), undefined);
+});

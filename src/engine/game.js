@@ -8,7 +8,7 @@
 // oficial (effects.js); lo que no se reconoce se aplica a mano.
 
 import { pips } from './cards.js';
-import { tokenCard, describeEffect, needsTarget, parseAttach, describeAttach } from './effects.js';
+import { tokenCard, describeEffect, needsTarget, parseAttach, describeAttach, targetsFor } from './effects.js';
 
 // Etapas del turno en orden. Las marcadas como automáticas pasan solas
 // (como en los juegos digitales) salvo que haya algo en la pila.
@@ -270,6 +270,44 @@ export function canBlock(perm, attacker) {
   return true;
 }
 
+/**
+ * ¿Cumple este permanente la descripción del objetivo (filtro de parseTargetPhrase)?
+ * Sin filtro: una criatura.
+ */
+export function permMatches(s, f, perm, ownerId, casterId) {
+  const c = perm.card;
+  if (!f) return !!c.isCreature;
+  const tl = c.typeLine || '';
+  const isType = (w) => w === 'permanent' || (w === 'token' ? !!c.isToken : new RegExp('\\b' + w + '\\b', 'i').test(tl));
+  if (!f.types.some(isType)) return false;
+  if (f.sub && !new RegExp('\\b' + f.sub + '\\b').test(tl)) return false;
+  for (const n of f.non) {
+    if (COLOR_WORDS[n]) { if ((c.colors || []).includes(COLOR_WORDS[n])) return false; }
+    else if (isType(n)) return false;
+  }
+  if (f.opp && ownerId === casterId) return false;
+  if (f.you && ownerId !== casterId) return false;
+  if (f.tapped && !perm.tapped) return false;
+  if (f.untapped && perm.tapped) return false;
+  if (f.combat && s && s.combat.attackers[perm.uid] == null && !Object.values(s.combat.blocks).some((l) => l.includes(perm.uid))) return false;
+  if (f.mvMax != null && (c.cmc || 0) > f.mvMax) return false;
+  if (f.powMin != null && power(perm) < f.powMin) return false;
+  if (f.powMax != null && power(perm) > f.powMax) return false;
+  return true;
+}
+
+/** Reducción de coste del hechizo según sus objetivos («cuesta {2} menos si hace objetivo a…»). */
+export function costReduction(s, card, targets, casterId) {
+  const red = card.effects && card.effects.reduce;
+  if (!red) return 0;
+  for (const t of targets || []) {
+    if (t.uid == null) continue;
+    const f = findPerm(s, t.uid);
+    if (f && permMatches(s, red.filter, f.perm, f.owner.id, casterId)) return red.n;
+  }
+  return 0;
+}
+
 /** ¿Puede `caster` hacer objetivo a este permanente? (antimaleficio, velo) */
 export function canTarget(s, casterId, perm, owner, source = null) {
   if (has(perm, 'shroud')) return false;
@@ -529,6 +567,14 @@ const HANDLERS = {
           `${displayName(card)} es ${card.isSorcery ? 'un conjuro' : 'un permanente'}: sólo se lanza en tu turno, en una fase principal y con la pila vacía. Sólo los instantáneos (o cartas con destello) se pueden lanzar en cualquier momento, también en respuesta.`,
           a);
       }
+      // ¿el objetivo es del tipo que pide la carta? (p. ej. «que no sea tierra»)
+      const wanted = targetsFor(card);
+      for (const [i, t] of (a.targets || []).entries()) {
+        const w = wanted[i];
+        if (t.uid == null || !w || !(w.target === 'creature' || w.target === 'permanent')) continue;
+        const f = findPerm(s, t.uid);
+        if (f && !permMatches(s, w.filter, f.perm, f.owner.id, pl.id)) return illegal(s, pl.id, `${displayName(f.perm.card)} no vale como objetivo: ${displayName(card)} ${describeEffect(w)}.`, a);
+      }
       // antimaleficio / velo
       for (const t of a.targets || []) {
         if (t.uid == null) continue;
@@ -539,12 +585,13 @@ const HANDLERS = {
         }
       }
     }
+    const discount = card.isLand ? 0 : costReduction(s, card, a.targets, pl.id);
     if (!card.isLand) {
-      const plan = planPayment(pl, card.manaCost);
+      const plan = planPayment(pl, card.manaCost, -discount);
       if (plan) tapForPayment(pl, plan);
       else if (!a.force) {
         const m = manaAvailable(pl);
-        return illegal(s, pl.id, `No te llega el maná para ${displayName(card)}: cuesta ${card.manaCost || '0'} (${card.cmc} en total) y tienes ${m.total} disponible${m.total === 1 ? '' : 's'} (${m.pool} en la reserva + ${m.total - m.pool} en tierras sin girar)${m.total >= card.cmc ? ', pero no del color necesario' : ''}. Recuerda: la app gira tus tierras sola al pagar; si las giras tú a mano, su maná va a tu reserva hasta que cambie la fase.`, a);
+        return illegal(s, pl.id, `No te llega el maná para ${displayName(card)}: cuesta ${card.manaCost || '0'} (${card.cmc - discount} en total${discount ? `, ya con ${discount} menos por su objetivo` : ''}) y tienes ${m.total} disponible${m.total === 1 ? '' : 's'} (${m.pool} en la reserva + ${m.total - m.pool} en tierras sin girar)${m.total >= card.cmc ? ', pero no del color necesario' : ''}. Recuerda: la app gira tus tierras sola al pagar; si las giras tú a mano, su maná va a tu reserva hasta que cambie la fase.`, a);
       }
     }
     if (fromHand >= 0) pl.hand.splice(fromHand, 1);
@@ -564,6 +611,7 @@ const HANDLERS = {
       return s;
     }
     pushStack(s, { by: pl.id, card: stripCard(card), targets: a.targets || [] });
+    if (discount) pushEvent(s, 'info', `${displayName(card)} cuesta ${discount} menos por su objetivo.`, { to: pl.id });
     pushEvent(s, 'cast', `${pl.name} lanza ${displayName(card)}.`, { by: pl.id, card: stripCard(card), targets: a.targets || [], color: card.colors[0] || 'C', stackId: stackTop(s).id });
     resolveReady(s);
     return s;
@@ -1084,6 +1132,9 @@ function resolveEffectsInner(s, pl, card, fx, targets, name) {
         break;
       case 'bounce':
         if (perm) leaveBattlefield(s, perm.owner, perm.perm, 'hand', 'vuelve a la mano');
+        break;
+      case 'exile':
+        if (perm) leaveBattlefield(s, perm.owner, perm.perm, 'exile', 'es exiliada');
         break;
       case 'counter':
         if (perm) {

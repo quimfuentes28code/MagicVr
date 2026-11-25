@@ -64,6 +64,12 @@ export function nextBotAction(s) {
         options.push({ c, targets: targets.filter(Boolean), score: c.cmc + (c.isPermanent ? 0 : 3) });
       }
       options.sort((a, b) => b.score - a.score);
+      // Equipar un equipo suelto a la mejor criatura (si no hay nada mejor que lanzar)
+      if (!options[0]) {
+        const crs = me.battlefield.filter((p) => p.card.isCreature).sort((a, b) => power(b) + toughness(b) - power(a) - toughness(a));
+        const eq = me.battlefield.find((p) => p.card.attach?.equip && (p.attachedTo == null || !crs.some((c) => c.uid === p.attachedTo)) && planPayment(me, p.card.attach.equip));
+        if (eq && crs[0]) return { t: 'equip', by: me.id, uid: eq.uid, target: crs[0].uid };
+      }
       const cmdCost = me.commander && me.commanderInZone && planPayment(me, me.commander.manaCost, me.commanderTax);
       if (cmdCost && (!options[0] || me.commander.cmc + me.commanderTax >= options[0].c.cmc)) {
         return { t: 'castCommander', by: me.id };
@@ -240,6 +246,13 @@ export function chooseTargets(s, me, wanted) {
     if (e.kind === 'pump' && e.t < 0) {
       const killable = foeCreatures.filter((p) => toughness(p) + e.t <= p.damage).sort((a, b) => value(b) - value(a));
       return killable[0] ? { uid: killable[0].uid } : null;
+    }
+    if (e.kind === 'aura') {
+      // aura que perjudica (p. ej. −X/−X o «no puede atacar») → a una criatura rival
+      const bad = /can.t (attack|block)|gets -/i.test(e.oracle || '');
+      const pool = bad ? foeCreatures : me.battlefield.filter((p) => p.card.isCreature);
+      const best = [...pool].sort((a, b) => value(b) - value(a))[0];
+      return best ? { uid: best.uid, attach: true } : null;
     }
     if (e.kind === 'counter') {
       const mine = me.battlefield.filter((p) => p.card.isCreature).sort((a, b) => power(b) - power(a))[0];

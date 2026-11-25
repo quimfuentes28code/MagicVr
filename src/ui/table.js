@@ -8,7 +8,7 @@ import { openPicker } from './picker.js';
 import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
 import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, setCameraZoom } from '../camera.js';
 import { CardWatcher } from '../vision.js';
-import { targetsFor, describeEffect } from '../engine/effects.js';
+import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES } from '../engine/effects.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
@@ -23,7 +23,7 @@ import { openEditionPicker, autoMatchEdition, withPreferredEdition } from './edi
 import {
   STEPS, PHASES, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
   power, toughness, displayName, canAttack, manaSources, manaAvailable, planPayment,
-  stackTop, waitingOn, combatReadyPending,
+  stackTop, waitingOn, combatReadyPending, has, attachOf,
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
@@ -495,6 +495,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const t = ui.targeting;
     if (!t) return;
     buzz(20);
+    const want = currentWant();
+    if (want && want.attach) ref = { ...ref, attach: true };
     t.picked.push(ref);
     if (t.picked.length >= t.wanted.length) finishTargeting(t.picked);
     else { drawTargetBar(); render(S()); }
@@ -522,7 +524,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('div', { class: 'row-btns' },
         spells.map((it) => h('button', { class: 'act primary', onClick: () => pickTarget({ stack: it.id }) }, displayName(it.card))),
         players.map((p) => h('button', { class: 'act' + (p.id === me() ? '' : ' primary'), onClick: () => pickTarget({ player: p.id }) }, p.id === me() ? 'A mí' : p.name)),
-        h('button', { class: 'act', onClick: () => finishTargeting(t.picked) }, 'Sin objetivo (a mano)'),
+        h('button', { class: 'act', onClick: () => finishTargeting(t.picked) }, want.kind === 'equip' ? 'Cancelar' : 'Sin objetivo (a mano)'),
       ),
     );
   }
@@ -887,7 +889,17 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     }
     if (perm.damage) b.append(h('span', { class: 'dmg' }, '−' + perm.damage));
     if (perm.counters) b.append(h('span', { class: 'ctr' }, (perm.counters > 0 ? '+' : '') + perm.counters));
-    if (perm.card.isCreature && perm.sick && isActive && !perm.card.keywords.includes('haste')) b.append(h('span', {}, 'zZ'));
+    if (perm.card.isCreature && perm.sick && isActive && !has(perm, 'haste')) b.append(h('span', {}, 'zZ'));
+    // equipos y auras: la criatura muestra lo que gana; el equipo, a quién va
+    if (perm.bonus && perm.bonus.from.length) {
+      const extra = [...perm.bonus.kw.map(kwEs), ...perm.bonus.types.map((t) => TYPE_ES[t] || t)];
+      b.append(h('span', { class: 'equip-b', title: extra.join(', ') }, '⚔' + (perm.bonus.from.length > 1 ? perm.bonus.from.length : '') + (extra.length ? ' ' + extra.join(' · ') : '')));
+    }
+    el.classList.toggle('attached', perm.attachedTo != null);
+    if (perm.attachedTo != null) {
+      const host = findPerm(s, perm.attachedTo);
+      if (host) b.append(h('span', { class: 'equip-b to' }, '→ ' + displayName(host.perm.card)));
+    }
     return el;
   }
 
@@ -1274,6 +1286,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('p', { class: 'muted' }, mine ? 'Tu permanente.' : `Permanente de ${owner.name}. Usa estos botones cuando un hechizo tuyo le afecte.`),
       perm.card.isCreature ? h('div', { class: 'dmg-row' }, 'Hacer daño:', [1, 2, 3, 4, 5].map((n) => btn(n, { t: 'damage', uid: perm.uid, amount: n }))) : null,
       perm.loyalty != null ? h('div', { class: 'dmg-row' }, `Lealtad ${perm.loyalty}:`, [-3, -2, -1, 1, 2].map((n) => btn((n > 0 ? '+' : '') + n, { t: 'loyalty', uid: perm.uid, delta: n }))) : null,
+      equipInfo(perm, mine, () => close()),
       h('div', { class: 'actions' },
         mine && !perm.card.isToken ? h('button', { class: 'act', onClick: () => { close(); openEditionPicker(perm.card, (ed) => session.dispatch({ t: 'setImage', uid: perm.uid, image: ed.image })); } }, 'Cambiar edición') : null,
         btn(perm.tapped ? 'Enderezar' : 'Girar', { t: 'tap', uid: perm.uid }),
@@ -1287,6 +1300,38 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         btn('Devolver a la mano', { t: 'move', uid: perm.uid, to: 'hand' }),
       ),
     ]));
+  }
+
+  /** Botones de Equipar / Desequipar y lo que da el equipo o aura. */
+  function equipInfo(perm, mine, close) {
+    const att = attachOf(perm.card);
+    if (!att) return null;
+    const s = S();
+    const host = perm.attachedTo != null ? findPerm(s, perm.attachedTo) : null;
+    const what = describeAttach(att);
+    return h('div', { class: 'equip-box' },
+      h('p', {}, what ? `Da a la criatura ${att.aura ? 'encantada' : 'equipada'}: ${what}.` : 'Sus efectos se aplican a mano.'),
+      h('p', { class: 'muted' }, host ? `Está ${att.aura ? 'encantando' : 'equipado'} a ${displayName(host.perm.card)}.` : att.aura ? 'No encanta a ninguna criatura.' : 'No está equipado a ninguna criatura.'),
+      mine && att.equip != null ? h('div', { class: 'actions' },
+        h('button', { class: 'act primary', onClick: () => { close(); equipFlow(perm, false); } }, `Equipar (${att.equip.replace(/[{}]/g, '') || '0'})`),
+        h('button', { class: 'act', onClick: () => { close(); equipFlow(perm, true); } }, 'Mover sin pagar (a mano)'),
+        host ? h('button', { class: 'act', onClick: () => { close(); session.dispatch({ t: 'equip', uid: perm.uid, target: null }); } }, 'Desequipar') : null,
+      ) : null,
+      mine && att.aura ? h('div', { class: 'actions' },
+        h('button', { class: 'act', onClick: () => { close(); equipFlow(perm, true); } }, host ? 'Cambiar de criatura (a mano)' : 'Poner sobre una criatura'),
+      ) : null,
+    );
+  }
+
+  function equipFlow(perm, force) {
+    const s = S();
+    const mineCr = (player(s, me())?.battlefield || []).filter((x) => x.card.isCreature && x.uid !== perm.attachedTo);
+    if (!force && !mineCr.length) { toast('No tienes ninguna criatura a la que equiparlo.', 'warn'); return; }
+    startTargeting(perm.card, [{ kind: 'equip', target: 'creature' }], (targets) => {
+      const t = targets[0];
+      if (!t || t.uid == null) return;
+      session.dispatch({ t: 'equip', uid: perm.uid, target: t.uid, force });
+    });
   }
 
   function playerSheet(p) {

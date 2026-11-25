@@ -433,3 +433,50 @@ test('las fichas incoloras no tienen color', () => {
   const guard = creature('Guard', 2, 1, [], { oracle: 'When this creature dies, create a 1/1 colorless Hero creature token.' });
   assert.deepEqual(guard.effects.dies[0].colors, []);
 });
+
+test('equipar: paga el coste, da +1/+0, el tipo Caballero y vuela sólo en tu turno', () => {
+  let s = duel();
+  const eqCard = normalize({ name: 'Test Lance', manaCost: '{2}', typeLine: 'Artifact — Equipment',
+    oracle: 'Equipped creature gets +1/+0 and is a Knight in addition to its other types.\nDuring your turn, equipped creature has flying.\nEquip {4}' });
+  assert.equal(eqCard.attach.equip, '{4}');
+  let eq, cr;
+  [s, eq] = put(s, 'a', eqCard);
+  [s, cr] = put(s, 'a', creature('Bear', 2, 2));
+  s.step = 'main1';
+  // sin maná: no se puede
+  s = apply(s, { t: 'equip', by: 'a', uid: eq, target: cr });
+  assert.equal(last(s).kind, 'illegal');
+  for (let i = 0; i < 4; i++) [s] = put(s, 'a', BASICS.R);
+  s.step = 'main1';
+  s = apply(s, { t: 'equip', by: 'a', uid: eq, target: cr });
+  const a = s.players[0];
+  const bear = a.battlefield.find((p) => p.uid === cr);
+  assert.equal(a.battlefield.filter((p) => p.card.isLand && p.tapped).length, 4);
+  assert.equal(bear.bonus.p, 1);
+  assert.ok(bear.bonus.types.includes('Knight'));
+  assert.ok(bear.bonus.kw.includes('flying'));
+  // en el turno del rival no vuela
+  s.active = 1;
+  s = apply(s, { t: 'hand', by: 'a', delta: 0 });
+  const bear2 = s.players[0].battlefield.find((p) => p.uid === cr);
+  assert.ok(!bear2.bonus.kw.includes('flying'));
+  assert.equal(bear2.bonus.p, 1);
+  // si la criatura muere, el equipo se queda en juego sin equipar
+  s = apply(s, { t: 'move', by: 'a', uid: cr, to: 'graveyard' });
+  const e2 = s.players[0].battlefield.find((p) => p.uid === eq);
+  assert.ok(e2);
+  assert.equal(e2.attachedTo, null);
+});
+
+test('aura: se lanza sobre una criatura y le da sus bonificaciones; sin criatura va al cementerio', () => {
+  let s = duel();
+  let cr;
+  [s, cr] = put(s, 'a', creature('Bear', 2, 2));
+  const aura = normalize({ name: 'Test Aura', manaCost: '{1}', typeLine: 'Enchantment — Aura', oracle: 'Enchant creature\nEnchanted creature gets +2/+2 and has trample.' });
+  s = act(s, { t: 'play', by: 'a', card: aura, force: true, targets: [{ uid: cr, attach: true }] });
+  const bear = s.players[0].battlefield.find((p) => p.uid === cr);
+  assert.equal(bear.bonus.p, 2);
+  assert.ok(bear.bonus.kw.includes('trample'));
+  s = apply(s, { t: 'move', by: 'a', uid: cr, to: 'graveyard' });
+  assert.ok(s.players[0].graveyard.some((c) => c.name === 'Test Aura'));
+});

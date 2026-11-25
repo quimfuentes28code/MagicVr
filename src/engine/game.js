@@ -8,7 +8,7 @@
 // oficial (effects.js); lo que no se reconoce se aplica a mano.
 
 import { pips } from './cards.js';
-import { tokenCard, describeEffect, needsTarget } from './effects.js';
+import { tokenCard, describeEffect, needsTarget, parseAttach, describeAttach } from './effects.js';
 
 // Etapas del turno en orden. Las marcadas como automáticas pasan solas
 // (como en los juegos digitales) salvo que haya algo en la pila.
@@ -173,14 +173,52 @@ export function findPerm(s, uid) {
 }
 
 export function has(perm, kw) {
-  return perm.card.keywords.includes(kw);
+  return perm.card.keywords.includes(kw) || !!(perm.bonus && perm.bonus.kw.includes(kw));
 }
 
 export function power(perm) {
-  return (perm.card.power || 0) + perm.counters + perm.pump.p;
+  return (perm.card.power || 0) + perm.counters + perm.pump.p + (perm.bonus ? perm.bonus.p : 0);
 }
 export function toughness(perm) {
-  return (perm.card.toughness || 0) + perm.counters + perm.pump.t;
+  return (perm.card.toughness || 0) + perm.counters + perm.pump.t + (perm.bonus ? perm.bonus.t : 0);
+}
+
+/** Lo que da un equipo/aura (del oracle; las cartas antiguas guardadas no lo traen). */
+export function attachOf(card) {
+  if (card.attach !== undefined) return card.attach;
+  return parseAttach(card);
+}
+
+/**
+ * Recalcula lo que dan los equipos y auras a sus criaturas (efectos estáticos,
+ * regla 613). Un equipo cuya criatura ya no está se queda sin equipar (301.5c);
+ * un aura sin criatura va al cementerio (704.5m).
+ */
+function refreshStatics(s) {
+  const active = activePlayer(s)?.id;
+  for (const p of s.players) for (const perm of p.battlefield) perm.bonus = null;
+  const orphans = [];
+  for (const p of s.players) {
+    for (const perm of p.battlefield) {
+      if (perm.attachedTo == null) continue;
+      const f = findPerm(s, perm.attachedTo);
+      if (!f || !f.perm.card.isCreature) {
+        perm.attachedTo = null;
+        if (attachOf(perm.card)?.aura) orphans.push([p, perm]);
+        continue;
+      }
+      const att = attachOf(perm.card);
+      const b = (f.perm.bonus ||= { p: 0, t: 0, kw: [], types: [], from: [] });
+      b.from.push(perm.uid);
+      for (const m of att?.mods || []) {
+        if (m.myTurn && active !== p.id) continue;
+        b.p += m.p; b.t += m.t;
+        for (const k of m.kw) if (!b.kw.includes(k)) b.kw.push(k);
+        for (const t of m.types) if (!b.types.includes(t)) b.types.push(t);
+      }
+    }
+  }
+  for (const [p, perm] of orphans) leaveBattlefield(s, p, perm, 'graveyard', 'se queda sin criatura encantada');
 }
 const isPlaneswalker = (perm) => /Planeswalker/.test(perm.card.typeLine);
 const firstStriker = (perm) => has(perm, 'first strike') || has(perm, 'double strike');
@@ -278,6 +316,7 @@ function makePerm(s, card, ownerId) {
     loyalty: card.loyalty != null ? parseInt(card.loyalty, 10) || 0 : null,
     pump: { p: 0, t: 0 },
     isCommander: false,
+    attachedTo: null,
   };
 }
 
@@ -422,8 +461,17 @@ function resolveItem(s, item) {
     if (item.commander) perm.isCommander = true;
     pl.battlefield.push(perm);
     pushEvent(s, 'play', `${name} entra al campo de batalla.`, { uid: perm.uid, by: pl.id, color: card.colors[0] || card.produces[0] || 'C' });
+    const aura = attachOf(card)?.aura && (item.targets || []).find((t) => t.uid != null && t.attach);
+    if (aura) {
+      const tf = findPerm(s, aura.uid);
+      if (tf && tf.perm.card.isCreature) {
+        perm.attachedTo = tf.perm.uid;
+        pushEvent(s, 'pump', `${name} encanta a ${displayName(tf.perm.card)}${describeAttach(attachOf(card)) ? ': ' + describeAttach(attachOf(card)) : ''}.`, { uid: tf.perm.uid });
+      }
+    }
+    refreshStatics(s);
     stateBased(s);
-    if (fx.length) resolveEffects(s, pl, card, fx, item.targets || [], perm);
+    if (fx.length) resolveEffects(s, pl, card, fx, (item.targets || []).filter((t) => !t.attach), perm);
   } else {
     pushEvent(s, 'resolve', `${name} se resuelve.`, { by: pl.id, card: stripCard(card), color: card.colors[0] || 'C' });
     if (fx.length) resolveEffects(s, pl, card, fx, item.targets || [], null);
@@ -453,6 +501,8 @@ export function apply(state, action) {
   if (!fn) return state;
   const out = fn(s, action, by) || s;
   if (!out.winner && activePlayer(out).eliminated) passTurn(out);
+  refreshStatics(out);
+  if (out.players.some((p) => p.battlefield.some((x) => x.bonus))) stateBased(out);
   return out;
 }
 
@@ -565,6 +615,39 @@ const HANDLERS = {
       }
     }
     perm.tapped = nowTapped;
+  },
+
+  /** Equipar (regla 702.6): coste de equipar, a una criatura tuya, a velocidad de conjuro. */
+  equip(s, a, pl) {
+    const f = findPerm(s, a.uid);
+    if (!f || f.owner.id !== pl.id) return s;
+    const eq = f.perm;
+    const att = attachOf(eq.card);
+    if (a.target == null) {
+      if (eq.attachedTo == null) return s;
+      eq.attachedTo = null;
+      pushEvent(s, 'info', `${displayName(eq.card)} se queda sin equipar.`, { uid: eq.uid });
+      return s;
+    }
+    const tf = findPerm(s, a.target);
+    if (!tf || !tf.perm.card.isCreature) return illegal(s, pl.id, 'Sólo se puede equipar a una criatura.', a);
+    if (!a.force) {
+      if (tf.owner.id !== pl.id) return illegal(s, pl.id, 'Sólo puedes equipar a una criatura que controles.', a);
+      if (activePlayer(s).id !== pl.id || !isMain(s) || s.stack.length) return illegal(s, pl.id, 'Equipar es como un conjuro: sólo en tu turno, en una fase principal y con la pila vacía.', a);
+      if (eq.attachedTo === tf.perm.uid) return illegal(s, pl.id, `${displayName(eq.card)} ya está equipado a ${displayName(tf.perm.card)}.`, a);
+      const cost = att?.equip || '';
+      if (cost) {
+        const plan = planPayment(pl, cost);
+        if (!plan) {
+          const m = manaAvailable(pl);
+          return illegal(s, pl.id, `No te llega el maná para equipar: cuesta ${cost} y tienes ${m.total} disponible${m.total === 1 ? '' : 's'}.`, a);
+        }
+        tapForPayment(pl, plan);
+      }
+    }
+    eq.attachedTo = tf.perm.uid;
+    const what = describeAttach(att);
+    pushEvent(s, 'pump', `${pl.name} equipa ${displayName(eq.card)} a ${displayName(tf.perm.card)}${what ? ' (' + what + ')' : ''}.`, { uid: tf.perm.uid, by: pl.id });
   },
 
   move(s, a) {
@@ -808,6 +891,7 @@ function cleanup(s) {
 
 function enterStep(s, step) {
   s.step = step;
+  refreshStatics(s);
   // El maná que no se usa se pierde al cambiar de paso (regla 500.4).
   for (const p of s.players) p.manaPool = [];
   const pl = activePlayer(s);

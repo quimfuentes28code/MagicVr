@@ -7,7 +7,7 @@ const IMG = (name) =>
 export const COLOR_NAMES = { W: 'Blanco', U: 'Azul', B: 'Negro', R: 'Rojo', G: 'Verde', C: 'Incoloro' };
 
 import data from '../data/cards.json' with { type: 'json' };
-import { parseEffects } from './effects.js';
+import { parseEffects, parseAttach } from './effects.js';
 
 const BASIC_LAND_COLOR = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
 
@@ -63,6 +63,9 @@ export function normalize(c) {
   card.loyalty = c.loyalty != null ? parseInt(c.loyalty, 10) || 0 : null;
   card.produces = manaProduced(card);
   card.effects = parseEffects(card);
+  card.isEquipment = /\bEquipment\b/.test(typeLine);
+  card.isAura = /\bAura\b/.test(typeLine);
+  card.attach = parseAttach(card);
   return card;
 }
 

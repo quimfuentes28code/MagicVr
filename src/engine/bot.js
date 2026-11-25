@@ -5,7 +5,7 @@
 import { targetsFor } from './effects.js';
 import {
   activePlayer, canAttack, canBlock, canTarget, combatReadyPending, defenderOf, findPerm, has, opponents,
-  pendingDefenders, planPayment, player, power, stackTop, toughness,
+  pendingDefenders, planPayment, player, power, stackTop, toughness, permMatches,
 } from './game.js';
 
 const smart = (pl) => pl.level !== 'easy';
@@ -192,7 +192,7 @@ function respond(s, pl, top) {
   if (dmg && t0 && t0.uid != null) {
     const f = findPerm(s, t0.uid);
     if (f && f.owner.id === pl.id) {
-      const pump = hand.find((c) => (c.effects?.spell || []).some((e) => e.kind === 'pump' && e.t > 0 && toughness(f.perm) - f.perm.damage + e.t > dmg.amount));
+      const pump = !has(f.perm, 'shroud') && hand.find((c) => (c.effects?.spell || []).some((e) => e.kind === 'pump' && e.t > 0 && toughness(f.perm) - f.perm.damage + e.t > dmg.amount));
       if (pump) return { t: 'play', by: pl.id, handUid: pump.uid, targets: [{ uid: f.perm.uid }] };
     }
   }
@@ -213,6 +213,7 @@ function combatTrick(s, pl) {
       const incoming = foes.reduce((a, f) => a + power(f), 0);
       const dies = incoming >= toughness(c) - c.damage || foes.some((f) => has(f, 'deathtouch'));
       if (!dies) continue;
+      if (has(c, 'shroud')) continue; // velo: ni sus propios hechizos pueden apuntarla
       for (const card of pumps) {
         const e = card.effects.spell.find((x) => x.kind === 'pump');
         if (incoming < toughness(c) - c.damage + e.t && !foes.some((f) => has(f, 'deathtouch'))) {
@@ -232,15 +233,17 @@ export function chooseTargets(s, me, wanted) {
   const value = (p) => power(p) * 2 + toughness(p) + p.card.cmc + (p.isCommander ? 5 : 0);
   return wanted.map((e) => {
     if (e.kind === 'damage') {
-      const killable = foeCreatures.filter((p) => toughness(p) - p.damage <= e.amount && !p.card.keywords.includes('indestructible'));
+      const killable = foeCreatures.filter((p) => (!e.filter || permMatches(s, e.filter, p, p.ownerId, me.id)) && toughness(p) - p.damage <= e.amount && !p.card.keywords.includes('indestructible'));
       const best = killable.sort((a, b) => value(b) - value(a))[0];
       if (e.target === 'player') return weakest ? { player: weakest.id } : null;
       if (best && (e.target === 'creature' || value(best) >= 6 || (weakest && weakest.life > e.amount))) return { uid: best.uid };
       if (e.target === 'any' && weakest) return { player: weakest.id };
       return null;
     }
-    if (e.kind === 'destroy' || e.kind === 'bounce') {
-      const best = [...foeCreatures].sort((a, b) => value(b) - value(a))[0];
+    if (e.kind === 'destroy' || e.kind === 'bounce' || e.kind === 'exile') {
+      const pool = opps.flatMap((o) => o.battlefield.filter((p) => permMatches(s, e.filter, p, o.id, me.id) && canTarget(s, me.id, p, o)));
+      const val = (p) => (p.card.isCreature ? value(p) : p.card.cmc + 2);
+      const best = [...pool].sort((a, b) => val(b) - val(a))[0];
       return best ? { uid: best.uid } : null;
     }
     if (e.kind === 'pump' && e.t < 0) {
@@ -250,12 +253,12 @@ export function chooseTargets(s, me, wanted) {
     if (e.kind === 'aura') {
       // aura que perjudica (p. ej. −X/−X o «no puede atacar») → a una criatura rival
       const bad = /can.t (attack|block)|gets -/i.test(e.oracle || '');
-      const pool = bad ? foeCreatures : me.battlefield.filter((p) => p.card.isCreature);
+      const pool = bad ? foeCreatures : me.battlefield.filter((p) => p.card.isCreature && !has(p, 'shroud'));
       const best = [...pool].sort((a, b) => value(b) - value(a))[0];
       return best ? { uid: best.uid, attach: true } : null;
     }
     if (e.kind === 'counter') {
-      const mine = me.battlefield.filter((p) => p.card.isCreature).sort((a, b) => power(b) - power(a))[0];
+      const mine = me.battlefield.filter((p) => p.card.isCreature && !has(p, 'shroud')).sort((a, b) => power(b) - power(a))[0];
       return mine ? { uid: mine.uid } : null;
     }
     return null;

@@ -907,6 +907,10 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     // equipos y auras: la criatura muestra lo que gana; el equipo, a quién va
     if (perm.bonus && perm.bonus.from.length) {
       const extra = [...perm.bonus.kw.map(kwEs), ...perm.bonus.types.map((t) => TYPE_ES[t] || t)];
+      if (perm.bonus.noUntap) extra.push('no se endereza');
+      if (perm.bonus.cantAttack && perm.bonus.cantBlock) extra.push('ni ataca ni bloquea');
+      else if (perm.bonus.cantAttack) extra.push('no ataca');
+      else if (perm.bonus.cantBlock) extra.push('no bloquea');
       b.append(h('span', { class: 'equip-b', title: extra.join(', ') }, '⚔' + (perm.bonus.from.length > 1 ? perm.bonus.from.length : '') + (extra.length ? ' ' + extra.join(' · ') : '')));
     }
     el.classList.toggle('attached', perm.attachedTo != null);

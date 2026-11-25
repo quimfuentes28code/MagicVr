@@ -570,3 +570,33 @@ test('tierras adicionales: «puedes jugar una tierra adicional en cada uno de tu
   s = apply(s, { t: 'play', by: 'a', card: BASICS.G });
   assert.equal(last(s).kind, 'illegal');
 });
+
+test('Sueño hechizado: al entrar gira la criatura encantada y no se endereza en su paso de enderezar', () => {
+  const sleep = normalize({ name: 'Charmed Sleep', manaCost: '{1}{U}{U}', typeLine: 'Enchantment — Aura', colors: ['U'],
+    oracle: "Enchant creature\nWhen this Aura enters, tap enchanted creature.\nEnchanted creature doesn't untap during its controller's untap step." });
+  let s = duel();
+  let foe;
+  [s, foe] = put(s, 'b', creature('Ogre', 3, 3));
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: sleep, force: true, targets: [{ uid: foe, attach: true }] });
+  const ogre = () => s.players[1].battlefield.find((p) => p.uid === foe);
+  assert.equal(ogre().tapped, true);
+  assert.ok(ogre().bonus.noUntap);
+  // turno del rival: no se endereza
+  s.step = 'cleanup'; s.stack = []; s = apply(s, { t: 'next', by: 'a' });
+  assert.equal(s.players[s.active].id, 'b');
+  assert.equal(ogre().tapped, true);
+});
+
+test('Pacifismo y «gira la criatura objetivo» al entrar', () => {
+  const pac = normalize({ name: 'Pacifism', manaCost: '{1}{W}', typeLine: 'Enchantment — Aura', oracle: "Enchant creature\nEnchanted creature can't attack or block." });
+  assert.ok(pac.attach.mods[0].cantAttack && pac.attach.mods[0].cantBlock);
+  const tapper = normalize({ name: 'Tapper', manaCost: '{2}', power: '1', toughness: '1', typeLine: 'Creature — Test', oracle: 'When this creature enters, tap target creature an opponent controls.' });
+  assert.equal(tapper.effects.etb[0].kind, 'tap');
+  let s = duel();
+  let foe;
+  [s, foe] = put(s, 'b', creature('Ogre', 3, 3));
+  s.step = 'main1';
+  s = act(s, { t: 'play', by: 'a', card: tapper, force: true, targets: [{ uid: foe }] });
+  assert.equal(s.players[1].battlefield.find((p) => p.uid === foe).tapped, true);
+});

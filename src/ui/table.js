@@ -27,7 +27,7 @@ import {
 } from '../engine/game.js';
 
 const SETTINGS_KEY = 'mtgvr-settings-2';
-const DEFAULTS = { tilt: 0, zoom: 1, camera: true, layout: null, camZoom: 1, persp: null };
+const DEFAULTS = { tilt: 0, zoom: 1, camera: true, layout: null, camZoom: 1, persp: null, camFit: 'contain' };
 function loadSettings() {
   let st;
   try { st = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { st = { ...DEFAULTS }; }
@@ -76,6 +76,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
 
   // ------------------------------------------------------------ estructura
   const video = h('video', { class: 'cam', autoplay: true, playsinline: true, muted: true });
+  // imagen de la cámara: completa (sin recortar) o llenando la pantalla
+  const applyFit = () => { video.dataset.fit = ui.settings.camFit === 'cover' ? 'cover' : 'contain'; requestAnimationFrame(() => applyPerspective && applyPerspective()); };
   const topbar = h('header', { class: 'topbar' });
   const oppRow = h('div', { class: 'side-row opp' });
   const divider = h('div', { class: 'divider' });
@@ -135,6 +137,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   }
   window.addEventListener('resize', applyPerspective);
   requestAnimationFrame(applyPerspective);
+  applyFit();
   /** Punto de pantalla → coordenadas del plano (sin perspectiva). */
   const toLocal = (cx, cy) => {
     const r = mid.getBoundingClientRect();
@@ -338,7 +341,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
       firstTime,
       toLocal,
-      extra: h('div', { class: 'cal-extra' }, zoomSlider, perspBtn),
+      extra: h('div', { class: 'cal-extra' }, zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
       onChange: () => applyZoom(),
       onDone: (L) => {
         ui.settings.layout = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };
@@ -1375,6 +1378,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       slider('Inclinación', 'tilt', 0, 45, 1),
       slider('Tamaño', 'zoom', 0.7, 1.15, 0.05),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: st.camera, onChange: (e) => { st.camera = e.target.checked; saveSettings(st); applySettings(); } }), 'Usar la cámara'),
+      h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: soundOn(), onChange: (e) => setSound(e.target.checked) }), 'Efectos de sonido'),
       h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: musicOn(), onChange: (e) => setMusic(e.target.checked) }), 'Música de fondo'),
       h('label', { class: 'slider' }, h('span', {}, 'Volumen música'), h('input', { type: 'range', min: 0.05, max: 1, step: 0.05, value: musicVolume(), onInput: (e) => setMusicVolume(+e.target.value) })),

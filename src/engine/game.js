@@ -9,7 +9,7 @@
 
 import { pips } from './cards.js';
 import { tokenCard, describeEffect, needsTarget, parseAttach, describeAttach, targetsFor, artifactTokenCard, kwEs, targetEs, effectFx } from './effects.js';
-import { staticsOf, triggersOf, activatedOf, keywordsOf, abilitiesOf, altCosts } from './abilities.js';
+import { staticsOf, triggersOf, activatedOf, keywordsOf, abilitiesOf, altCosts, levelsOf } from './abilities.js';
 
 // Etapas del turno en orden. Las marcadas como automáticas pasan solas
 // (como en los juegos digitales) salvo que haya algo en la pila.
@@ -240,6 +240,13 @@ function refreshStatics(s) {
           const b = B(src);
           b.p += st.p; b.t += st.t;
           for (const k of st.kw) if (!b.kw.includes(k)) b.kw.push(k);
+        } else if (st.kind === 'levelUp' && src.level) {
+          const lv = levelsOf(src.card).filter((x) => src.level >= x.min && src.level <= x.max).pop();
+          if (lv) {
+            const b = B(src);
+            if (lv.p != null) { b.p += lv.p - (src.card.power || 0); b.t += lv.t - (src.card.toughness || 0); }
+            for (const k of lv.kw) if (!b.kw.includes(k)) b.kw.push(k);
+          }
         } else if (st.kind === 'menaceLike') {
           const b = B(src);
           if (!b.kw.includes('menace')) b.kw.push('menace');
@@ -599,6 +606,12 @@ function resolveItem(s, item) {
       const tf = findPerm(s, aura.uid);
       if (tf && tf.perm.card.isCreature) {
         perm.attachedTo = tf.perm.uid;
+        if (staticsOf(card).some((x) => x.kind === 'controlHost') && tf.owner.id !== pl.id) {
+          tf.owner.battlefield = tf.owner.battlefield.filter((x) => x !== tf.perm);
+          tf.perm.ownerId = pl.id;
+          pl.battlefield.push(tf.perm);
+          pushEvent(s, 'play', `${pl.name} toma el control de ${displayName(tf.perm.card)}.`, { uid: tf.perm.uid, by: pl.id });
+        }
         pushEvent(s, 'pump', `${name} encanta a ${displayName(tf.perm.card)}${describeAttach(attachOf(card)) ? ': ' + describeAttach(attachOf(card)) : ''}.`, { uid: tf.perm.uid });
       }
     }
@@ -616,6 +629,16 @@ function resolveItem(s, item) {
   } else {
     pushEvent(s, 'resolve', `${name} se resuelve.`, { by: pl.id, card: stripCard(card), color: card.colors[0] || 'C' });
     if (fx.length) resolveEffects(s, pl, card, fx, item.targets || [], null);
+    // Tormenta: una copia por cada hechizo lanzado antes este turno
+    for (let i = 0; i < (card.stormCopies || 0) && fx.length && !s.winner; i++) {
+      pushEvent(s, 'info', `Tormenta: copia ${i + 1} de ${name}.`);
+      resolveEffects(s, pl, card, fx, fx.some(needsTarget) ? autoTargets(s, pl, fx.filter(needsTarget), null) : [], null);
+    }
+    if (card.rebound && !card.fromGraveyard) {
+      card.exileOnResolve = true;
+      (s.delayed ||= []).push({ at: 'upkeep', from: s.turn, pid: pl.id, kind: 'rebound', card: stripCard(card) });
+      pushEvent(s, 'info', `${name} se exilia (rebote): se volverá a lanzar gratis en tu próximo mantenimiento.`, { to: pl.id });
+    }
     if (card.adventureOf) {
       // Aventura (regla 715.4): se exilia y luego se puede lanzar la criatura desde el exilio.
       pl.exile.push({ ...stripCard(card.adventureOf), onAdventure: true });
@@ -712,6 +735,13 @@ const HANDLERS = {
     if (a.alt && ['morph', 'megamorph', 'disguise'].includes(a.alt) && alts[a.alt]) cost = '{3}';
     if (card.kicked && alts.kicker) cost += alts.kicker;
     if (a.buyback && alts.buyback) cost += alts.buyback;
+    if (a.entwine && alts.entwine) { cost += alts.entwine; card = { ...card, chosenModes: (card.effects?.modes || []).map((_, i) => i) }; }
+    // costes adicionales: sacrificar / descartar / pagar vidas
+    const addSac = staticsOf(card).find((x) => x.kind === 'addSac');
+    if (addSac && !a.force) {
+      const f = a.sacUid != null ? findPerm(s, a.sacUid) : null;
+      if (!f || f.owner.id !== pl.id || !permMatches(s, addSac.filter, f.perm, pl.id, pl.id)) return illegal(s, pl.id, `Para lanzar ${displayName(card)} tienes que sacrificar ${targetEs(addSac.filter)} como coste adicional.`, a);
+    }
     let discount = card.isLand ? 0 : costReduction(s, card, a.targets, pl.id);
     let wardLife = 0;
     for (const t of a.targets || []) {
@@ -737,6 +767,11 @@ const HANDLERS = {
         tapForPayment(pl, plan);
         if (delved) { const gone = pl.graveyard.splice(0, delved); pl.exile.push(...gone); pushEvent(s, 'info', `Delve: exilias ${delved} carta${delved > 1 ? 's' : ''} de tu cementerio para pagar.`, { to: pl.id }); }
         if (wardLife) { pl.life -= wardLife; pushEvent(s, 'life', `${pl.name} paga ${wardLife} vidas por el resguardo (${pl.life}).`, { target: pl.id, delta: -wardLife }); }
+        if (addSac && a.sacUid != null) { const f = findPerm(s, a.sacUid); if (f) leaveBattlefield(s, pl, f.perm, 'graveyard', 'se sacrifica (coste adicional)'); }
+        const addDis = staticsOf(card).find((x) => x.kind === 'addDiscard');
+        if (addDis) { if (pl.isBot) botDiscard(s, pl, addDis.amount); else { pl.handCount = Math.max(0, pl.handCount - addDis.amount); pushEvent(s, 'manual', `Coste adicional: descarta ${addDis.amount === 1 ? 'una carta' : addDis.amount + ' cartas'}.`, { to: pl.id }); } }
+        const addLife = staticsOf(card).find((x) => x.kind === 'addLife');
+        if (addLife) { pl.life -= addLife.amount; pushEvent(s, 'life', `${pl.name} paga ${addLife.amount} vidas (coste adicional) (${pl.life}).`, { target: pl.id, delta: -addLife.amount }); }
       }
       else if (!a.force) {
         const m = manaAvailable(pl);
@@ -772,6 +807,9 @@ const HANDLERS = {
       stateBased(s);
       return s;
     }
+    const kwsCast = keywordsOf(card);
+    if (kwsCast.includes('storm')) card = { ...card, stormCopies: s.spellsCast && s.spellsCast.turn === s.turn ? s.spellsCast.n : 0 };
+    if (kwsCast.includes('rebound') && fromHand >= 0 || (kwsCast.includes('rebound') && !pl.isBot && !card.fromGraveyard && exIdx < 0)) card = { ...card, rebound: true };
     pushStack(s, { by: pl.id, card: stripCard(card), targets: a.targets || [] });
     castTriggers(s, pl, card);
     if (discount) pushEvent(s, 'info', `${displayName(card)} cuesta ${discount} menos por su objetivo.`, { to: pl.id });
@@ -847,6 +885,7 @@ const HANDLERS = {
         if (perm.loyaltyUsed === s.turn) return illegal(s, pl.id, `Sólo puedes activar UNA habilidad de lealtad de ${name} por turno.`, a);
         if (typeof c.loyalty === 'number' && c.loyalty < 0 && (perm.loyalty || 0) < -c.loyalty) return illegal(s, pl.id, `${name} no tiene lealtad suficiente (${perm.loyalty}).`, a);
       } else if (ab.once && (perm.used || {})[a.idx] === s.turn) return illegal(s, pl.id, `Esa habilidad de ${name} sólo se activa una vez por turno.`, a);
+      if (ab.exhaust && (perm.exhausted || {})[a.idx]) return illegal(s, pl.id, `Esa habilidad de ${name} (agotar) sólo se puede activar una vez.`, a);
       if (c.tap && perm.tapped) return illegal(s, pl.id, `${name} ya está girada.`, a);
       if (c.untap && !perm.tapped) return illegal(s, pl.id, `${name} tiene que estar girada para esa habilidad.`, a);
       if (c.tap && perm.card.isCreature && perm.sick && !has(perm, 'haste')) return illegal(s, pl.id, `${name} acaba de entrar (mareo de invocación): no puede usar habilidades con {T} hasta tu próximo turno.`, a);
@@ -868,6 +907,7 @@ const HANDLERS = {
     if (c.discard) { if (pl.isBot) botDiscard(s, pl, c.discard); else { pl.handCount = Math.max(0, pl.handCount - c.discard); pushEvent(s, 'manual', `Descarta ${c.discard === 1 ? 'una carta' : c.discard + ' cartas'} para pagar la habilidad.`, { to: pl.id }); } }
     if (c.loyalty != null) { perm.loyaltyUsed = s.turn; if (typeof c.loyalty === 'number') perm.loyalty = (perm.loyalty || 0) + c.loyalty; }
     perm.used = { ...(perm.used || {}), [a.idx]: s.turn };
+    if (ab.exhaust) perm.exhausted = { ...(perm.exhausted || {}), [a.idx]: true };
     if (c.sacSelf) leaveBattlefield(s, pl, perm, 'graveyard', 'se sacrifica');
     pushEvent(s, 'activate', `${pl.name} activa ${name}: ${ab.fx.map(describeEffect).filter(Boolean).join(', ') || 'su habilidad'}.`, { by: pl.id, uid: perm.uid, color: perm.card.colors[0] || 'C' });
     resolveEffects(s, pl, perm.card, ab.fx, a.targets || [], perm);
@@ -908,6 +948,21 @@ const HANDLERS = {
     fireTriggers(s, 'turnedFaceUp', { perm });
     refreshStatics(s);
     stateBased(s);
+  },
+
+  /** Subir de nivel (como un conjuro). */
+  levelUp(s, a, pl) {
+    const f = findPerm(s, a.uid);
+    if (!f || f.owner.id !== pl.id) return s;
+    const st = staticsOf(f.perm.card).find((x) => x.kind === 'levelUp');
+    if (!st) return s;
+    if (activePlayer(s).id !== pl.id || !isMain(s) || s.stack.length) return illegal(s, pl.id, 'Subir de nivel es como un conjuro: en tu turno, en una fase principal y con la pila vacía.', a);
+    const plan = planPayment(pl, st.cost);
+    if (!plan) return illegal(s, pl.id, `No te llega el maná para subir de nivel (${st.cost}).`, a);
+    tapForPayment(pl, plan);
+    f.perm.level = (f.perm.level || 0) + 1;
+    pushEvent(s, 'pump', `${displayName(f.perm.card)} sube al nivel ${f.perm.level}.`, { uid: f.perm.uid });
+    refreshStatics(s);
   },
 
   /** Tripular N: gira criaturas con fuerza total N o más; el vehículo es criatura hasta el final del turno. */
@@ -958,6 +1013,13 @@ const HANDLERS = {
     const i = list.findIndex((x) => x.uid === a.uid && x.type === a.type);
     if (i < 0) return s;
     const [ch] = list.splice(i, 1);
+    if (ch.type === 'upkeep') {
+      const f = findPerm(s, ch.uid);
+      if (!f) return s;
+      const plan = a.yes ? planPayment(pl, ch.cost) : null;
+      if (plan) { tapForPayment(pl, plan); pushEvent(s, 'info', `${pl.name} paga ${ch.cost} por ${ch.name}.`); }
+      else leaveBattlefield(s, pl, f.perm, 'graveyard', a.yes ? 'se sacrifica (no te llega el maná)' : 'se sacrifica');
+    }
     if (ch.type === 'shock') {
       const f = findPerm(s, ch.uid);
       if (f && a.yes) { pl.life -= 2; f.perm.tapped = false; pushEvent(s, 'life', `${pl.name} paga 2 vidas: ${ch.name} entra enderezada (${pl.life}).`, { target: pl.id, delta: -2 }); }
@@ -1316,15 +1378,21 @@ function enterStep(s, step) {
     fireTriggers(s, 'drawstep', { player: pl });
   } else if (step === 'upkeep') {
     runDelayed(s, 'upkeep');
+    upkeepKeywords(s, pl);
     fireTriggers(s, 'upkeep', { player: pl });
+    fireTriggers(s, 'oppUpkeep', { player: pl });
     fireTriggers(s, 'anyUpkeep', { player: pl });
   } else if (step === 'main1') {
     fireTriggers(s, 'main1', { player: pl });
   } else if (step === 'begincombat') {
     fireTriggers(s, 'begincombat', { player: pl });
+    fireTriggers(s, 'anyCombat', { player: pl });
+  } else if (step === 'main2') {
+    fireTriggers(s, 'main2', { player: pl });
   } else if (step === 'end') {
     runDelayed(s, 'end');
     fireTriggers(s, 'endstep', { player: pl });
+    fireTriggers(s, 'oppEndstep', { player: pl });
     fireTriggers(s, 'anyEndstep', { player: pl });
   } else if (step === 'block') {
     s.combat.confirmed = [];
@@ -1440,7 +1508,9 @@ function resolveCombat(s, phase) {
     if (has(src, 'lifelink')) player(s, src.ownerId).life += amt;
     const tox = keywordsOf(src.card).map((k) => k.match(/^toxic (\d+)/)).find(Boolean);
     if (tox && amt > 0) { t.poison += +tox[1]; pushEvent(s, 'life', `${t.name} recibe ${tox[1]} contador${+tox[1] > 1 ? 'es' : ''} de veneno (tóxico) (${t.poison}/10).`, { target: t.id, delta: 0 }); }
-    if (amt > 0) combatHits.push([src, t]);
+    if (amt > 0) { combatHits.push([src, t]); t.damagedTurn = s.turn; }
+    const ren = keywordsOf(src.card).map((k) => k.match(/^renown (\d+)/)).find(Boolean);
+    if (ren && amt > 0 && !src.renowned) { src.renowned = true; src.counters += +ren[1]; pushEvent(s, 'pump', `${displayName(src.card)} gana renombre (+${ren[1]} contadores +1/+1).`, { uid: src.uid }); }
   }
   for (const [src, t] of combatHits) {
     fireTriggers(s, 'combatDamagePlayer', { perm: src, player: t });
@@ -1500,6 +1570,24 @@ function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
       case 'damage':
         if (e.target === 'opponents') {
           for (const o of opponents(s, pl.id)) hurtPlayer(s, o, e.amount, name);
+        } else if (e.target === 'allPlayers') {
+          for (const o of alivePlayers(s)) hurtPlayer(s, o, e.amount, name);
+        } else if (e.target === 'self') {
+          hurtPlayer(s, pl, e.amount, name);
+        } else if (e.target === 'all') {
+          for (const p2 of s.players) {
+            for (const c of [...p2.battlefield]) {
+              if (!c.card.isCreature && !(e.players && isPlaneswalker(c))) continue;
+              if (e.opp && p2.id === pl.id) continue;
+              if (e.other && source && c.uid === source.uid) continue;
+              if (e.flying === true && !has(c, 'flying')) continue;
+              if (e.flying === false && has(c, 'flying')) continue;
+              if (e.combat === 'attacking' && s.combat.attackers[c.uid] == null) continue;
+              dealDamageToPerm(s, c, e.amount, null, card);
+            }
+            if (e.players && !(e.opp && p2.id === pl.id) && !p2.eliminated) hurtPlayer(s, p2, e.amount, name);
+          }
+          pushEvent(s, 'hit', `${name} hace ${e.amount} de daño a ${e.opp ? 'cada criatura rival' : 'cada criatura'}${e.players ? ' y a cada jugador' : ''}.`, { by: pl.id });
         } else if (perm) {
           dealDamageToPerm(s, perm.perm, e.amount, null, card);
           pushEvent(s, 'hit', `${name} hace ${e.amount} de daño a ${displayName(perm.perm.card)}.`, { uid: perm.perm.uid });
@@ -1647,6 +1735,7 @@ function resolveEffectsInner(s, pl, card, fx, targets, name, source = null) {
 function hurtPlayer(s, t, amount, srcName) {
   if (t.prevent) { const k = Math.min(t.prevent, amount); t.prevent -= k; amount -= k; if (amount <= 0) return; }
   t.life -= amount;
+  t.damagedTurn = s.turn;
   pushEvent(s, 'life', `${srcName} hace ${amount} de daño a ${t.name} (${t.life}).`, { target: t.id, delta: -amount });
 }
 
@@ -2081,7 +2170,15 @@ function triggerApplies(ev, p, perm, info) {
   const isCr = ip && ip.card.isCreature;
   switch (ev) {
     case 'upkeep': case 'endstep': case 'begincombat': case 'main1': case 'drawstep': return info.player && info.player.id === p.id;
-    case 'anyUpkeep': case 'anyEndstep': return true;
+    case 'anyUpkeep': case 'anyEndstep': case 'anyCombat': return true;
+    case 'main2': return info.player && info.player.id === p.id;
+    case 'oppUpkeep': case 'oppEndstep': return info.player && info.player.id !== p.id;
+    case 'artifactEtbMine': return ip && ipOwner === p.id && /Artifact/.test(ip.card.typeLine);
+    case 'enchantmentEtbMine': return ip && ipOwner === p.id && /Enchantment/.test(ip.card.typeLine);
+    case 'castHistoric': return info.player.id === p.id && /Legendary|Artifact|Saga/.test(info.card.typeLine);
+    case 'castAuraEquip': return info.player.id === p.id && /Aura|Equipment|Vehicle/.test(info.card.typeLine);
+    case 'castFirst': return info.player.id === p.id && info.nth === 1;
+    case 'castAnyone': return true;
     case 'otherEtbMine': return ip && ipOwner === p.id && isCr && ip.uid !== perm.uid;
     case 'otherEtbMineNontoken': return ip && ipOwner === p.id && isCr && !ip.card.isToken && ip.uid !== perm.uid;
     case 'creatureEtbMine': return ip && ipOwner === p.id && isCr;
@@ -2156,6 +2253,15 @@ function autoTargets(s, p, wanted, source) {
 }
 
 function fireEnterTriggers(s, pl, perm) {
+  fireTriggers(s, 'artifactEtbMine', { perm });
+  fireTriggers(s, 'enchantmentEtbMine', { perm });
+  // Evolucionar: si entra una criatura tuya más grande, +1/+1
+  if (perm.card.isCreature) {
+    for (const x of pl.battlefield) {
+      if (x.uid === perm.uid || !keywordsOf(x.card).includes('evolve')) continue;
+      if (power(perm) > power(x) || toughness(perm) > toughness(x)) { x.counters += 1; pushEvent(s, 'pump', `${displayName(x.card)} evoluciona (+1/+1).`, { uid: x.uid }); }
+    }
+  }
   fireTriggers(s, 'otherEtbMine', { perm });
   fireTriggers(s, 'otherEtbMineNontoken', { perm });
   fireTriggers(s, 'creatureEtbMine', { perm });
@@ -2165,6 +2271,19 @@ function fireEnterTriggers(s, pl, perm) {
 }
 
 function diesTriggers(s, owner, perm) {
+  const kws = keywordsOf(perm.card);
+  const mod = kws.map((k) => k.match(/^modular (\d+)/)).find(Boolean);
+  if (mod && perm.counters > 0) {
+    const to = owner.battlefield.find((x) => x.card.isCreature && /Artifact/.test(x.card.typeLine));
+    if (to) { to.counters += perm.counters; pushEvent(s, 'pump', `Modular: ${displayName(to.card)} recibe ${perm.counters} contadores +1/+1.`, { uid: to.uid }); }
+  }
+  if (!perm.card.isToken && !owner.eliminated && ((kws.includes('persist') && perm.counters >= 0) || (kws.includes('undying') && perm.counters <= 0))) {
+    const persist = kws.includes('persist') && perm.counters >= 0;
+    const gi = owner.graveyard.findIndex((c) => c.name === perm.card.name);
+    if (gi >= 0) owner.graveyard.splice(gi, 1);
+    const back = enterPerm(s, owner, perm.card, { from: persist ? '(persistir)' : '(inmortal)' });
+    back.counters = persist ? -1 : 1;
+  }
   for (const st of staticsOf(perm.card)) {
     if (st.kind === 'afterlife' && !owner.eliminated) {
       for (let i = 0; i < st.amount; i++) {
@@ -2182,7 +2301,26 @@ function diesTriggers(s, owner, perm) {
 }
 
 function castTriggers(s, pl, card) {
-  const info = { player: pl, card };
+  s.spellsCast = s.spellsCast && s.spellsCast.turn === s.turn ? s.spellsCast : { turn: s.turn, n: 0, by: {} };
+  s.spellsCast.n += 1;
+  s.spellsCast.by[pl.id] = (s.spellsCast.by[pl.id] || 0) + 1;
+  const info = { player: pl, card, nth: s.spellsCast.by[pl.id] };
+  // Extorsionar: por cada extorsión, paga {W/B} y cada rival pierde 1 vida y tú ganas 1
+  for (const x of pl.battlefield) {
+    if (!keywordsOf(x.card).includes('extort')) continue;
+    const plan = planPayment(pl, '{W/B}');
+    if (!plan) continue;
+    if (pl.isBot || pl.autoExtort !== false) {
+      tapForPayment(pl, plan);
+      let n = 0;
+      for (const o of opponents(s, pl.id)) { o.life -= 1; n++; pushEvent(s, 'life', `Extorsión de ${displayName(x.card)}: ${o.name} pierde 1 vida (${o.life}).`, { target: o.id, delta: -1 }); }
+      gainLife(s, pl, n);
+    }
+  }
+  fireTriggers(s, 'castHistoric', info);
+  fireTriggers(s, 'castAuraEquip', info);
+  fireTriggers(s, 'castFirst', info);
+  fireTriggers(s, 'castAnyone', info);
   if (!card.isCreature) {
     // Destreza (prowess): +1/+1 hasta el final del turno
     for (const perm of pl.battlefield) if (keywordsOf(perm.card).includes('prowess') || has(perm, 'prowess')) pumpPerm(s, perm, 1, 1);
@@ -2204,6 +2342,12 @@ function attackTriggers(s) {
   }
   fireTriggers(s, 'youAttack', { player: pl });
   for (const a of atts) {
+    const fb = keywordsOf(a.card).map((k) => k.match(/^firebending (\d+)/)).find(Boolean);
+    if (fb) { (pl.manaPool ||= []).push(...Array.from({ length: +fb[1] }, () => ['R'])); pushEvent(s, 'mana', `Fuego control de ${displayName(a.card)}: +${fb[1]} {R}.`, { by: pl.id }); }
+    if (keywordsOf(a.card).includes('mentor')) {
+      const pupil = atts.filter((x) => x !== a && power(x) < power(a)).sort((x, y) => power(y) - power(x))[0];
+      if (pupil) { pupil.counters += 1; pushEvent(s, 'pump', `${displayName(a.card)} instruye a ${displayName(pupil.card)} (+1/+1).`, { uid: pupil.uid }); }
+    }
     fireTriggers(s, 'attacks', { perm: a });
     fireTriggers(s, 'creatureAttacksMine', { perm: a });
     fireTriggers(s, 'hostAttacks', { perm: a });
@@ -2213,8 +2357,14 @@ function attackTriggers(s) {
 function blockTriggers(s) {
   if (s.combat.blockTriggersDone) return;
   s.combat.blockTriggersDone = true;
+  const bush = (x) => { const m = keywordsOf(x.card).map((k) => k.match(/^bushido (\d+)/)).find(Boolean); if (m) pumpPerm(s, x, +m[1], +m[1]); };
   for (const [att, list] of Object.entries(s.combat.blocks)) {
     const a = findPerm(s, +att)?.perm;
+    if (a && list.length) {
+      bush(a);
+      if (keywordsOf(a.card).includes('flanking')) for (const b of list) { const bp = findPerm(s, b)?.perm; if (bp && !keywordsOf(bp.card).includes('flanking')) pumpPerm(s, bp, -1, -1); }
+      for (const b of list) { const bp = findPerm(s, b)?.perm; if (bp) bush(bp); }
+    }
     if (a && list.length) fireTriggers(s, 'blocked', { perm: a });
     for (const b of list) { const bp = findPerm(s, b)?.perm; if (bp) fireTriggers(s, 'blocks', { perm: bp }); }
   }
@@ -2223,6 +2373,18 @@ function blockTriggers(s) {
 // ------------------------------------------------- estáticas al entrar
 
 function applyEntersStatics(s, pl, perm) {
+  for (const k of keywordsOf(perm.card)) {
+    let m;
+    if ((m = k.match(/^(modular|fabricate) (\d+)/))) perm.counters += +m[2];
+    else if ((m = k.match(/^bloodthirst (\d+)/)) && opponents(s, pl.id).some((o) => o.damagedTurn === s.turn)) perm.counters += +m[1];
+    else if ((m = k.match(/^(vanishing|fading) (\d+)/))) perm.charge = +m[2];
+    else if (/^echo/.test(k)) perm.echoDue = true;
+    else if ((m = k.match(/^backup (\d+)/))) {
+      const other = pl.battlefield.filter((x) => x.card.isCreature && x.uid !== perm.uid).sort((a, b) => power(b) - power(a))[0];
+      (other || perm).counters += +m[1];
+      pushEvent(s, 'pump', `Refuerzo ${m[1]}: ${displayName((other || perm).card)} recibe ${m[1]} contador${+m[1] > 1 ? 'es' : ''} +1/+1.`, { uid: (other || perm).uid });
+    }
+  }
   for (const st of staticsOf(perm.card)) {
     if (st.kind === 'entersCounters' && (!st.kicked || perm.card.kicked)) perm.counters += st.amount;
     if (st.kind !== 'entersTapped') continue;
@@ -2259,6 +2421,16 @@ function runDelayed(s, at) {
     if (d.kind === 'draw') {
       if (pl.isBot) for (let i = 0; i < d.n; i++) drawCard(s, pl);
       else { pl.handCount += d.n; pushEvent(s, 'draw', `${d.src}: roba ${d.n === 1 ? 'una carta' : d.n + ' cartas'}.`, { to: pl.id, amount: d.n }); }
+    } else if (d.kind === 'rebound') {
+      const fx = effectFx(d.card);
+      const i = pl.exile.findIndex((c) => c.name === d.card.name);
+      if (i >= 0) pl.exile.splice(i, 1);
+      pl.graveyard.push(d.card);
+      pushEvent(s, 'trigger', `Rebote: ${displayName(d.card)} se lanza otra vez.`, { by: pl.id });
+      const wanted = fx.filter(needsTarget);
+      if (!wanted.length) resolveEffects(s, pl, d.card, fx, [], null);
+      else if (pl.isBot) resolveEffects(s, pl, d.card, fx, autoTargets(s, pl, wanted, null), null);
+      else pl.pendingTriggers = [...(pl.pendingTriggers || []), { id: s.eventSeq, uid: -1, card: d.card, fx }];
     } else if (d.kind === 'hand') {
       const f = findPerm(s, d.uid);
       if (f) leaveBattlefield(s, f.owner, f.perm, 'hand', 'vuelve a la mano (arremetida)');
@@ -2347,6 +2519,22 @@ function execMore2(s, pl, card, e, { perm, target, name, source, ctx }) {
       if (tgt2) (s.delayed ||= []).push({ at: 'end', from: s.turn, pid: pl.id, kind: 'sac', uid: tgt2.uid, exile: !!e.exile });
       return true;
     }
+    case 'exileGraveCard': {
+      const opps = opponents(s, pl.id).filter((o) => o.graveyard.length).sort((a, b) => b.graveyard.length - a.graveyard.length);
+      const o = opps[0];
+      if (!o) return true;
+      const i = o.graveyard.map((c, k) => [c, k]).sort((x, y) => (y[0].isCreature ? 5 : 0) + y[0].cmc - (x[0].isCreature ? 5 : 0) - x[0].cmc)[0][1];
+      const [c] = o.graveyard.splice(i, 1);
+      o.exile.push(c);
+      pushEvent(s, 'info', `${name} exilia ${displayName(c)} del cementerio de ${o.name}.`);
+      return true;
+    }
+    case 'exileGraveyard':
+      for (const o of e.all ? opponents(s, pl.id) : opponents(s, pl.id).slice(0, 1)) { o.exile.push(...o.graveyard); o.graveyard = []; pushEvent(s, 'info', `${name} exilia el cementerio de ${o.name}.`); }
+      return true;
+    case 'damageEach':
+      for (const o of opponents(s, pl.id)) for (const c of [...o.battlefield]) if (c.card.isCreature) dealDamageToPerm(s, c, e.amount, null, card);
+      return true;
     case 'support':
     case 'bolster': {
       const mine = pl.battlefield.filter((x) => x.card.isCreature && (!source || x.uid !== source.uid));
@@ -2369,4 +2557,38 @@ function faceDownCard(card, kind, cost) {
     isPermanent: true, produces: [], effects: { etb: [], spell: [], dies: [] },
     faceDown: true, hidden: stripCard(card), morphCost: cost, morphKind: kind,
   };
+}
+
+// ------------------------------------------------- mantenimiento: eco, desvanecerse, acumulativo
+
+function upkeepKeywords(s, pl) {
+  for (const perm of [...pl.battlefield]) {
+    const kws = keywordsOf(perm.card);
+    for (const k of kws) {
+      let m;
+      if ((m = k.match(/^(vanishing|fading)/)) && perm.charge != null) {
+        if (m[1] === 'fading' && perm.charge <= 0) { leaveBattlefield(s, pl, perm, 'graveyard', 'se desvanece'); break; }
+        perm.charge -= 1;
+        if (m[1] === 'vanishing' && perm.charge <= 0) { leaveBattlefield(s, pl, perm, 'graveyard', 'se desvanece'); break; }
+      }
+    }
+    const cu = abilitiesOf(perm.card).find((a) => a.kind === 'keyword' && /^cumulative upkeep/i.test(a.text));
+    const ec = perm.echoDue ? abilitiesOf(perm.card).find((a) => a.kind === 'keyword' && /^echo/i.test(a.text)) : null;
+    for (const [ab, what] of [[cu, 'cumulative'], [ec, 'echo']]) {
+      if (!ab || !findPerm(s, perm.uid)) continue;
+      const one = (ab.text.match(/((?:\{[^}]+\})+)/) || [])[1];
+      if (!one) { if (!pl.isBot) pushEvent(s, 'manual', `${displayName(perm.card)}: paga su coste de ${what === 'echo' ? 'eco' : 'mantenimiento acumulativo'} (${ab.text}) o sacrifícala.`, { to: pl.id }); continue; }
+      if (what === 'cumulative') perm.age = (perm.age || 0) + 1;
+      if (what === 'echo') perm.echoDue = false;
+      const cost = what === 'cumulative' ? one.repeat(perm.age) : one;
+      if (pl.isBot) {
+        const plan = planPayment(pl, cost);
+        if (plan && (what === 'echo' || perm.age <= 3)) { tapForPayment(pl, plan); pushEvent(s, 'info', `${pl.name} paga ${cost} por ${displayName(perm.card)}.`); }
+        else leaveBattlefield(s, pl, perm, 'graveyard', 'se sacrifica (no paga su coste)');
+      } else {
+        pl.pendingChoices = [...(pl.pendingChoices || []), { type: 'upkeep', uid: perm.uid, cost, name: displayName(perm.card), what }];
+        pushEvent(s, 'choice', `${displayName(perm.card)}: paga ${cost} o sacrifícala.`, { to: pl.id });
+      }
+    }
+  }
 }

@@ -10,7 +10,7 @@ import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, s
 import { detectSurface } from '../surface.js';
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES, targetEs, needsTarget, costEs } from '../engine/effects.js';
-import { activatedOf, keywordsOf, altCosts } from '../engine/abilities.js';
+import { activatedOf, keywordsOf, altCosts, staticsOf } from '../engine/abilities.js';
 import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
@@ -534,6 +534,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     if (a.evoke) o.push({ label: `Evocar (${a.evoke})`, sub: 'Coste alternativo: entra, hace su efecto al entrar y se sacrifica.', set: { castAlt: 'evoke' } });
     if (a.dash) o.push({ label: `Arremetida (${a.dash})`, sub: 'Tiene prisa y vuelve a tu mano al final del turno.', set: { castAlt: 'dash' } });
     if (a.buyback) o.push({ label: `Con readquirir (+${a.buyback})`, sub: 'Al resolverse vuelve a tu mano.', set: { castBuyback: true } });
+    if (a.entwine && card.effects?.modes) o.push({ label: `Entrelazar (+${a.entwine})`, sub: 'Eliges todos los modos.', set: { castEntwine: true, chosenModes: card.effects.modes.map((_, i) => i) } });
     for (const k of ['morph', 'megamorph', 'disguise']) if (a[k]) o.push({ label: `Boca abajo por {3}`, sub: `Criatura 2/2 sin nombre${k === 'disguise' ? ' con resguardo {2}' : ''}. Luego la pones boca arriba pagando ${a[k]}.`, set: { castAlt: k } });
     if (a.cycling) o.push({ label: `Ciclar (${a.cycling})`, sub: 'La descartas y robas otra carta.', cycle: true });
     if (a.typecycling) o.push({ label: `${a.typecycling.what}ciclo (${a.typecycling.cost})`, sub: 'La descartas y buscas en tu biblioteca una carta de ese tipo.', cycle: 'type' });
@@ -581,9 +582,23 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   }
 
   function dispatchPlay(card, targets) {
+    // coste adicional: sacrificar algo (se elige antes de lanzar)
+    const addSac = staticsOf(card).find((x) => x.kind === 'addSac');
+    if (addSac && card.sacUid == null && canPlayNow(card)) {
+      const s = S();
+      const cands = player(s, me()).battlefield.filter((x) => permMatches(s, addSac.filter, x, me(), me()));
+      if (!cands.length) { toast(`Para lanzarla tienes que sacrificar ${targetEs(addSac.filter)} y no tienes ninguno.`, 'warn'); return; }
+      let close;
+      close = sheet(h('div', {},
+        h('h3', {}, `Coste adicional: sacrifica ${targetEs(addSac.filter)}`),
+        h('div', { class: 'choice-list' }, cands.map((x) => h('button', { class: 'choice', onClick: () => { close(); dispatchPlay({ ...card, sacUid: x.uid }, targets); } },
+          cardFace(x.card), h('span', {}, displayName(x.card))))),
+      ));
+      return;
+    }
     const before = S().eventSeq;
     if (!card.edition) card = withPreferredEdition(card);
-    session.dispatch({ t: 'play', card, targets, ...(card.castAlt ? { alt: card.castAlt } : {}), ...(card.castBuyback ? { buyback: true } : {}) });
+    session.dispatch({ t: 'play', card, targets, ...(card.castAlt ? { alt: card.castAlt } : {}), ...(card.castBuyback ? { buyback: true } : {}), ...(card.sacUid != null ? { sacUid: card.sacUid } : {}), ...(card.castEntwine ? { entwine: true } : {}) });
     findEdition(card);
     // Aviso con opción de deshacer por si la cámara leyó mal.
     setTimeout(() => {
@@ -754,6 +769,19 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       return;
     }
     const ch = (p.pendingChoices || [])[0];
+    if (ch && ch.type === 'upkeep') {
+      ui.pendingOpen = true;
+      let close;
+      close = sheet(h('div', {},
+        h('h3', {}, ch.name),
+        h('p', {}, `${ch.what === 'echo' ? 'Eco' : 'Mantenimiento acumulativo'}: paga ${ch.cost} o sacrifícala.`),
+        h('div', { class: 'actions' },
+          h('button', { class: 'act primary', onClick: () => { close(); session.dispatch({ t: 'choice', type: 'upkeep', uid: ch.uid, yes: true }); } }, `Pagar ${ch.cost}`),
+          h('button', { class: 'act danger', onClick: () => { close(); session.dispatch({ t: 'choice', type: 'upkeep', uid: ch.uid, yes: false }); } }, 'Sacrificarla'),
+        ),
+      ), { onClose: () => { ui.pendingOpen = false; } });
+      return;
+    }
     if (ch && ch.type === 'shock') {
       ui.pendingOpen = true;
       let close;
@@ -1528,13 +1556,15 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   function abilityButtons(perm, close) {
     const list = activatedOf(perm.card).map((ab, idx) => ({ ab, idx })).filter(({ ab }) => ab.kind === 'activated' || !perm.card.isLand);
     const crew = keywordsOf(perm.card).map((k) => k.match(/^crew (\d+)/)).find(Boolean);
-    if (!list.length && !crew) return null;
+    const lvl = staticsOf(perm.card).find((x) => x.kind === 'levelUp');
+    if (!list.length && !crew && !lvl) return null;
     return h('div', { class: 'equip-box' },
       h('p', {}, 'Habilidades:'),
       h('div', { class: 'ability-list' },
         list.map(({ ab, idx }) => h('button', { class: 'act ability', onClick: () => { close(); activateFlow(perm, ab, idx); } },
           h('b', {}, costEs(ab.cost)), h('span', {}, ': ' + (ab.fx.map(describeEffect).filter(Boolean).join(', ') || ab.text)))),
         crew ? h('button', { class: 'act ability', onClick: () => { close(); session.dispatch({ t: 'crew', uid: perm.uid }); } }, h('b', {}, `Tripular ${crew[1]}`), h('span', {}, ': gira criaturas con fuerza total ' + crew[1] + ' y se convierte en criatura')) : null,
+        lvl ? h('button', { class: 'act ability', onClick: () => { close(); session.dispatch({ t: 'levelUp', uid: perm.uid }); } }, h('b', {}, `Subir de nivel (${lvl.cost})`), h('span', {}, `: nivel actual ${perm.level || 0}`)) : null,
       ),
     );
   }

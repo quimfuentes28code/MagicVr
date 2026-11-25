@@ -4,7 +4,7 @@ import { parseAbilities } from './abilities.js';
 
 /** Efectos que el motor aplica (kind, y una comprobación opcional de variantes). */
 export const FX_SUPPORTED = {
-  damage: (e) => ['any', 'creature', 'permanent', 'player', 'opponents'].includes(e.target) && e.amount !== 'X',
+  damage: (e) => ['any', 'creature', 'permanent', 'player', 'opponents', 'all', 'allPlayers', 'self'].includes(e.target) && e.amount !== 'X',
   destroy: () => true, exile: () => true, bounce: () => true, destroyAll: () => true, exileAll: () => true, bounceAll: () => true,
   bounceSelf: () => true, tuck: () => true,
   pump: (e) => e.p !== 'X' && e.t !== 'X', pumpAll: () => true,
@@ -23,21 +23,25 @@ export const FX_SUPPORTED = {
   attachToChosen: () => true, selfToHand: () => true, selfRecur: () => true, exileSelf: () => true, energy: () => true, monstrosity: () => true,
   adapt: () => true, chargeCounter: () => true, prevent: () => true, fog: () => true, threaten: () => true, steal: () => true,
   untapLast: () => true, hasteLast: () => true, controllerLife: () => true, controllerLifePower: () => true, delayedDraw: () => true,
-  delayedSac: () => true, support: () => true, bolster: () => true,
+  delayedSac: () => true, support: () => true, bolster: () => true, exileGraveCard: () => true, exileGraveyard: () => true, damageEach: () => true,
 };
 export const TRIGGERS_SUPPORTED = new Set(['etb', 'dies', 'leaves', 'attacks', 'blocks', 'blocked', 'combatDamagePlayer', 'upkeep', 'anyUpkeep',
   'endstep', 'anyEndstep', 'begincombat', 'main1', 'drawstep', 'otherEtbMine', 'otherEtbMineNontoken', 'creatureEtbMine', 'otherEtbAny',
   'creatureEtbOpp', 'landfall', 'otherDiesMine', 'creatureDiesMine', 'otherDiesAny', 'creatureDiesOpp', 'castNoncreature', 'castInstantSorcery',
   'castCreature', 'castAny', 'oppCast', 'gainLife', 'youAttack', 'creatureAttacksMine', 'creatureCombatDamageMine', 'hostCombatDamagePlayer',
-  'hostAttacks', 'hostDies']);
+  'hostAttacks', 'hostDies', 'anyCombat', 'artifactEtbMine', 'enchantmentEtbMine', 'castHistoric', 'castFirst', 'castAnyone', 'main2', 'oppUpkeep',
+  'oppEndstep', 'cycled', 'castAuraEquip']);
 export const STATICS_SUPPORTED = new Set(['attach', 'extraLand', 'info', 'anthem', 'selfBuff', 'noBlockSelf', 'noAttackSelf', 'unblockableSelf',
-  'menaceLike', 'noUntapSelf', 'entersTapped', 'entersCounters', 'blockOnlyFlyers', 'attackOnlyIf', 'evadePower', 'evadeSmaller', 'afterlife']);
+  'menaceLike', 'noUntapSelf', 'entersTapped', 'entersCounters', 'blockOnlyFlyers', 'attackOnlyIf', 'evadePower', 'evadeSmaller', 'afterlife',
+  'controlHost', 'addSac', 'addDiscard', 'addLife', 'persist', 'undying', 'kw', 'cumulative', 'echo', 'levelUp', 'levelInfo']);
 export const KEYWORDS_SUPPORTED = new Set(['flying', 'reach', 'first strike', 'double strike', 'deathtouch', 'trample', 'lifelink', 'haste',
   'vigilance', 'menace', 'defender', 'hexproof', 'shroud', 'indestructible', 'flash', 'infect', 'wither', 'protection', 'enchant', 'equip',
   'job select', 'living weapon', 'for mirrodin!', 'partner', 'partner with', 'choose a background', 'prowess', 'exalted', 'toxic', 'fear',
   'intimidate', 'shadow', 'horsemanship', 'skulk', 'changeling', 'devoid', 'crew', 'landwalk', 'swampwalk', 'islandwalk', 'forestwalk',
   'mountainwalk', 'plainswalk', 'kicker', 'cycling', 'typecycling', 'landcycling', 'basic', 'evoke', 'flashback', 'morph', 'megamorph',
-  'disguise', 'dash', 'unearth', 'buyback', 'ward', 'convoke', 'delve', 'improvise', 'affinity', 'escape']);
+  'disguise', 'dash', 'unearth', 'buyback', 'ward', 'convoke', 'delve', 'improvise', 'affinity', 'escape', 'persist', 'undying', 'bushido',
+  'flanking', 'modular', 'bloodthirst', 'renown', 'vanishing', 'fading', 'firebending', 'backup', 'evolve', 'mentor', 'extort', 'storm',
+  'rebound', 'cumulative', 'echo', 'myriad', 'banding', 'split second', 'daybound', 'nightbound', 'entwine', 'fabricate', 'exhaust']);
 
 const fxOk = (fx) => fx.length > 0 && fx.every((e) => FX_SUPPORTED[e.kind] && FX_SUPPORTED[e.kind](e));
 
@@ -45,7 +49,7 @@ function judge(a) {
   if (!a.ok) return false;
   switch (a.kind) {
     case 'keyword': return KEYWORDS_SUPPORTED.has(a.kw);
-    case 'trigger': return TRIGGERS_SUPPORTED.has(a.ev) && fxOk(a.fx);
+    case 'trigger': return TRIGGERS_SUPPORTED.has(a.ev) && (a.modal ? true : fxOk(a.fx));
     case 'activated': return ACTIVATED_SUPPORTED && fxOk(a.fx);
     case 'mana': return true;
     case 'modal': return true;

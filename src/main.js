@@ -239,7 +239,18 @@ async function hostLobby(mode) {
   try {
     net = await hostRoom({
       onJoin(connId, msg) {
-        if (started || seats.length >= max) { net.send(connId, { type: 'full' }); return; }
+        if (started) {
+          // ¿vuelve alguien que se había desconectado? (pantalla bloqueada, cambio de red…)
+          const online = new Set(connToPlayer.values());
+          const gone = seats.filter((p) => p.kind === 'remote' && !online.has(p.id));
+          const back = gone.find((p) => p.name.toLowerCase() === String(msg.name || '').slice(0, 18).toLowerCase()) || (gone.length === 1 ? gone[0] : null);
+          if (!back || !session) { net.send(connId, { type: 'full' }); return; }
+          connToPlayer.set(connId, back.id);
+          net.send(connId, { type: 'start', state: session.state, you: back.id, rejoin: true });
+          toast(`${back.name} ha vuelto a la partida.`, 'info');
+          return;
+        }
+        if (seats.length >= max) { net.send(connId, { type: 'full' }); return; }
         const id = 'p' + connId.slice(-6);
         seats.push({ id, name: (msg.name || 'Amigo').slice(0, 18), kind: 'remote' });
         connToPlayer.set(connId, id);
@@ -267,12 +278,22 @@ async function hostLobby(mode) {
 }
 
 function joinScreen() {
-  const input = h('input', { class: 'field-input code-input', placeholder: '·····', maxLength: 5, autocapitalize: 'characters', onInput: (e) => (e.target.value = e.target.value.toUpperCase()) });
+  const input = h('input', { class: 'field-input code-input', placeholder: '·····', maxLength: 5, autocapitalize: 'characters', onInput: (e) => { e.target.value = e.target.value.toUpperCase(); try { localStorage.setItem('mtgvr-last-room', e.target.value); } catch { /* */ } } });
+  try { const last = localStorage.getItem('mtgvr-last-room'); if (last) input.value = last; } catch { /* */ }
   const status = h('p', { class: 'muted' }, 'Pide el código de 5 letras a quien abrió el portal.');
-  const go = async () => {
+  let session = null;
+  let tries = 0;
+  // Si se corta la conexión, vuelve a entrar solo en la misma sala (con el mismo nombre).
+  const reconnect = async () => {
+    if (tries >= 8) { toast('No se pudo recuperar la conexión. Vuelve a entrar con el código del portal.', 'warn', 8000); return; }
+    tries++;
+    toast(`Conexión perdida. Reconectando… (${tries})`, 'warn', 2500);
+    await new Promise((r) => setTimeout(r, 2500));
+    go(true);
+  };
+  const go = async (silent = false) => {
     if (input.value.length !== 5) { status.textContent = 'El código tiene 5 letras.'; return; }
-    status.textContent = 'Cruzando el portal…';
-    let session = null;
+    if (!silent) status.textContent = 'Cruzando el portal…';
     let net;
     try {
       net = await joinRoom(input.value, myName(), {
@@ -280,19 +301,22 @@ function joinScreen() {
           if (msg.type === 'lobby') status.textContent = `Dentro. Jugadores: ${msg.seats.map((s) => s.name).join(', ')}. Esperando al anfitrión…`;
           else if (msg.type === 'full') status.textContent = 'El portal está lleno o la partida ya empezó.';
           else if (msg.type === 'start') {
+            tries = 0;
+            if (session && msg.rejoin) { session.net = net; session.receive(msg.state); toast('¡Reconectado!', 'info'); return; }
             session = new Session({ role: 'client', state: msg.state, me: msg.you, net });
-            mountTable(app, session, { onExit: menu });
+            mountTable(app, session, { onExit: menu, intro: !msg.rejoin });
           } else if (msg.type === 'state' && session) session.receive(msg.state);
         },
-        onClose() { toast('Se ha perdido la conexión con el anfitrión.', 'warn', 5000); },
+        onClose() { reconnect(); },
       });
-      status.textContent = 'Dentro. Esperando a que el anfitrión empiece…';
+      if (!session) status.textContent = 'Dentro. Esperando a que el anfitrión empiece…';
     } catch (e) {
-      status.textContent = e.message || 'No se pudo conectar.';
+      if (session) reconnect();
+      else status.textContent = e.message || 'No se pudo conectar.';
     }
   };
   clear(app).append(subScreen('Cruzar portal', () => modeMenu('1v1'),
-    h('div', { class: 'panel setup-panel' }, h('div', { class: 'field-label' }, 'Código del portal'), input, h('button', { class: 'gem wide', onClick: go }, 'Cruzar'), status)));
+    h('div', { class: 'panel setup-panel' }, h('div', { class: 'field-label' }, 'Código del portal'), input, h('button', { class: 'gem wide', onClick: () => go() }, 'Cruzar'), status)));
   input.focus();
 }
 

@@ -106,17 +106,21 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
   movable(zones, 'zx', 'zy', 'zh', 'Mazo · cementerio · exilio');
 
   const tilt = h('input', { type: 'range', min: 0, max: 45, step: 1, value: L.tilt, onInput: (e) => { L.tilt = +e.target.value; update(); } });
+  // Panel compacto y plegable, para que no tape las áreas que estás moviendo.
+  const fold = h('button', { class: 'cal-fold', title: 'Plegar / desplegar el panel', onClick: () => { panel.classList.toggle('min'); fold.textContent = panel.classList.contains('min') ? '▴ Ajustes' : '▾ Ocultar'; } }, '▾ Ocultar');
   const panel = h('div', { class: 'cal-panel parchment' },
     h('div', { class: 'cal-text' },
-      h('h3', {}, firstTime ? 'Antes de empezar: ajusta tu mesa' : 'Ajustar la mesa'),
-      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' y las casillas de ', h('b', {}, 'mazo, cementerio y exilio'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. Con el ', h('b', {}, 'zoom'), ', haz que tus cartas encajen. ',
-        '¿La cámara mira la mesa en ángulo? Pulsa ', h('b', {}, 'Perspectiva de la mesa'), ': el tablero se pega a tu mesa y las cartas se leen mucho mejor.'),
+      h('h3', {}, firstTime ? 'Antes de empezar: ajusta tu mesa' : 'Ajustar la mesa', fold),
+      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' y las casillas de ', h('b', {}, 'mazo, cementerio y exilio'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. ',
+        '¿La cámara mira la mesa en ángulo? Pulsa ', h('b', {}, 'Adaptar a la mesa automáticamente'), '. Pliega este panel para mover las áreas cómodamente.'),
     ),
-    extra,
-    h('label', { class: 'slider' }, h('span', {}, 'Inclinación'), tilt),
-    h('div', { class: 'cal-btns' },
-      h('button', { class: 'act', onClick: () => { Object.assign(L, LAYOUT_DEFAULTS); tilt.value = L.tilt; update(); } }, 'Restablecer'),
-      h('button', { class: 'act primary', onClick: done }, firstTime ? '¡A jugar!' : 'Listo'),
+    h('div', { class: 'cal-controls' },
+      extra,
+      h('label', { class: 'slider' }, h('span', {}, 'Inclinación'), tilt),
+      h('div', { class: 'cal-btns' },
+        h('button', { class: 'act', onClick: () => { Object.assign(L, LAYOUT_DEFAULTS); tilt.value = L.tilt; update(); } }, 'Restablecer'),
+        h('button', { class: 'act primary', onClick: done }, firstTime ? '¡A jugar!' : 'Listo'),
+      ),
     ),
   );
   screen.append(panel);

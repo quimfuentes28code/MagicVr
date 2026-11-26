@@ -81,10 +81,11 @@ const SIGIL = `<svg viewBox="0 0 100 100" fill="none" stroke="#f7dc8f" stroke-wi
 // La base de datos de todas las cartas se carga en segundo plano desde el inicio.
 let dbStatus = 'Abriendo el gran grimorio…';
 const dbListeners = new Set();
-const setDb = (t) => { dbStatus = t; dbListeners.forEach((f) => f(t)); };
-loadCardDb((p) => setDb(`Abriendo el gran grimorio… ${Math.round(p * 100)}%`))
-  .then(() => setDb(`${cardDbCount().toLocaleString('es-ES')} cartas de Magic listas para reconocer`))
-  .catch(() => setDb('Sin base de datos local: se buscarán las cartas por internet'));
+let dbProgress = 0;
+const setDb = (t, p = dbProgress) => { dbStatus = t; dbProgress = p; dbListeners.forEach((f) => f(t)); };
+loadCardDb((p) => setDb(`Abriendo el gran grimorio… ${Math.round(p * 100)}%`, p))
+  .then(() => setDb(`${cardDbCount().toLocaleString('es-ES')} cartas de Magic listas para reconocer`, 1))
+  .catch(() => setDb('Sin base de datos local: se buscarán las cartas por internet', 1));
 function dbLine() {
   const el = h('div', { class: 'db-status' + (cardDbReady() ? ' ok' : '') }, dbStatus);
   const f = (t) => { el.textContent = t; el.classList.toggle('ok', cardDbReady()); if (!el.isConnected) dbListeners.delete(f); };
@@ -92,14 +93,94 @@ function dbLine() {
   return el;
 }
 
+// Dorso de carta decorativo (para la portada).
+const CARD_BACK = `<svg viewBox="0 0 63 88" fill="none">
+  <defs><linearGradient id="cbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b1a55"/><stop offset="1" stop-color="#120a2a"/></linearGradient></defs>
+  <rect x="1" y="1" width="61" height="86" rx="4" fill="url(#cbg)" stroke="#f2c86b" stroke-width="1.4"/>
+  <rect x="5" y="5" width="53" height="78" rx="2.5" stroke="#f2c86b" stroke-opacity=".7" stroke-width=".8"/>
+  <circle cx="31.5" cy="44" r="15" stroke="#f2c86b" stroke-opacity=".6" stroke-width=".7"/>
+  <circle cx="31.5" cy="44" r="11" stroke="#f2c86b" stroke-opacity=".4" stroke-dasharray="1.5 2" stroke-width=".7"/>
+  <path d="M31.5 27 L34.5 41 L48.5 44 L34.5 47 L31.5 61 L28.5 47 L14.5 44 L28.5 41 Z" fill="#f2c86b" fill-opacity=".85"/>
+  <circle cx="31.5" cy="44" r="2.6" fill="#fff2c4"/>
+  <path d="M9 9 h7 M9 9 v7 M54 9 h-7 M54 9 v7 M9 79 h7 M9 79 v-7 M54 79 h-7 M54 79 v-7" stroke="#f2c86b" stroke-width=".9"/></svg>`;
+
+// Brújula con estrella de cuatro puntas (el emblema de la portada).
+const COMPASS = `<svg viewBox="0 0 120 120" fill="none">
+  <circle cx="60" cy="60" r="56" stroke="#f2c86b" stroke-opacity=".55" stroke-width="1.2"/>
+  <circle cx="60" cy="60" r="46" stroke="#f2c86b" stroke-width="2"/>
+  <circle cx="60" cy="60" r="40" stroke="#f2c86b" stroke-opacity=".7" stroke-dasharray="2 4" stroke-width="1.4"/>
+  <path d="M60 6 L68 52 L114 60 L68 68 L60 114 L52 68 L6 60 L52 52 Z" fill="url(#cg)" stroke="#fff0b8" stroke-width="1"/>
+  <path d="M60 28 L64 56 L92 60 L64 64 L60 92 L56 64 L28 60 L56 56 Z" fill="#fff6d6" fill-opacity=".35"/>
+  <defs><radialGradient id="cg"><stop offset="0" stop-color="#fff2c4"/><stop offset=".55" stop-color="#e8b04a"/><stop offset="1" stop-color="#8a5a1c"/></radialGradient>
+  <radialGradient id="cc"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#ffe7a0"/><stop offset="1" stop-color="#d99a2b"/></radialGradient></defs>
+  <circle cx="60" cy="60" r="9" fill="url(#cc)"/></svg>`;
+
+// Aro de runas grande del fondo (con su arco y sus líneas de constelación).
+const RUNE_HALO = `<svg viewBox="0 0 800 800" fill="none" stroke="#e6b65a">
+  <circle cx="400" cy="400" r="395" stroke-opacity=".25" stroke-width="1.5"/>
+  <circle cx="400" cy="400" r="350" stroke-opacity=".45" stroke-width="2"/>
+  <circle cx="400" cy="400" r="300" stroke-opacity=".25" stroke-width="1"/>
+  <circle cx="400" cy="400" r="200" stroke-opacity=".2" stroke-width="1"/>
+  <path d="M400 0 V800 M0 400 H800 M117 117 L683 683 M683 117 L117 683" stroke-opacity=".12"/>
+  <path d="M400 50 L703 575 L97 575 Z M400 750 L97 225 L703 225 Z" stroke-opacity=".14"/>
+  <g fill="#e6b65a" fill-opacity=".55" stroke="none" font-family="serif" font-size="30" text-anchor="middle">
+    ${['ᚱ', 'ᚨ', 'ᚾ', 'ᚠ', 'ᛁ', 'ᚲ', 'ᛒ', 'ᛗ', 'ᛟ', 'ᛞ', 'ᛉ', 'ᛏ'].map((r, i) => {
+      const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+      return `<text x="${400 + Math.cos(a) * 325}" y="${410 + Math.sin(a) * 325}" transform="rotate(${(i / 12) * 360} ${400 + Math.cos(a) * 325} ${400 + Math.sin(a) * 325})">${r}</text>`;
+    }).join('')}
+  </g></svg>`;
+
+// Círculo de runas en el «suelo» (en perspectiva) bajo la barra de carga.
+const FLOOR_RING = `<svg viewBox="0 0 600 600" fill="none" stroke="#c9a3ff">
+  <circle cx="300" cy="300" r="290" stroke-opacity=".35" stroke-width="2"/><circle cx="300" cy="300" r="250" stroke-opacity=".25"/>
+  <circle cx="300" cy="300" r="170" stroke-opacity=".35" stroke-dasharray="4 8"/><circle cx="300" cy="300" r="90" stroke-opacity=".45"/>
+  <path d="M300 10 L330 270 L590 300 L330 330 L300 590 L270 330 L10 300 L270 270 Z" stroke="#f2c86b" stroke-opacity=".45"/>
+  <g fill="#c9a3ff" fill-opacity=".45" stroke="none" font-family="serif" font-size="26" text-anchor="middle">
+    ${['ᚱ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚷ', 'ᚹ', 'ᚺ', 'ᚾ', 'ᛃ', 'ᛇ', 'ᛈ', 'ᛊ', 'ᛏ', 'ᛒ', 'ᛖ', 'ᛚ'].map((r, i) => {
+      const a = (i / 16) * Math.PI * 2;
+      return `<text x="${300 + Math.cos(a) * 270}" y="${308 + Math.sin(a) * 270}">${r}</text>`;
+    }).join('')}
+  </g></svg>`;
+
+const DIVIDER = `<svg viewBox="0 0 400 20" fill="none" stroke="#e6b65a"><path d="M10 10 H168 M232 10 H390" stroke-width="1.2"/>
+  <path d="M200 1 L208 10 L200 19 L192 10 Z" fill="#e6b65a" fill-opacity=".35"/><circle cx="200" cy="10" r="2.5" fill="#fff0b8" stroke="none"/>
+  <path d="M176 10 L182 6 L188 10 L182 14 Z M212 10 L218 6 L224 10 L218 14 Z" fill="#e6b65a" stroke="none"/></svg>`;
+
 function splash() {
-  clear(app).append(screenEl('splash', h('div', { class: 'content', onClick: enter },
-    h('div', { class: 'sigil', html: SIGIL }),
-    logo(),
-    h('div', { class: 'logo-sub' }, 'Realidad aumentada para tus cartas · aprende y juega en tu mesa'),
-    h('div', { class: 'tap-start' }, 'TOCA PARA EMPEZAR'),
-    dbLine(),
-  )));
+  const bar = h('i', { class: 'load-fill' });
+  const status = h('div', { class: 'load-status' });
+  const note = h('div', { class: 'load-note' });
+  const paint = () => {
+    const ready = cardDbReady() || dbProgress >= 1;
+    bar.style.width = (ready ? 100 : Math.max(4, Math.round(dbProgress * 100))) + '%';
+    status.textContent = ready ? 'Toca para empezar' : 'Preparando realidad aumentada…';
+    status.classList.toggle('ready', ready);
+    note.textContent = ready && cardDbReady() ? `${cardDbCount().toLocaleString('es-ES')} cartas listas para reconocer` : dbStatus;
+    note.classList.toggle('ok', cardDbReady());
+  };
+  const f = () => { if (!status.isConnected) { dbListeners.delete(f); return; } paint(); };
+  dbListeners.add(f);
+  const card = (cls) => h('div', { class: 'fly-card ' + cls, html: CARD_BACK });
+  clear(app).append(h('div', { class: 'screen splash2', onClick: enter },
+    h('div', { class: 'nebula' }), h('div', { class: 'stars' }), h('div', { class: 'stars s2' }),
+    h('div', { class: 'rune-halo', html: RUNE_HALO }),
+    h('div', { class: 'floor-ring', html: FLOOR_RING }),
+    card('c1'), card('c2'), card('c3'),
+    h('div', { class: 'phone-holo' },
+      h('div', { class: 'phone' }, h('i', { class: 'pulse' }), h('i', { class: 'pulse p2' })),
+      h('div', { class: 'beam' }),
+      h('div', { class: 'holo-card', html: CARD_BACK }, h('i', { class: 'k tl' }), h('i', { class: 'k tr' }), h('i', { class: 'k bl' }), h('i', { class: 'k br' }))),
+    h('div', { class: 'splash-center' },
+      h('div', { class: 'compass', html: COMPASS }),
+      logo(),
+      h('div', { class: 'logo-sub' }, 'Realidad aumentada para tus cartas: aprende y juega en tu mesa'),
+      h('div', { class: 'divider', html: DIVIDER }),
+      status,
+      h('div', { class: 'load-bar' }, bar, h('i', { class: 'cap l' }), h('i', { class: 'cap r' })),
+      note,
+    ),
+  ));
+  paint();
   async function enter() {
     startMusic();
     await goNative();

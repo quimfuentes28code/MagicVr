@@ -24,6 +24,8 @@ import { openAccount, syncLibrary } from './ui/account.js';
 import { RANKED_ENABLED } from './config.js';
 
 const app = document.getElementById('app');
+// Dorso oficial de las cartas (incluido en la app): ruta absoluta para que funcione desde cualquier hoja de estilos.
+document.documentElement.style.setProperty('--mtg-back', `url("${new URL('card-back.jpg', document.baseURI).href}"), linear-gradient(135deg, #3a2414, #1e120a)`);
 const COLORS = Object.keys(BOT_DECKS);
 const BOT_NAMES = { G: 'Kaia la Druida', R: 'Teo el Trasgo', W: 'Brum el Paladín', B: 'Nyx la Sombra', U: 'Ilse la Maga' };
 

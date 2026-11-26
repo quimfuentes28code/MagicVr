@@ -20,7 +20,7 @@ import { tokenImage } from './tokens.js';
 import { apply as applyAction } from '../engine/game.js';
 import { normalize as normalizeCard } from '../engine/cards.js';
 import { warCry, strike, impactFlash, damageNumber } from './combatfx.js';
-import { musicOn, setMusic, musicVolume, setMusicVolume, startMusic, duckMusic } from './music.js';
+import { musicOn, setMusic, musicVolume, setMusicVolume, startMusic, duckMusic, setMusicTrack } from './music.js';
 import { openEditionPicker, autoMatchEdition, withPreferredEdition } from './editions.js';
 import {
   STEPS, PHASES, STEP_INFO, activePlayer, player, opponents, pendingDefenders, findPerm,
@@ -175,7 +175,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     q.aspect = w / hh; // proporción de la zona sin perspectiva
     return q;
   };
-  startMusic();
+  setMusicTrack('game');
   try {
     if (localStorage.getItem('mtgvr-debug')) {
       window.__mtg = {

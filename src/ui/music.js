@@ -1,4 +1,7 @@
-// Música de fondo medieval generada al momento con Web Audio (sin archivos):
+// Música de fondo. Pistas con canción propia (pantalla principal: «Enchanted
+// Forest»); las que no tienen canción usan la música medieval generada.
+//
+// Música medieval generada al momento con Web Audio (sin archivos):
 // bordón grave, arpa/laúd en arpegios, flauta que improvisa en modo dórico,
 // tambor suave y mucha reverberación de "gran salón". Cada vuelta es distinta.
 
@@ -13,7 +16,38 @@ try {
   volume = parseFloat(localStorage.getItem('mtgvr-music-vol') || '0.5');
 } catch { /* */ }
 
+// Pistas: 'menu' (pantalla principal) y 'game' (partidas). null = música generada.
+const TRACKS = { menu: 'music/menu.mp3', game: null };
+let track = 'menu';
+let audio = null; // <audio> de la pista con canción
+const FILE_VOL = 0.55;
+
 export const musicOn = () => enabled;
+
+/** Cambia de pista (con fundido) si es distinta de la actual. */
+export function setMusicTrack(name) {
+  if (name === track) { if (enabled) startMusic(); return; }
+  stopMusic();
+  track = name;
+  if (enabled) startMusic();
+}
+
+function fileUrl() {
+  const f = TRACKS[track];
+  return f ? new URL(f, document.baseURI).href : null;
+}
+
+function fadeAudio(to, ms = 1200, then) {
+  if (!audio) return;
+  const from = audio.volume;
+  const t0 = performance.now();
+  clearInterval(audio._fade);
+  audio._fade = setInterval(() => {
+    const k = Math.min(1, (performance.now() - t0) / ms);
+    audio.volume = Math.max(0, Math.min(1, from + (to - from) * k));
+    if (k >= 1) { clearInterval(audio._fade); then && then(); }
+  }, 50);
+}
 export const musicVolume = () => volume;
 
 export function setMusic(v) {
@@ -27,6 +61,7 @@ export function setMusicVolume(v) {
   volume = v;
   try { localStorage.setItem('mtgvr-music-vol', String(v)); } catch { /* */ }
   if (master) master.gain.setTargetAtTime(0.22 * v, ctx.currentTime, 0.3);
+  if (audio && !audio.paused) audio.volume = FILE_VOL * v;
 }
 
 const BPM = 76;
@@ -223,6 +258,15 @@ function loop() {
 /** Empieza la música (hace falta que el usuario haya tocado la pantalla antes). */
 export function startMusic() {
   if (!enabled) return;
+  const url = fileUrl();
+  if (url) {
+    if (!audio) { audio = new Audio(); audio.loop = true; audio.preload = 'auto'; try { if (localStorage.getItem('mtgvr-debug')) window.__music = audio; } catch { /* */ } }
+    if (audio.src !== url) audio.src = url;
+    if (!audio.paused) return;
+    audio.volume = 0;
+    audio.play().then(() => fadeAudio(FILE_VOL * volume, 1500)).catch(() => {});
+    return;
+  }
   if (!ctx && !setup()) return;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   if (timer) return;
@@ -234,6 +278,7 @@ export function startMusic() {
 }
 
 export function stopMusic() {
+  if (audio && !audio.paused) { const a = audio; fadeAudio(0, 600, () => a.pause()); }
   if (!ctx || !timer) return;
   clearInterval(timer);
   timer = null;
@@ -243,6 +288,10 @@ export function stopMusic() {
 
 /** Baja la música un momento (p. ej. durante una explosión). */
 export function duckMusic(ms = 700) {
+  if (audio && !audio.paused) {
+    audio.volume = FILE_VOL * volume * 0.35;
+    setTimeout(() => { if (audio && !audio.paused) fadeAudio(FILE_VOL * volume, 600); }, ms);
+  }
   if (!ctx || !timer) return;
   const now = ctx.currentTime;
   master.gain.cancelScheduledValues(now);
@@ -252,6 +301,10 @@ export function duckMusic(ms = 700) {
 
 // Si la app pasa a segundo plano, silencio.
 document.addEventListener('visibilitychange', () => {
+  if (audio && TRACKS[track]) {
+    if (document.hidden) audio.pause();
+    else if (enabled) audio.play().catch(() => {});
+  }
   if (!ctx) return;
   if (document.hidden) ctx.suspend().catch(() => {});
   else if (timer) ctx.resume().catch(() => {});

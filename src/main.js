@@ -17,10 +17,11 @@ import { goNative } from './native.js';
 import { preloadVision } from './vision.js';
 import { loadCardDb, cardDbCount, cardDbReady, searchNames, cardByName } from './carddb.js';
 import { manaColor } from './ui/dom.js';
-import { startMusic, musicOn, setMusic } from './ui/music.js';
+import { startMusic, musicOn, setMusic, setMusicTrack } from './ui/music.js';
 import { openLibrary, onLibrarySave } from './ui/library.js';
 import { accountsEnabled, initAccount, currentUser, onAccountChange, pushLibrary, rankedStart, rankedReport, rankedMatch, queueJoin, queueTake, queueLeave, refreshProfile } from './account.js';
 import { openAccount, syncLibrary } from './ui/account.js';
+import { RANKED_ENABLED } from './config.js';
 
 const app = document.getElementById('app');
 const COLORS = Object.keys(BOT_DECKS);
@@ -109,6 +110,7 @@ function splash() {
 
 // ------------------------------------------------------------- menú
 function menu() {
+  setMusicTrack('menu');
   const user = currentUser();
   const nameInput = user
     ? h('div', { class: 'field-input user-name' }, user.username)
@@ -144,7 +146,7 @@ function modeMenu(mode) {
     tarot('golem', mode === 'commander' ? 'Contra golems' : 'Contra un golem', 'Practica contra la máquina', '#2e9a5b', () => botSetup(mode)),
     tarot('portal', 'Abrir portal', 'Crea una sala para tus amigos', '#d9ad55', () => hostLobby(mode)),
     tarot('link', 'Cruzar portal', 'Únete con el código de un amigo', '#2a5fb8', joinScreen),
-    mode === '1v1' && accountsEnabled() ? tarot('crown', 'Clasificatoria', 'Ranked: gana puntos y sube en la clasificación', '#b3262f', rankedMenu) : null,
+    mode === '1v1' && accountsEnabled() && RANKED_ENABLED ? tarot('crown', 'Clasificatoria', 'Ranked: gana puntos y sube en la clasificación', '#b3262f', rankedMenu) : null,
   )));
 }
 

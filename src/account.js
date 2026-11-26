@@ -68,7 +68,7 @@ export async function signUp({ email, username, password }) {
   const { data: free, error: e1 } = await c.rpc('username_available', { u: username });
   if (e1) throw new Error(es(e1));
   if (!free) throw new Error('Ese nombre de usuario ya está cogido.');
-  const { data, error } = await c.auth.signUp({ email, password, options: { data: { username } } });
+  const { data, error } = await c.auth.signUp({ email, password, options: { data: { username }, emailRedirectTo: location.origin + location.pathname } });
   if (error) throw new Error(es(error));
   if (!data.session) return { needsConfirm: true };
   await loadProfile(data.session);

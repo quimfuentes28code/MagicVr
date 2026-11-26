@@ -207,24 +207,48 @@ function menu() {
   const accountBtn = accountsEnabled()
     ? h('button', { class: 'gem small' + (user ? '' : ' bronze'), onClick: () => openAccount({ app, subScreen, onBack: menu }) }, icon('person'), user ? 'Mi perfil' : 'Entrar / Crear cuenta')
     : null;
-  const tarots = [
-    tarot('chest', 'Biblioteca', 'Tus mazos y tu colección', '#d9a441', () => openLibrary({ app, subScreen, onBack: menu })),
-    tarot('hat', 'Aprendiz', 'Tutorial guiado contra un golem', '#3fbf6e', startTutorialGame),
-    tarot('swords', 'Duelo', '1 contra 1 · 20 vidas', '#e04848', () => modeMenu('1v1')),
-    tarot('crown', 'Commander', 'Multijugador · 40 vidas', '#a46bff', () => modeMenu('commander')),
-    tarot('book', 'Grimorio', 'Reglas, palabras clave y mazos', '#4a8dff', () => rulesScreen()),
+  // Botones con forma de carta de Magic: marco, barra de nombre, ilustración, línea de tipo y caja de texto.
+  const mcard = (iconName, title, type, text, c, onClick) => h('button', { class: 'mcard', style: { '--c1': c[0], '--c2': c[1], '--c3': c[2] }, onClick },
+    h('div', { class: 'mc-frame' },
+      h('div', { class: 'mc-title' }, h('span', {}, title), h('i', { class: 'mc-pip' })),
+      h('div', { class: 'mc-art' }, h('div', { class: 'mc-rays' }), h('div', { class: 'mc-emblem' }, icon(iconName)), h('i', { class: 'mc-spark s1' }), h('i', { class: 'mc-spark s2' }), h('i', { class: 'mc-spark s3' })),
+      h('div', { class: 'mc-type' }, type),
+      h('div', { class: 'mc-text' }, text)),
+    h('i', { class: 'mc-foil' }));
+  const cards = [
+    mcard('chest', 'Biblioteca', 'Artefacto — Cofre', 'Tus mazos y tu colección.', ['#d9a441', '#7a5418', '#f6dc96'], () => openLibrary({ app, subScreen, onBack: menu })),
+    mcard('hat', 'Aprendiz', 'Criatura — Hechicero', 'Tutorial guiado contra un golem.', ['#3fbf6e', '#14532d', '#a7f3c0'], startTutorialGame),
+    mcard('swords', 'Duelo', 'Conjuro — Combate', '1 contra 1 · 20 vidas.', ['#e04848', '#6b1414', '#ffb3a3'], () => modeMenu('1v1')),
+    mcard('crown', 'Commander', 'Leyenda — Multijugador', 'Hasta 4 jugadores · 40 vidas.', ['#a46bff', '#3b1a78', '#dcc8ff'], () => modeMenu('commander')),
+    mcard('book', 'Grimorio', 'Encantamiento — Saber', 'Reglas, palabras clave y mazos.', ['#4a8dff', '#163a7a', '#bcd6ff'], () => rulesScreen()),
   ];
-  tarots.forEach((t, i) => { t.style.setProperty('--i', i - 2); t.style.setProperty('--a', Math.abs(i - 2)); });
-  clear(app).append(h('div', { class: 'screen menu menu2' },
-    h('div', { class: 'menu-bg' }), h('div', { class: 'menu-motes' }),
-    h('div', { class: 'menu-beams' }, tarots.map((_, i) => h('i', { style: { '--i': i - 2 } }))),
+  cards.forEach((t, i) => { t.style.setProperty('--i', i - 2); t.style.setProperty('--a', Math.abs(i - 2)); });
+  // partículas del holograma y luciérnagas
+  const motes = Array.from({ length: 26 }, () => h('i', { style: { left: (Math.random() * 100).toFixed(1) + '%', animationDelay: (-Math.random() * 6).toFixed(2) + 's', animationDuration: (3 + Math.random() * 4).toFixed(2) + 's', '--s': (0.5 + Math.random()).toFixed(2) } }));
+  const flies = Array.from({ length: 18 }, () => h('i', { style: { left: (Math.random() * 100).toFixed(1) + '%', top: (35 + Math.random() * 60).toFixed(1) + '%', animationDelay: (-Math.random() * 9).toFixed(2) + 's', animationDuration: (6 + Math.random() * 6).toFixed(2) + 's' } }));
+  clear(app).append(h('div', { class: 'screen menu menu3' },
+    h('div', { class: 'nebula' }), h('div', { class: 'stars' }), h('div', { class: 'stars s2' }),
+    h('div', { class: 'rune-halo', html: RUNE_HALO }),
+    h('div', { class: 'mist' }), h('div', { class: 'fireflies' }, flies),
     h('div', { class: 'menu-head' },
+      h('div', { class: 'compass', html: COMPASS }),
       logo(),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
       h('div', { class: 'divider', html: DIVIDER })),
-    h('div', { class: 'menu-fan' }, tarots),
+    // holograma: móvil en 3D y haz de luz que proyecta las cartas
+    h('div', { class: 'mh-stage' },
+      h('div', { class: 'mh-cone' }, h('i', { class: 'core' }), h('i', { class: 'scan' }), h('div', { class: 'mh-motes' }, motes),
+        h('i', { class: 'ring r1' }), h('i', { class: 'ring r2' }), h('i', { class: 'ring r3' })),
+      h('div', { class: 'phone3d' },
+        h('div', { class: 'ph-body' },
+          h('div', { class: 'ph-screen' }, h('div', { class: 'ph-runes', html: FLOOR_RING }), h('i', { class: 'ph-glare' })),
+          h('i', { class: 'ph-notch' })),
+        h('i', { class: 'ph-shadow' }))),
+    h('div', { class: 'menu-fan' }, cards),
     h('div', { class: 'menu-corner' },
-      h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), h('div', { class: 'np-row' }, icon('person'), nameInput)),
+      h('div', { class: 'plate' },
+        h('label', {}, 'Planeswalker'),
+        h('div', { class: 'np-row' }, icon('person'), nameInput)),
       h('div', { class: 'menu-btns' },
         accountBtn,
         h('button', { class: 'gem small bronze', onClick: calibrateFromMenu }, icon('eye'), 'Ajustar mesa'),

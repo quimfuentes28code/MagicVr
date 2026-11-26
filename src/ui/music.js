@@ -17,7 +17,7 @@ try {
 } catch { /* */ }
 
 // Pistas: 'menu' (pantalla principal) y 'game' (partidas). null = música generada.
-const TRACKS = { menu: 'music/menu.mp3', game: null };
+const TRACKS = { menu: 'music/menu.mp3', game: 'music/game.mp3' };
 let track = 'menu';
 let audio = null; // <audio> de la pista con canción
 const FILE_VOL = 0.55;

@@ -7,7 +7,7 @@
 
 :root {
   /* reverso de las cartas de Magic (imagen de Scryfall; si no carga, se ve el dibujo de respaldo) */
-  --mtg-back: url("https://backs.scryfall.io/normal/0/a/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg"), url("https://backs.scryfall.io/large/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg"),
+  --mtg-back: url("../card-back.jpg"),
     radial-gradient(ellipse at 50% 50%, #c98a3a 0 18%, #6b3a17 19% 30%, transparent 31%), linear-gradient(135deg, #3a2414, #1e120a);
   --void: #07060c;
   --night: #120d1d;
@@ -940,8 +940,9 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .splash2 .c3-inner { position: absolute; inset: 0; transform-style: preserve-3d; animation: c3sway 9s ease-in-out infinite; }
 .splash2 .c3-face { position: absolute; inset: 0; border-radius: 4.6% / 3.3%; background: #120a2a center / cover no-repeat; backface-visibility: hidden; overflow: hidden;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .6), 0 18px 40px rgba(0, 0, 0, .6); }
-.splash2 .c3-back { transform: rotateY(180deg); background-color: #2b1a10; background-image: var(--mtg-back); background-size: 100% 100%; }
-.splash2 .c3-edge { position: absolute; inset: 0; border-radius: 4.6% / 3.3%; transform: translateZ(-1.5px); background: #1b120a; box-shadow: 0 0 0 1.5px #0b0705; }
+.splash2 .c3-front { transform: translateZ(1.2px); }
+.splash2 .c3-back { transform: rotateY(180deg) translateZ(1.2px); background-color: #2b1a10; background-image: var(--mtg-back); background-size: 100% 100%; }
+.splash2 .c3-edge { position: absolute; inset: 0; border-radius: 4.6% / 3.3%; background: #1b120a; box-shadow: 0 0 0 1.5px #0b0705; }
 /* reflejo de luz que recorre la carta al girar */
 .splash2 .c3-sheen { position: absolute; inset: -20%; background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, .38) 47%, rgba(190, 220, 255, .18) 52%, transparent 62%);
   animation: c3sheen 9s ease-in-out infinite; mix-blend-mode: screen; }
@@ -969,7 +970,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 @keyframes ringPulse { from { scale: .3; opacity: 1; } to { scale: 1.7; opacity: 0; } }
 .splash2 .beam { position: absolute; left: 50%; bottom: 6vh; width: 9vh; height: 22vh; translate: -50% 0;
   background: linear-gradient(0deg, rgba(110, 210, 255, .55), rgba(110, 210, 255, 0)); clip-path: polygon(40% 100%, 60% 100%, 100% 0, 0 0); filter: blur(2px); }
-.splash2 .holo-card { position: absolute; left: 50%; top: 2vh; width: 14vh; aspect-ratio: 63 / 88; translate: -50% 0; border-radius: 4.6% / 3.3%;
+.splash2 .holo-card { position: absolute; left: calc(50% - 7vh); top: 2vh; width: 14vh; aspect-ratio: 63 / 88; border-radius: 4.6% / 3.3%;
   background: #0b1630 center / cover no-repeat; transform: perspective(600px) rotateY(-18deg) rotateX(8deg) rotateZ(8deg);
   box-shadow: 0 0 0 1px rgba(160, 230, 255, .8), 0 0 24px rgba(110, 210, 255, .8); animation: floatA 5s ease-in-out infinite; }
 .splash2 .holo-card .holo-tint { position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(120, 220, 255, .28), rgba(120, 140, 255, .12));

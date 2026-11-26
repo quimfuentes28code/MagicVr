@@ -19,14 +19,26 @@ const KEY = 'mtgvr-library';
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (v && Array.isArray(v.decks) && v.collection) return v;
+    if (v && Array.isArray(v.decks) && v.collection) return { deleted: [], ...v };
   } catch { /* */ }
   return { decks: [], collection: {} };
 }
 let lib = load();
+const saveHooks = new Set();
 function save() {
+  lib.updated = Date.now();
   try { localStorage.setItem(KEY, JSON.stringify(lib)); } catch { toast('No se pudo guardar la biblioteca (¿memoria llena?).', 'warn'); }
+  for (const fn of saveHooks) { try { fn(lib); } catch { /* */ } }
 }
+
+/** Para sincronizar con el perfil: leer, reemplazar y enterarse de cada cambio. */
+export const getLibrary = () => lib;
+export function setLibrary(v) {
+  if (!v || !Array.isArray(v.decks)) return;
+  lib = { decks: v.decks, collection: v.collection || {}, updated: v.updated || Date.now(), deleted: v.deleted || [] };
+  try { localStorage.setItem(KEY, JSON.stringify(lib)); } catch { /* */ }
+}
+export function onLibrarySave(fn) { saveHooks.add(fn); return () => saveHooks.delete(fn); }
 
 /** Datos mínimos de una carta para guardarla (con la imagen de SU edición). */
 function entryOf(card) {
@@ -204,7 +216,7 @@ function deckOptions(deck) {
         deck.format === 'commander' ? 'Cambiar a Duelo (60 cartas)' : 'Cambiar a Commander (100 cartas)'),
       h('button', { class: 'act', onClick: () => { const copy = JSON.parse(JSON.stringify(deck)); copy.id = Date.now().toString(36); copy.name = deck.name + ' (copia)'; lib.decks.unshift(copy); save(); close(); deckScreen(copy.id); } }, 'Duplicar mazo'),
       h('button', { class: 'act', onClick: () => { close(); exportDeck(deck); } }, 'Copiar lista de cartas'),
-      h('button', { class: 'act danger', onClick: () => { if (!confirm(`¿Borrar el mazo «${deck.name}»? Las cartas siguen en tu colección.`)) return; lib.decks = lib.decks.filter((d) => d.id !== deck.id); save(); close(); libraryHome('decks'); } }, 'Borrar mazo'))));
+      h('button', { class: 'act danger', onClick: () => { if (!confirm(`¿Borrar el mazo «${deck.name}»? Las cartas siguen en tu colección.`)) return; lib.decks = lib.decks.filter((d) => d.id !== deck.id); lib.deleted = [...(lib.deleted || []), deck.id].slice(-200); save(); close(); libraryHome('decks'); } }, 'Borrar mazo'))));
 }
 
 function exportDeck(deck) {

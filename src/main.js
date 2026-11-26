@@ -160,16 +160,22 @@ function splash() {
   };
   const f = () => { if (!status.isConnected) { dbListeners.delete(f); return; } paint(); };
   dbListeners.add(f);
-  const card = (cls) => h('div', { class: 'fly-card ' + cls, html: CARD_BACK });
+  // Cartas de Magic reales en 3D: frente (ilustración oficial) y dorso, girando en el espacio.
+  const art = (n) => `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(n)}&format=image&version=normal`;
+  const card = (cls, name) => h('div', { class: 'card3d ' + cls },
+    h('div', { class: 'c3-inner' },
+      h('div', { class: 'c3-face c3-front', style: { backgroundImage: `url("${art(name)}")` } }, h('i', { class: 'c3-sheen' })),
+      h('div', { class: 'c3-face c3-back' }, h('i', { class: 'c3-sheen' })),
+      h('i', { class: 'c3-edge' })));
   clear(app).append(h('div', { class: 'screen splash2', onClick: enter },
     h('div', { class: 'nebula' }), h('div', { class: 'stars' }), h('div', { class: 'stars s2' }),
     h('div', { class: 'rune-halo', html: RUNE_HALO }),
     h('div', { class: 'floor-ring', html: FLOOR_RING }),
-    card('c1'), card('c2'), card('c3'),
+    card('c1', 'Serra Angel'), card('c2', 'Lightning Bolt'), card('c3', 'Shivan Dragon'), card('c4', 'Llanowar Elves'),
     h('div', { class: 'phone-holo' },
       h('div', { class: 'phone' }, h('i', { class: 'pulse' }), h('i', { class: 'pulse p2' })),
       h('div', { class: 'beam' }),
-      h('div', { class: 'holo-card', html: CARD_BACK }, h('i', { class: 'k tl' }), h('i', { class: 'k tr' }), h('i', { class: 'k bl' }), h('i', { class: 'k br' }))),
+      h('div', { class: 'holo-card', style: { backgroundImage: `url("${art('Counterspell')}")` } }, h('i', { class: 'holo-tint' }), h('i', { class: 'k tl' }), h('i', { class: 'k tr' }), h('i', { class: 'k bl' }), h('i', { class: 'k br' }))),
     h('div', { class: 'splash-center' },
       h('div', { class: 'compass', html: COMPASS }),
       logo(),

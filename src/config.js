@@ -6,3 +6,6 @@
 const env = import.meta.env || {};
 export const SUPABASE_URL = env.VITE_SUPABASE_URL || 'https://tzbkfcljrzwvttgmrrbs.supabase.co';
 export const SUPABASE_KEY = env.VITE_SUPABASE_KEY || 'sb_publishable_eJCV-O7v_S_YbtZRLCayMw_PRyhfihr';
+
+// Partidas clasificatorias: se encienden cuando están creadas sus tablas (supabase/ranked.sql).
+export const RANKED_ENABLED = false;

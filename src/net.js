@@ -63,7 +63,7 @@ export async function hostRoom({ onJoin, onLeave, onMessage }) {
 }
 
 /** Se une a una sala existente. */
-export async function joinRoom(code, name, { onMessage, onClose }) {
+export async function joinRoom(code, name, { onMessage, onClose }, extra = {}) {
   const peer = await openPeer();
   const conn = peer.connect(PREFIX + code.trim().toUpperCase(), { reliable: true });
   await new Promise((resolve, reject) => {
@@ -76,7 +76,7 @@ export async function joinRoom(code, name, { onMessage, onClose }) {
   });
   conn.on('data', (msg) => onMessage && onMessage(msg));
   conn.on('close', () => onClose && onClose());
-  conn.send({ type: 'hello', name });
+  conn.send({ type: 'hello', name, ...extra });
   return {
     send(msg) { conn.send(msg); },
     close() { peer.destroy(); },

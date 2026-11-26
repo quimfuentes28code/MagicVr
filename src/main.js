@@ -17,10 +17,11 @@ import { goNative } from './native.js';
 import { preloadVision } from './vision.js';
 import { loadCardDb, cardDbCount, cardDbReady, searchNames, cardByName } from './carddb.js';
 import { manaColor } from './ui/dom.js';
-import { startMusic, musicOn, setMusic } from './ui/music.js';
+import { startMusic, musicOn, setMusic, setMusicTrack } from './ui/music.js';
 import { openLibrary, onLibrarySave } from './ui/library.js';
-import { accountsEnabled, initAccount, currentUser, onAccountChange, pushLibrary } from './account.js';
+import { accountsEnabled, initAccount, currentUser, onAccountChange, pushLibrary, rankedStart, rankedReport, rankedMatch, queueJoin, queueTake, queueLeave, refreshProfile } from './account.js';
 import { openAccount, syncLibrary } from './ui/account.js';
+import { RANKED_ENABLED } from './config.js';
 
 const app = document.getElementById('app');
 const COLORS = Object.keys(BOT_DECKS);
@@ -109,6 +110,7 @@ function splash() {
 
 // ------------------------------------------------------------- menú
 function menu() {
+  setMusicTrack('menu');
   const user = currentUser();
   const nameInput = user
     ? h('div', { class: 'field-input user-name' }, user.username)
@@ -144,7 +146,170 @@ function modeMenu(mode) {
     tarot('golem', mode === 'commander' ? 'Contra golems' : 'Contra un golem', 'Practica contra la máquina', '#2e9a5b', () => botSetup(mode)),
     tarot('portal', 'Abrir portal', 'Crea una sala para tus amigos', '#d9ad55', () => hostLobby(mode)),
     tarot('link', 'Cruzar portal', 'Únete con el código de un amigo', '#2a5fb8', joinScreen),
+    mode === '1v1' && accountsEnabled() && RANKED_ENABLED ? tarot('crown', 'Clasificatoria', 'Ranked: gana puntos y sube en la clasificación', '#b3262f', rankedMenu) : null,
   )));
+}
+
+// ------------------------------------------------------- rankeds
+function rankedMenu() {
+  const u = currentUser();
+  if (!u) {
+    toast('Para jugar clasificatorias tienes que entrar en tu cuenta.', 'info');
+    openAccount({ app, subScreen, onBack: rankedMenu });
+    return;
+  }
+  clear(app).append(subScreen('Clasificatoria', () => modeMenu('1v1'),
+    h('div', { class: 'ranked-head' }, h('b', {}, u.username), h('span', {}, `${u.rating} puntos · ${u.wins} victorias · ${u.losses} derrotas`),
+      h('small', {}, 'Ganar: +25 puntos · Perder: −15 (nunca bajas de 0) · 1 contra 1, 20 vidas, sin golems.')),
+    h('div', { class: 'menu-right' },
+      tarot('swords', 'Buscar partida', 'Te emparejamos con otro jugador', '#b3262f', rankedSearch),
+      tarot('portal', 'Retar a un amigo', 'Crea una sala clasificatoria con código', '#d9ad55', () => rankedHost({ queue: false })),
+      tarot('link', 'Aceptar un reto', 'Únete con el código de tu rival', '#2a5fb8', rankedJoinScreen),
+    )));
+}
+
+async function rankedSearch() {
+  const box = h('div', { class: 'panel setup-panel' }, h('div', { class: 'loading' }, 'Buscando rival…'));
+  clear(app).append(subScreen('Buscar partida', rankedMenu, box));
+  try {
+    const code = await queueTake();
+    if (code) { rankedJoin(code); return; }
+    rankedHost({ queue: true });
+  } catch (e) {
+    clear(box).append(h('p', { class: 'warn' }, e.message));
+  }
+}
+
+/** Sala clasificatoria (anfitrión). queue: además se apunta a la cola de «Buscar partida». */
+async function rankedHost({ queue }) {
+  const me = currentUser();
+  let net = null;
+  let guest = null;
+  let started = false;
+  let session = null;
+  let keep = null;
+  const box = h('div', { class: 'panel setup-panel' });
+  const leave = () => { clearInterval(keep); if (queue) queueLeave().catch(() => {}); net?.close(); rankedMenu(); };
+  clear(app).append(subScreen(queue ? 'Buscar partida' : 'Retar a un amigo', leave, box));
+  const render = (extra) => {
+    clear(box).append(
+      queue ? h('div', { class: 'loading' }, 'Esperando a que otro jugador busque partida…')
+        : [h('div', { class: 'field-label' }, 'Código del reto'), net ? h('div', { class: 'room-code' }, net.code) : h('div', { class: 'loading' }, 'Abriendo la sala…'),
+          net ? h('button', { class: 'gem small bronze', onClick: () => share(net.code) }, 'Compartir código') : null,
+          h('p', { class: 'muted' }, 'Tu amigo tiene que entrar en su cuenta y pulsar «Aceptar un reto» con este código.')],
+      extra || null);
+  };
+  render();
+  const start = async () => {
+    started = true;
+    clearInterval(keep);
+    if (queue) queueLeave().catch(() => {});
+    let matchId;
+    try { matchId = await rankedStart(guest.userId); } catch (e) {
+      net.send(guest.connId, { type: 'rankedError', message: e.message });
+      render(h('p', { class: 'warn' }, e.message));
+      return;
+    }
+    const players = [{ id: 'host', name: me.username }, { id: guest.pid, name: guest.name }];
+    const state = createGame({ mode: '1v1', players });
+    const users = { host: me.id, [guest.pid]: guest.userId };
+    session = new Session({ role: 'host', state, me: 'host', net });
+    net.send(guest.connId, { type: 'start', state, you: guest.pid, ranked: { matchId, users } });
+    mountTable(app, session, { onExit: menu });
+    watchRanked(session, matchId, users);
+  };
+  try {
+    net = await hostRoom({
+      onJoin(connId, msg) {
+        if (started) {
+          if (guest && msg.userId === guest.userId && session) {
+            guest.connId = connId;
+            net.send(connId, { type: 'start', state: session.state, you: guest.pid, rejoin: true, ranked: session.ranked });
+            toast(`${guest.name} ha vuelto a la partida.`, 'info');
+          } else net.send(connId, { type: 'full' });
+          return;
+        }
+        if (!msg.userId) { net.send(connId, { type: 'rankedError', message: 'Para jugar clasificatorias tienes que entrar en tu cuenta.' }); return; }
+        if (msg.userId === me.id) { net.send(connId, { type: 'rankedError', message: 'No puedes jugar contra ti mismo.' }); return; }
+        guest = { connId, userId: msg.userId, name: (msg.name || 'Rival').slice(0, 18), pid: 'p' + connId.slice(-6) };
+        start();
+      },
+      onLeave() { if (started) toast('Tu rival se ha desconectado. Si vuelve, la partida sigue.', 'warn'); },
+      onMessage(connId, msg) { if (msg.type === 'action' && session && guest) session.remote(guest.pid, msg.action); },
+    });
+    if (queue) {
+      await queueJoin(net.code);
+      keep = setInterval(() => queueJoin(net.code).catch(() => {}), 60000);
+    }
+    render();
+  } catch (e) {
+    clear(box).append(h('p', { class: 'warn' }, 'No se pudo abrir la sala: ' + (e.message || e.type)));
+  }
+}
+
+function rankedJoinScreen() {
+  const input = h('input', { class: 'field-input code-input', placeholder: '·····', maxLength: 5, autocapitalize: 'characters', onInput: (e) => { e.target.value = e.target.value.toUpperCase(); } });
+  clear(app).append(subScreen('Aceptar un reto', rankedMenu, h('div', { class: 'panel setup-panel' },
+    h('div', { class: 'field-label' }, 'Código del reto'), input, h('button', { class: 'gem wide', onClick: () => input.value.length === 5 && rankedJoin(input.value) }, 'Entrar'))));
+  input.focus();
+}
+
+/** Entrar en una sala clasificatoria (invitado), con reconexión automática. */
+async function rankedJoin(code) {
+  const me = currentUser();
+  const status = h('p', { class: 'muted' }, 'Entrando en la sala…');
+  clear(app).append(subScreen('Clasificatoria', rankedMenu, h('div', { class: 'panel setup-panel' }, status)));
+  let session = null;
+  let tries = 0;
+  const go = async () => {
+    let net;
+    try {
+      net = await joinRoom(code, me.username, {
+        onMessage(msg) {
+          if (msg.type === 'rankedError') status.textContent = msg.message;
+          else if (msg.type === 'full') status.textContent = 'Esa sala ya está llena.';
+          else if (msg.type === 'start') {
+            tries = 0;
+            if (session && msg.rejoin) { session.net = net; session.receive(msg.state); toast('¡Reconectado!', 'info'); return; }
+            session = new Session({ role: 'client', state: msg.state, me: msg.you, net });
+            mountTable(app, session, { onExit: menu });
+            if (msg.ranked) watchRanked(session, msg.ranked.matchId, msg.ranked.users);
+          } else if (msg.type === 'state' && session) session.receive(msg.state);
+        },
+        onClose() { if (session && tries < 8) { tries++; toast(`Conexión perdida. Reconectando… (${tries})`, 'warn', 2500); setTimeout(go, 2500); } },
+      }, { userId: me.id });
+      if (!session) status.textContent = 'Dentro. Empezando la partida…';
+    } catch (e) {
+      if (session && tries < 8) { tries++; setTimeout(go, 2500); } else status.textContent = e.message || 'No se pudo conectar.';
+    }
+  };
+  go();
+}
+
+/** Al terminar la partida, cada jugador envía el resultado; el servidor aplica los puntos. */
+function watchRanked(session, matchId, users) {
+  session.ranked = { matchId, users };
+  let sent = false;
+  session.subscribe(async (s) => {
+    if (sent || !s.winner) return;
+    sent = true;
+    const winner = users[s.winner];
+    const meId = currentUser()?.id;
+    try {
+      let r = await rankedReport(matchId, winner);
+      for (let i = 0; i < 10 && r && r.status === 'playing'; i++) {
+        await new Promise((res) => setTimeout(res, 3000));
+        r = await rankedMatch(matchId);
+      }
+      const u = await refreshProfile();
+      if (!r || r.status === 'playing') toast('Resultado enviado. Los puntos se aplicarán cuando tu rival lo confirme (o en 10 minutos).', 'info', 7000);
+      else if (r.status === 'disputed') toast('Los dos jugadores habéis dado resultados distintos: esta partida no cuenta.', 'warn', 7000);
+      else if (r.winner === meId) toast(`¡Victoria clasificatoria! +${r.points_win} puntos (ahora tienes ${u?.rating}).`, 'info', 7000);
+      else toast(`Derrota clasificatoria: −${r.points_loss} puntos (ahora tienes ${u?.rating}).`, 'warn', 7000);
+    } catch (e) {
+      toast('No se pudo enviar el resultado: ' + e.message, 'warn', 7000);
+    }
+  });
 }
 
 // ------------------------------------------------------- contra bots

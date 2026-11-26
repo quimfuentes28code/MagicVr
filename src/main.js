@@ -207,11 +207,24 @@ function menu() {
   const accountBtn = accountsEnabled()
     ? h('button', { class: 'gem small' + (user ? '' : ' bronze'), onClick: () => openAccount({ app, subScreen, onBack: menu }) }, icon('person'), user ? 'Mi perfil' : 'Entrar / Crear cuenta')
     : null;
-  clear(app).append(screenEl('menu', h('div', { class: 'content' },
-    h('div', { class: 'menu-left' },
-      logo(true),
+  const tarots = [
+    tarot('chest', 'Biblioteca', 'Tus mazos y tu colección', '#d9a441', () => openLibrary({ app, subScreen, onBack: menu })),
+    tarot('hat', 'Aprendiz', 'Tutorial guiado contra un golem', '#3fbf6e', startTutorialGame),
+    tarot('swords', 'Duelo', '1 contra 1 · 20 vidas', '#e04848', () => modeMenu('1v1')),
+    tarot('crown', 'Commander', 'Multijugador · 40 vidas', '#a46bff', () => modeMenu('commander')),
+    tarot('book', 'Grimorio', 'Reglas, palabras clave y mazos', '#4a8dff', () => rulesScreen()),
+  ];
+  tarots.forEach((t, i) => { t.style.setProperty('--i', i - 2); t.style.setProperty('--a', Math.abs(i - 2)); });
+  clear(app).append(h('div', { class: 'screen menu menu2' },
+    h('div', { class: 'menu-bg' }), h('div', { class: 'menu-motes' }),
+    h('div', { class: 'menu-beams' }, tarots.map((_, i) => h('i', { style: { '--i': i - 2 } }))),
+    h('div', { class: 'menu-head' },
+      logo(),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
-      h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), nameInput),
+      h('div', { class: 'divider', html: DIVIDER })),
+    h('div', { class: 'menu-fan' }, tarots),
+    h('div', { class: 'menu-corner' },
+      h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), h('div', { class: 'np-row' }, icon('person'), nameInput)),
       h('div', { class: 'menu-btns' },
         accountBtn,
         h('button', { class: 'gem small bronze', onClick: calibrateFromMenu }, icon('eye'), 'Ajustar mesa'),
@@ -219,14 +232,7 @@ function menu() {
       ),
       dbLine(),
     ),
-    h('div', { class: 'menu-right' },
-      tarot('chest', 'Biblioteca', 'Tus mazos y tu colección', '#b07a2a', () => openLibrary({ app, subScreen, onBack: menu })),
-      tarot('hat', 'Aprendiz', 'Tutorial guiado contra un golem', '#2e9a5b', startTutorialGame),
-      tarot('swords', 'Duelo', '1 contra 1 · 20 vidas', '#b3262f', () => modeMenu('1v1')),
-      tarot('crown', 'Commander', 'Multijugador · 40 vidas', '#7b3fc4', () => modeMenu('commander')),
-      tarot('book', 'Grimorio', 'Reglas, palabras clave y mazos', '#2a5fb8', () => rulesScreen()),
-    ),
-  )));
+  ));
 }
 
 function modeMenu(mode) {

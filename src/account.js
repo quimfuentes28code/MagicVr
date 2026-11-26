@@ -39,7 +39,10 @@ export async function initAccount() {
   try {
     const c = await sb();
     const { data } = await c.auth.getSession();
-    return await loadProfile(data.session);
+    const u = await loadProfile(data.session);
+    // rankeds en las que el rival no confirmó a tiempo
+    if (u) c.rpc('ranked_claim', {}).then(({ data: n }) => { if (n) loadProfile(data.session); }).catch(() => {});
+    return u;
   } catch { return null; }
 }
 
@@ -145,4 +148,33 @@ export function mergeLibraries(local, remote) {
   const deleted = new Set([...(newer.deleted || [])]);
   const decks = [...byId.values()].filter((d) => !deleted.has(d.id)).sort((a, b) => (b.created || 0) - (a.created || 0));
   return { decks, collection: { ...older.collection, ...newer.collection }, updated: Math.max(local.updated || 0, remote.updated || 0), deleted: [...deleted] };
+}
+
+// ------------------------------------------------------------ rankeds
+
+async function rpc(name, args) {
+  const c = await sb();
+  const { data, error } = await c.rpc(name, args);
+  if (error) throw new Error(es(error));
+  return data;
+}
+export const rankedStart = (opponent) => rpc('ranked_start', { opponent });
+export const rankedReport = (m, w) => rpc('ranked_report', { m, w });
+export const rankedClaim = () => rpc('ranked_claim', {});
+export const queueJoin = (c) => rpc('ranked_queue_join', { c });
+export const queueTake = () => rpc('ranked_queue_take', {});
+export const queueLeave = () => rpc('ranked_queue_leave', {});
+
+export async function rankedMatch(id) {
+  const c = await sb();
+  const { data, error } = await c.from('ranked_matches').select('*').eq('id', id).maybeSingle();
+  if (error) throw new Error(es(error));
+  return data;
+}
+
+/** Vuelve a leer el perfil (puntuación, victorias…). */
+export async function refreshProfile() {
+  const c = await sb();
+  const { data } = await c.auth.getSession();
+  return loadProfile(data.session);
 }

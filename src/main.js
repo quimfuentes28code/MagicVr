@@ -18,7 +18,9 @@ import { preloadVision } from './vision.js';
 import { loadCardDb, cardDbCount, cardDbReady, searchNames, cardByName } from './carddb.js';
 import { manaColor } from './ui/dom.js';
 import { startMusic, musicOn, setMusic } from './ui/music.js';
-import { openLibrary } from './ui/library.js';
+import { openLibrary, onLibrarySave } from './ui/library.js';
+import { accountsEnabled, initAccount, currentUser, onAccountChange, pushLibrary } from './account.js';
+import { openAccount, syncLibrary } from './ui/account.js';
 
 const app = document.getElementById('app');
 const COLORS = Object.keys(BOT_DECKS);
@@ -27,7 +29,7 @@ const BOT_NAMES = { G: 'Kaia la Druida', R: 'Teo el Trasgo', W: 'Brum el Paladí
 const NAME_KEY = 'mtgvr-name';
 const getName = () => { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } };
 const setName = (n) => { try { localStorage.setItem(NAME_KEY, n); } catch { /* */ } };
-const myName = () => getName() || 'Planeswalker';
+const myName = () => currentUser()?.username || getName() || 'Planeswalker';
 
 function botPlayer(i, color, mode, level = 'normal') {
   return {
@@ -107,13 +109,20 @@ function splash() {
 
 // ------------------------------------------------------------- menú
 function menu() {
-  const nameInput = h('input', { class: 'field-input', placeholder: 'Tu nombre de Planeswalker', value: getName(), maxLength: 18, onInput: (e) => setName(e.target.value.trim()) });
+  const user = currentUser();
+  const nameInput = user
+    ? h('div', { class: 'field-input user-name' }, user.username)
+    : h('input', { class: 'field-input', placeholder: 'Tu nombre de Planeswalker', value: getName(), maxLength: 18, onInput: (e) => setName(e.target.value.trim()) });
+  const accountBtn = accountsEnabled()
+    ? h('button', { class: 'gem small' + (user ? '' : ' bronze'), onClick: () => openAccount({ app, subScreen, onBack: menu }) }, icon('person'), user ? 'Mi perfil' : 'Entrar / Crear cuenta')
+    : null;
   clear(app).append(screenEl('menu', h('div', { class: 'content' },
     h('div', { class: 'menu-left' },
       logo(true),
       h('div', { class: 'logo-sub' }, 'Juega con tus cartas físicas. La cámara hace el resto.'),
       h('div', { class: 'name-plate' }, h('label', {}, 'Planeswalker'), nameInput),
       h('div', { class: 'menu-btns' },
+        accountBtn,
         h('button', { class: 'gem small bronze', onClick: calibrateFromMenu }, icon('eye'), 'Ajustar mesa'),
         h('button', { class: 'gem small bronze', onClick: (e) => { setMusic(!musicOn()); e.currentTarget.textContent = musicOn() ? '♫ Música: sí' : '♫ Música: no'; } }, musicOn() ? '♫ Música: sí' : '♫ Música: no'),
       ),
@@ -370,6 +379,18 @@ function rulesScreen(tab = 'rules') {
 }
 
 splash();
+
+// Cuentas: recuperar la sesión y guardar la biblioteca en el perfil al cambiarla.
+if (accountsEnabled()) {
+  initAccount().then((u) => { if (u) syncLibrary({ quiet: true }); });
+  let t = null;
+  onLibrarySave((lib) => {
+    if (!currentUser()) return;
+    clearTimeout(t);
+    t = setTimeout(() => pushLibrary(lib).catch(() => toast('No se pudo guardar la biblioteca en tu perfil (¿sin conexión?). Se guardará cuando vuelvas a entrar.', 'warn')), 1500);
+  });
+  onAccountChange(() => { if (document.querySelector('.screen.menu')) menu(); });
+}
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});

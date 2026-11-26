@@ -1,0 +1,7 @@
+# Configuración mínima para la CLI de Supabase (sólo se usa al desplegar funciones).
+project_id = "tzbkfcljrzwvttgmrrbs"
+
+[functions.discord-voice]
+# La app manda la clave pública (no es un JWT), así que la función no exige JWT.
+# Se protege sola: valida el código, limita por IP/usuario y el token de Discord es secreto.
+verify_jwt = false

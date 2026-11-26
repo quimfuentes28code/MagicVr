@@ -22,6 +22,7 @@ import { openLibrary, onLibrarySave } from './ui/library.js';
 import { accountsEnabled, initAccount, currentUser, onAccountChange, pushLibrary, rankedStart, rankedReport, rankedMatch, queueJoin, queueTake, queueLeave, refreshProfile } from './account.js';
 import { openAccount, syncLibrary } from './ui/account.js';
 import { RANKED_ENABLED } from './config.js';
+import { voiceRoom } from './voice.js';
 
 const app = document.getElementById('app');
 // Dorso oficial de las cartas (incluido en la app): ruta absoluta para que funcione desde cualquier hoja de estilos.
@@ -307,8 +308,10 @@ async function rankedHost({ queue }) {
   let started = false;
   let session = null;
   let keep = null;
+  let vr = null;
+  let vbtn = null;
   const box = h('div', { class: 'panel setup-panel' });
-  const leave = () => { clearInterval(keep); if (queue) queueLeave().catch(() => {}); net?.close(); rankedMenu(); };
+  const leave = () => { clearInterval(keep); if (queue) queueLeave().catch(() => {}); vr?.close(); net?.close(); rankedMenu(); };
   clear(app).append(subScreen(queue ? 'Buscar partida' : 'Retar a un amigo', leave, box));
   const render = (extra) => {
     clear(box).append(
@@ -316,7 +319,7 @@ async function rankedHost({ queue }) {
         : [h('div', { class: 'field-label' }, 'Código del reto'), net ? h('div', { class: 'room-code' }, net.code) : h('div', { class: 'loading' }, 'Abriendo la sala…'),
           net ? h('button', { class: 'gem small bronze', onClick: () => share(net.code) }, 'Compartir código') : null,
           h('p', { class: 'muted' }, 'Tu amigo tiene que entrar en su cuenta y pulsar «Aceptar un reto» con este código.')],
-      extra || null);
+      vbtn, extra || null);
   };
   render();
   const start = async () => {
@@ -333,8 +336,9 @@ async function rankedHost({ queue }) {
     const state = createGame({ mode: '1v1', players });
     const users = { host: me.id, [guest.pid]: guest.userId };
     session = new Session({ role: 'host', state, me: 'host', net });
-    net.send(guest.connId, { type: 'start', state, you: guest.pid, ranked: { matchId, users } });
-    mountTable(app, session, { onExit: menu });
+    net.send(guest.connId, { type: 'start', state, you: guest.pid, ranked: { matchId, users }, voice: !!vr?.ready });
+    mountTable(app, session, { onExit: () => { vr?.close(); menu(); }, voice: vr });
+    closeVoiceOnWin(session, vr);
     watchRanked(session, matchId, users);
   };
   try {
@@ -343,7 +347,7 @@ async function rankedHost({ queue }) {
         if (started) {
           if (guest && msg.userId === guest.userId && session) {
             guest.connId = connId;
-            net.send(connId, { type: 'start', state: session.state, you: guest.pid, rejoin: true, ranked: session.ranked });
+            net.send(connId, { type: 'start', state: session.state, you: guest.pid, rejoin: true, ranked: session.ranked, voice: !!vr?.ready });
             toast(`${guest.name} ha vuelto a la partida.`, 'info');
           } else net.send(connId, { type: 'full' });
           return;
@@ -356,6 +360,9 @@ async function rankedHost({ queue }) {
       onLeave() { if (started) toast('Tu rival se ha desconectado. Si vuelve, la partida sigue.', 'warn'); },
       onMessage(connId, msg) { if (msg.type === 'action' && session && guest) session.remote(guest.pid, msg.action); },
     });
+    vr = voiceRoom({ code: net.code, mode: '1v1', role: 'host' });
+    vbtn = vr.button();
+    vr.register().then((ok) => { if (ok) net.broadcast({ type: 'voice', ready: true }); });
     if (queue) {
       await queueJoin(net.code);
       keep = setInterval(() => queueJoin(net.code).catch(() => {}), 60000);
@@ -377,7 +384,8 @@ function rankedJoinScreen() {
 async function rankedJoin(code) {
   const me = currentUser();
   const status = h('p', { class: 'muted' }, 'Entrando en la sala…');
-  clear(app).append(subScreen('Clasificatoria', rankedMenu, h('div', { class: 'panel setup-panel' }, status)));
+  const vr = voiceRoom({ code: code.toUpperCase(), mode: '1v1', role: 'guest' });
+  clear(app).append(subScreen('Clasificatoria', () => { vr.close(); rankedMenu(); }, h('div', { class: 'panel setup-panel' }, status, vr.button())));
   let session = null;
   let tries = 0;
   const go = async () => {
@@ -385,13 +393,16 @@ async function rankedJoin(code) {
     try {
       net = await joinRoom(code, me.username, {
         onMessage(msg) {
-          if (msg.type === 'rankedError') status.textContent = msg.message;
+          if (msg.type === 'voice') vr.setHostReady(msg.ready);
+          else if (msg.type === 'rankedError') status.textContent = msg.message;
           else if (msg.type === 'full') status.textContent = 'Esa sala ya está llena.';
           else if (msg.type === 'start') {
             tries = 0;
+            vr.setHostReady(msg.voice);
             if (session && msg.rejoin) { session.net = net; session.receive(msg.state); toast('¡Reconectado!', 'info'); return; }
             session = new Session({ role: 'client', state: msg.state, me: msg.you, net });
-            mountTable(app, session, { onExit: menu });
+            mountTable(app, session, { onExit: () => { vr.close(); menu(); }, voice: vr });
+            closeVoiceOnWin(session, vr);
             if (msg.ranked) watchRanked(session, msg.ranked.matchId, msg.ranked.users);
           } else if (msg.type === 'state' && session) session.receive(msg.state);
         },
@@ -494,9 +505,11 @@ async function hostLobby(mode) {
   let net = null;
   let started = false;
   let session = null;
+  let vr = null;
+  let vbtn = null;
   const connToPlayer = new Map();
   const box = h('div', { class: 'panel setup-panel' });
-  clear(app).append(subScreen('Portal de ' + (mode === 'commander' ? 'Commander' : 'Duelo'), () => { net?.close(); modeMenu(mode); }, box));
+  clear(app).append(subScreen('Portal de ' + (mode === 'commander' ? 'Commander' : 'Duelo'), () => { vr?.close(); net?.close(); modeMenu(mode); }, box));
 
   const render = () => {
     if (started) return;
@@ -504,6 +517,7 @@ async function hostLobby(mode) {
       h('div', { class: 'field-label' }, 'Código del portal'),
       net ? h('div', { class: 'room-code' }, net.code) : h('div', { class: 'loading' }, 'Abriendo el portal…'),
       net ? h('button', { class: 'gem small bronze', onClick: () => share(net.code) }, 'Compartir código') : null,
+      vbtn,
       h('div', { class: 'field-label' }, `Planeswalkers (${seats.length}/${max})`),
       h('ul', { class: 'seats' }, seats.map((p, i) => h('li', {},
         icon(p.kind === 'bot' ? 'golem' : 'person'), p.name + (p.kind === 'host' ? ' (tú)' : ''),
@@ -524,8 +538,9 @@ async function hostLobby(mode) {
     const players = seats.map((p, i) => (p.kind === 'bot' ? botPlayer(i, p.color, mode) : { id: p.id, name: p.name }));
     const state = createGame({ mode, players });
     session = new Session({ role: 'host', state, me: 'host', net });
-    for (const [connId, pid] of connToPlayer) net.send(connId, { type: 'start', state, you: pid });
-    mountTable(app, session, { onExit: menu });
+    for (const [connId, pid] of connToPlayer) net.send(connId, { type: 'start', state, you: pid, voice: !!vr?.ready });
+    mountTable(app, session, { onExit: () => { vr?.close(); menu(); }, voice: vr });
+    closeVoiceOnWin(session, vr);
   };
 
   render();
@@ -539,7 +554,7 @@ async function hostLobby(mode) {
           const back = gone.find((p) => p.name.toLowerCase() === String(msg.name || '').slice(0, 18).toLowerCase()) || (gone.length === 1 ? gone[0] : null);
           if (!back || !session) { net.send(connId, { type: 'full' }); return; }
           connToPlayer.set(connId, back.id);
-          net.send(connId, { type: 'start', state: session.state, you: back.id, rejoin: true });
+          net.send(connId, { type: 'start', state: session.state, you: back.id, rejoin: true, voice: !!vr?.ready });
           toast(`${back.name} ha vuelto a la partida.`, 'info');
           return;
         }
@@ -547,7 +562,7 @@ async function hostLobby(mode) {
         const id = 'p' + connId.slice(-6);
         seats.push({ id, name: (msg.name || 'Amigo').slice(0, 18), kind: 'remote' });
         connToPlayer.set(connId, id);
-        net.broadcast({ type: 'lobby', seats, mode });
+        net.broadcast({ type: 'lobby', seats, mode, voice: !!vr?.ready });
         render();
       },
       onLeave(connId) {
@@ -564,6 +579,9 @@ async function hostLobby(mode) {
         if (msg.type === 'action' && session && pid) session.remote(pid, msg.action);
       },
     });
+    vr = voiceRoom({ code: net.code, mode, role: 'host' });
+    vbtn = vr.button();
+    vr.register().then((ok) => { if (ok) net.broadcast({ type: 'voice', ready: true }); });
     render();
   } catch (e) {
     clear(box).append(h('p', { class: 'warn' }, 'No se pudo abrir el portal: ' + (e.message || e.type)));
@@ -576,6 +594,8 @@ function joinScreen() {
   const status = h('p', { class: 'muted' }, 'Pide el código de 5 letras a quien abrió el portal.');
   let session = null;
   let tries = 0;
+  let vr = null;
+  const voiceSlot = h('div', { class: 'voice-slot' });
   // Si se corta la conexión, vuelve a entrar solo en la misma sala (con el mismo nombre).
   const reconnect = async () => {
     if (tries >= 8) { toast('No se pudo recuperar la conexión. Vuelve a entrar con el código del portal.', 'warn', 8000); return; }
@@ -587,17 +607,23 @@ function joinScreen() {
   const go = async (silent = false) => {
     if (input.value.length !== 5) { status.textContent = 'El código tiene 5 letras.'; return; }
     if (!silent) status.textContent = 'Cruzando el portal…';
+    const code = input.value.toUpperCase();
+    if (!vr || vr.code !== code) { vr?.close(); vr = voiceRoom({ code, role: 'guest' }); clear(voiceSlot).append(vr.button()); }
+    const room = vr;
     let net;
     try {
       net = await joinRoom(input.value, myName(), {
         onMessage(msg) {
-          if (msg.type === 'lobby') status.textContent = `Dentro. Jugadores: ${msg.seats.map((s) => s.name).join(', ')}. Esperando al anfitrión…`;
+          if (msg.type === 'voice') room.setHostReady(msg.ready);
+          else if (msg.type === 'lobby') { room.setHostReady(msg.voice); status.textContent = `Dentro. Jugadores: ${msg.seats.map((s) => s.name).join(', ')}. Esperando al anfitrión…`; }
           else if (msg.type === 'full') status.textContent = 'El portal está lleno o la partida ya empezó.';
           else if (msg.type === 'start') {
             tries = 0;
+            room.setHostReady(msg.voice);
             if (session && msg.rejoin) { session.net = net; session.receive(msg.state); toast('¡Reconectado!', 'info'); return; }
             session = new Session({ role: 'client', state: msg.state, me: msg.you, net });
-            mountTable(app, session, { onExit: menu, intro: !msg.rejoin });
+            mountTable(app, session, { onExit: () => { room.close(); menu(); }, intro: !msg.rejoin, voice: room });
+            closeVoiceOnWin(session, room);
           } else if (msg.type === 'state' && session) session.receive(msg.state);
         },
         onClose() { reconnect(); },
@@ -608,9 +634,16 @@ function joinScreen() {
       else status.textContent = e.message || 'No se pudo conectar.';
     }
   };
-  clear(app).append(subScreen('Cruzar portal', () => modeMenu('1v1'),
-    h('div', { class: 'panel setup-panel' }, h('div', { class: 'field-label' }, 'Código del portal'), input, h('button', { class: 'gem wide', onClick: () => go() }, 'Cruzar'), status)));
+  clear(app).append(subScreen('Cruzar portal', () => { vr?.close(); modeMenu('1v1'); },
+    h('div', { class: 'panel setup-panel' }, h('div', { class: 'field-label' }, 'Código del portal'), input, h('button', { class: 'gem wide', onClick: () => go() }, 'Cruzar'), status, voiceSlot)));
   input.focus();
+}
+
+/** Cuando hay ganador, se cierra la sala de voz (el anfitrión borra el canal de Discord). */
+function closeVoiceOnWin(session, vr) {
+  if (!vr) return;
+  if (session.state.winner) { vr.close(); return; }
+  const off = session.subscribe((s) => { if (s.winner) { off(); vr.close(); } });
 }
 
 function share(code) {

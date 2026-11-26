@@ -63,7 +63,7 @@ export const RUNE_RING = `<svg viewBox="0 0 200 200" fill="none" stroke="#f7dc8f
     }).join('')}
   </g></svg>`;
 
-export function mountTable(root, session, { onExit, calibrate = false, onCalibrated, intro: showIntro = true } = {}) {
+export function mountTable(root, session, { onExit, calibrate = false, onCalibrated, intro: showIntro = true, voice = null } = {}) {
   const ui = {
     settings: loadSettings(),
     viewOpp: null,
@@ -1832,6 +1832,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('input', { type: 'range', min, max, step, value: st[key], onInput: (e) => { st[key] = +e.target.value; saveSettings(st); mat.style.setProperty('--tilt', st.tilt + 'deg'); mat.style.setProperty('--zoom', st.zoom); } }));
     close = sheet(h('div', {},
       h('h3', {}, 'Ajustes de la mesa'),
+      voice && voice.visible ? h('button', { class: 'act voice-act', onClick: () => { close(); voice.open(); } }, voice.label || '🎙️ Sala de voz en Discord') : null,
       h('button', { class: 'act primary', onClick: () => { close(); calibrateTable(); } }, 'Ajustar áreas de la mesa (con la cámara)'),
       h('button', { class: 'act primary', onClick: () => { close(); autoPerspective(); } }, '✨ Adaptar el tablero a la mesa (automático)'),
       slider('Inclinación', 'tilt', 0, 45, 1),

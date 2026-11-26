@@ -101,6 +101,12 @@ export async function signOut() {
   emit();
 }
 
+/** Token de la sesión (para que el servidor sepa quién eres), o null. */
+export async function accessToken() {
+  if (!current) return null;
+  try { const { data } = await (await sb()).auth.getSession(); return data.session?.access_token || null; } catch { return null; }
+}
+
 export async function resetPassword(email) {
   const c = await sb();
   const { error } = await c.auth.resetPasswordForEmail(email.trim(), { redirectTo: location.href.split('#')[0] });

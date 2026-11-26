@@ -863,7 +863,20 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .persp-bar { position: absolute; z-index: 60; left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(720px, 94vw);
   padding: 10px 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .persp-bar b { font-family: var(--title); color: #5a1a12; }
-.cal-extra { display: flex; flex-direction: column; gap: 6px; }
+.cal-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.cal-extra .row-btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 0; }
+.cal-extra .row-btns .act { padding: 5px 10px; font-size: 12px; }
+.cal-extra .toggle { font-size: 12px; }
+/* panel de ajustar la mesa: dos filas compactas y plegable */
+.cal-panel { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 12px; max-height: 46vh; overflow: auto; }
+.cal-panel .cal-text { flex: none; }
+.cal-panel h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cal-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.cal-controls .cal-btns { margin-left: auto; }
+.cal-fold { font-family: var(--title); font-size: 11px; letter-spacing: .05em; padding: 3px 10px; border-radius: 99px; background: rgba(74, 20, 14, .12); color: #4a140e; box-shadow: inset 0 0 0 1px rgba(74, 20, 14, .35); flex: none; }
+.cal-panel.min { width: auto; padding: 4px 8px; }
+.cal-panel.min .cal-text p, .cal-panel.min .cal-controls { display: none; }
+.cal-panel.min h3 { margin: 0; }
 
 /* ---------- equipos y auras ---------- */
 .badges span.equip-b { color: #ffe3a3; box-shadow: inset 0 0 0 1px #c99b3a; max-width: 110%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

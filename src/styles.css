@@ -1058,7 +1058,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .menu3 .mc-frame { position: absolute; inset: calc(var(--w) * .045); border-radius: calc(var(--w) * .03); display: flex; flex-direction: column; gap: calc(var(--w) * .025); padding: calc(var(--w) * .035);
   background:
     radial-gradient(circle at 20% 15%, rgba(255, 255, 255, .18), transparent 40%),
-    repeating-linear-gradient(45deg, rgba(0, 0, 0, .06) 0 2px, transparent 2px 5px),
+    radial-gradient(circle at 80% 90%, rgba(0, 0, 0, .18), transparent 55%),
     linear-gradient(160deg, var(--c3) 0%, var(--c1) 35%, var(--c2) 100%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25), inset 0 0 12px rgba(0, 0, 0, .45); transition: transform .25s ease; }
 .menu3 .mc-title, .menu3 .mc-type { display: flex; align-items: center; justify-content: space-between; gap: 4px; border-radius: calc(var(--w) * .02);
@@ -1069,7 +1069,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .menu3 .mc-art { position: relative; flex: 1.35; border-radius: 2px; overflow: hidden; display: grid; place-items: center;
   background: radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--c3) 60%, #fff) 0%, var(--c1) 30%, var(--c2) 70%, #070410 100%);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .7), inset 0 0 18px rgba(0, 0, 0, .55); }
-.menu3 .mc-rays { position: absolute; inset: -40%; background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, .16) 0 6deg, transparent 6deg 18deg); animation: haloSpin 30s linear infinite; mix-blend-mode: screen; }
+.menu3 .mc-rays { position: absolute; inset: -40%; background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, .15) 0deg, rgba(255, 255, 255, .04) 6deg, transparent 9deg, rgba(255, 255, 255, .04) 14deg, rgba(255, 255, 255, .15) 18deg); animation: haloSpin 30s linear infinite; }
 .menu3 .mc-emblem { position: relative; width: 52%; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center;
   background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, .35), rgba(0, 0, 0, .35)); box-shadow: 0 0 0 2px #e8c06a, 0 0 0 4px rgba(0, 0, 0, .45), 0 0 16px var(--c3); }
 .menu3 .mc-emblem .ico { width: 62%; height: 62%; color: #fff6d8; filter: drop-shadow(0 0 6px var(--c3)) drop-shadow(0 1px 1px #000); }
@@ -1084,7 +1084,7 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 /* brillo de carta foil que la recorre */
 .menu3 .mc-foil { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; overflow: hidden; }
 .menu3 .mc-foil::before { content: ''; position: absolute; inset: -30%; background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, .45) 50%, rgba(200, 160, 255, .25) 54%, transparent 64%);
-  animation: c3sheen 6s ease-in-out infinite; animation-delay: calc(var(--i) * .7s); mix-blend-mode: screen; }
+  opacity: .7; animation: c3sheen 6s ease-in-out infinite; animation-delay: calc(var(--i) * .7s); }
 
 /* --- holograma: móvil 3D y haz de luz --- */
 .menu3 .mh-stage { position: absolute; left: 50%; bottom: 0; translate: -50% 0; width: min(80vh, 44vw); height: 34vh; z-index: 3; pointer-events: none; }

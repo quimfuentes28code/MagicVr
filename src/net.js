@@ -56,6 +56,7 @@ export async function hostRoom({ onJoin, onLeave, onMessage }) {
   });
   return {
     code,
+    peer,
     send(connId, msg) { conns.get(connId)?.send(msg); },
     broadcast(msg) { for (const c of conns.values()) c.send(msg); },
     close() { peer.destroy(); },
@@ -78,6 +79,7 @@ export async function joinRoom(code, name, { onMessage, onClose }, extra = {}) {
   conn.on('close', () => onClose && onClose());
   conn.send({ type: 'hello', name, ...extra });
   return {
+    peer,
     send(msg) { conn.send(msg); },
     close() { peer.destroy(); },
   };

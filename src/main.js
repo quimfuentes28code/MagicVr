@@ -23,6 +23,7 @@ import { accountsEnabled, initAccount, currentUser, onAccountChange, pushLibrary
 import { openAccount, syncLibrary } from './ui/account.js';
 import { RANKED_ENABLED } from './config.js';
 import { voiceRoom } from './voice.js';
+import { createMedia } from './media.js';
 
 const app = document.getElementById('app');
 // Dorso oficial de las cartas (incluido en la app): ruta absoluta para que funcione desde cualquier hoja de estilos.
@@ -310,6 +311,7 @@ async function rankedHost({ queue }) {
   let keep = null;
   let vr = null;
   let vbtn = null;
+  let media = null;
   const box = h('div', { class: 'panel setup-panel' });
   const leave = () => { clearInterval(keep); if (queue) queueLeave().catch(() => {}); vr?.close(); net?.close(); rankedMenu(); };
   clear(app).append(subScreen(queue ? 'Buscar partida' : 'Retar a un amigo', leave, box));
@@ -337,7 +339,8 @@ async function rankedHost({ queue }) {
     const users = { host: me.id, [guest.pid]: guest.userId };
     session = new Session({ role: 'host', state, me: 'host', net });
     net.send(guest.connId, { type: 'start', state, you: guest.pid, ranked: { matchId, users }, voice: !!vr?.ready });
-    mountTable(app, session, { onExit: () => { vr?.close(); menu(); }, voice: vr });
+    media = hostMedia(net);
+    mountTable(app, session, { onExit: () => { vr?.close(); menu(); }, voice: vr, media });
     closeVoiceOnWin(session, vr);
     watchRanked(session, matchId, users);
   };
@@ -348,6 +351,7 @@ async function rankedHost({ queue }) {
           if (guest && msg.userId === guest.userId && session) {
             guest.connId = connId;
             net.send(connId, { type: 'start', state: session.state, you: guest.pid, rejoin: true, ranked: session.ranked, voice: !!vr?.ready });
+            media?.resend();
             toast(`${guest.name} ha vuelto a la partida.`, 'info');
           } else net.send(connId, { type: 'full' });
           return;
@@ -358,7 +362,10 @@ async function rankedHost({ queue }) {
         start();
       },
       onLeave() { if (started) toast('Tu rival se ha desconectado. Si vuelve, la partida sigue.', 'warn'); },
-      onMessage(connId, msg) { if (msg.type === 'action' && session && guest) session.remote(guest.pid, msg.action); },
+      onMessage(connId, msg) {
+        if (msg.type === 'action' && session && guest) session.remote(guest.pid, msg.action);
+        else if (msg.type === 'media' && guest) media?.report(guest.pid, msg.info);
+      },
     });
     vr = voiceRoom({ code: net.code, mode: '1v1', role: 'host' });
     vbtn = vr.button();
@@ -388,20 +395,26 @@ async function rankedJoin(code) {
   clear(app).append(subScreen('Clasificatoria', () => { vr.close(); rankedMenu(); }, h('div', { class: 'panel setup-panel' }, status, vr.button())));
   let session = null;
   let tries = 0;
+  let media = null;
+  let curNet = null;
   const go = async () => {
     let net;
     try {
       net = await joinRoom(code, me.username, {
         onMessage(msg) {
           if (msg.type === 'voice') vr.setHostReady(msg.ready);
+          else if (msg.type === 'media') media?.setMap(msg.map);
           else if (msg.type === 'rankedError') status.textContent = msg.message;
           else if (msg.type === 'full') status.textContent = 'Esa sala ya está llena.';
           else if (msg.type === 'start') {
             tries = 0;
             vr.setHostReady(msg.voice);
-            if (session && msg.rejoin) { session.net = net; session.receive(msg.state); toast('¡Reconectado!', 'info'); return; }
+            curNet = net;
+            if (session && msg.rejoin) { session.net = net; session.receive(msg.state); media?.attach(net.peer); toast('¡Reconectado!', 'info'); return; }
             session = new Session({ role: 'client', state: msg.state, me: msg.you, net });
-            mountTable(app, session, { onExit: () => { vr.close(); menu(); }, voice: vr });
+            media = clientMedia(msg.you, () => curNet);
+            media.attach(net.peer);
+            mountTable(app, session, { onExit: () => { vr.close(); menu(); }, voice: vr, media });
             closeVoiceOnWin(session, vr);
             if (msg.ranked) watchRanked(session, msg.ranked.matchId, msg.ranked.users);
           } else if (msg.type === 'state' && session) session.receive(msg.state);
@@ -507,6 +520,7 @@ async function hostLobby(mode) {
   let session = null;
   let vr = null;
   let vbtn = null;
+  let media = null;
   const connToPlayer = new Map();
   const box = h('div', { class: 'panel setup-panel' });
   clear(app).append(subScreen('Portal de ' + (mode === 'commander' ? 'Commander' : 'Duelo'), () => { vr?.close(); net?.close(); modeMenu(mode); }, box));
@@ -539,7 +553,8 @@ async function hostLobby(mode) {
     const state = createGame({ mode, players });
     session = new Session({ role: 'host', state, me: 'host', net });
     for (const [connId, pid] of connToPlayer) net.send(connId, { type: 'start', state, you: pid, voice: !!vr?.ready });
-    mountTable(app, session, { onExit: () => { vr?.close(); menu(); }, voice: vr });
+    media = connToPlayer.size ? hostMedia(net) : null;
+    mountTable(app, session, { onExit: () => { vr?.close(); menu(); }, voice: vr, media });
     closeVoiceOnWin(session, vr);
   };
 
@@ -555,6 +570,7 @@ async function hostLobby(mode) {
           if (!back || !session) { net.send(connId, { type: 'full' }); return; }
           connToPlayer.set(connId, back.id);
           net.send(connId, { type: 'start', state: session.state, you: back.id, rejoin: true, voice: !!vr?.ready });
+          media?.resend();
           toast(`${back.name} ha vuelto a la partida.`, 'info');
           return;
         }
@@ -577,6 +593,7 @@ async function hostLobby(mode) {
       onMessage(connId, msg) {
         const pid = connToPlayer.get(connId);
         if (msg.type === 'action' && session && pid) session.remote(pid, msg.action);
+        else if (msg.type === 'media' && pid) media?.report(pid, msg.info);
       },
     });
     vr = voiceRoom({ code: net.code, mode, role: 'host' });
@@ -595,6 +612,8 @@ function joinScreen() {
   let session = null;
   let tries = 0;
   let vr = null;
+  let media = null;
+  let curNet = null;
   const voiceSlot = h('div', { class: 'voice-slot' });
   // Si se corta la conexión, vuelve a entrar solo en la misma sala (con el mismo nombre).
   const reconnect = async () => {
@@ -615,14 +634,18 @@ function joinScreen() {
       net = await joinRoom(input.value, myName(), {
         onMessage(msg) {
           if (msg.type === 'voice') room.setHostReady(msg.ready);
+          else if (msg.type === 'media') media?.setMap(msg.map);
           else if (msg.type === 'lobby') { room.setHostReady(msg.voice); status.textContent = `Dentro. Jugadores: ${msg.seats.map((s) => s.name).join(', ')}. Esperando al anfitrión…`; }
           else if (msg.type === 'full') status.textContent = 'El portal está lleno o la partida ya empezó.';
           else if (msg.type === 'start') {
             tries = 0;
             room.setHostReady(msg.voice);
-            if (session && msg.rejoin) { session.net = net; session.receive(msg.state); toast('¡Reconectado!', 'info'); return; }
+            curNet = net;
+            if (session && msg.rejoin) { session.net = net; session.receive(msg.state); media?.attach(net.peer); toast('¡Reconectado!', 'info'); return; }
             session = new Session({ role: 'client', state: msg.state, me: msg.you, net });
-            mountTable(app, session, { onExit: () => { room.close(); menu(); }, intro: !msg.rejoin, voice: room });
+            media = clientMedia(msg.you, () => curNet);
+            media.attach(net.peer);
+            mountTable(app, session, { onExit: () => { room.close(); menu(); }, intro: !msg.rejoin, voice: room, media });
             closeVoiceOnWin(session, room);
           } else if (msg.type === 'state' && session) session.receive(msg.state);
         },
@@ -637,6 +660,16 @@ function joinScreen() {
   clear(app).append(subScreen('Cruzar portal', () => { vr?.close(); modeMenu('1v1'); },
     h('div', { class: 'panel setup-panel' }, h('div', { class: 'field-label' }, 'Código del portal'), input, h('button', { class: 'gem wide', onClick: () => go() }, 'Cruzar'), status, voiceSlot)));
   input.focus();
+}
+
+/** Cámaras entre jugadores: el anfitrión reparte el mapa; cada cliente cuenta lo suyo. */
+function hostMedia(net) {
+  const m = createMedia({ me: 'host', role: 'host', send: (map) => net.broadcast({ type: 'media', map }) });
+  m.attach(net.peer);
+  return m;
+}
+function clientMedia(me, getNet) {
+  return createMedia({ me, role: 'client', send: (info) => getNet()?.send({ type: 'media', info }) });
 }
 
 /** Cuando hay ganador, se cierra la sala de voz (el anfitrión borra el canal de Discord). */

@@ -16,6 +16,7 @@ import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
 import { rectToQuad, applyH, invertH, cssMatrix } from '../homography.js';
 import { hologram } from './hologram.js';
+import { mountSplit, fitRect as fitBox, SPLIT_LAYOUT } from './split.js';
 import { tokenImage } from './tokens.js';
 import { apply as applyAction } from '../engine/game.js';
 import { normalize as normalizeCard } from '../engine/cards.js';
@@ -63,7 +64,7 @@ export const RUNE_RING = `<svg viewBox="0 0 200 200" fill="none" stroke="#f7dc8f
     }).join('')}
   </g></svg>`;
 
-export function mountTable(root, session, { onExit, calibrate = false, onCalibrated, intro: showIntro = true, voice = null } = {}) {
+export function mountTable(root, session, { onExit, calibrate = false, onCalibrated, intro: showIntro = true, voice = null, media = null } = {}) {
   const ui = {
     settings: loadSettings(),
     viewOpp: null,
@@ -119,7 +120,10 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const plane = h('div', { class: 'plane' }, board, myZones, summon);
   const mid = h('div', { class: 'table-mid' }, plane, oppAvatar);
   const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, stackPanel, banner, targetBar, arrows, fx);
-  const layout = () => ({ ...LAYOUT_DEFAULTS, tilt: ui.settings.tilt, ...(ui.settings.layout || {}) });
+  let split = null; // pantalla partida (partidas online)
+  // En pantalla partida, tu mesa ocupa media pantalla: tiene su propia distribución.
+  const layoutKey = () => (split && split.isSplit() ? 'layoutSplit' : 'layout');
+  const layout = () => ({ ...LAYOUT_DEFAULTS, ...(layoutKey() === 'layoutSplit' ? SPLIT_LAYOUT : {}), tilt: ui.settings.tilt, ...(ui.settings[layoutKey()] || {}) });
   applyLayout(mid, layout());
   clear(root).append(screen);
 
@@ -233,6 +237,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
           watcher.pause(!!ui.holdVision || screen.classList.contains('calibrating'));
           watcher.start();
           applyZoom();
+          split?.setStream(video.srcObject);
         })
         .catch((e) => {
           screen.classList.add('no-cam');
@@ -243,6 +248,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     } else {
       watcher.pause(true);
       video.srcObject = null;
+      split?.setStream(null);
       summon.dataset.phase = 'error';
       summonStatus.textContent = 'Cámara apagada: usa el grimorio';
     }
@@ -255,7 +261,9 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     if (!v.width) return { x: 50, y: 50 };
     // origen en coordenadas del vídeo SIN escalar (el centro del círculo en pantalla)
     const sr = screen.getBoundingClientRect();
-    return { x: ((r.left + r.width / 2 - sr.left) / sr.width) * 100, y: ((r.top + r.height / 2 - sr.top) / sr.height) * 100 };
+    const vl = sr.left + video.offsetLeft;
+    const vt = sr.top + video.offsetTop;
+    return { x: ((r.left + r.width / 2 - vl) / video.offsetWidth) * 100, y: ((r.top + r.height / 2 - vt) / video.offsetHeight) * 100 };
   }
   async function applyZoom() {
     const z = ui.settings.camZoom || 1;
@@ -422,7 +430,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       extra: h('div', { class: 'cal-extra' }, zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
       onChange: () => applyZoom(),
       onDone: (L) => {
-        ui.settings.layout = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };
+        ui.settings[layoutKey()] = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };
         ui.settings.tilt = L.tilt;
         saveSettings(ui.settings);
         watcher.pause(!!ui.holdVision);
@@ -1069,6 +1077,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         h('span', { class: 'phase-name' }, STEP_INFO[s.step].name),
       ),
       h('div', { class: 'top-actions' },
+        split ? split.topButtons() : null,
         session.role !== 'local' ? h('button', { class: 'rune-btn', title: 'Mensajes rápidos', onClick: openEmotes }, '💬') : null,
         h('button', { class: 'rune-btn', title: 'Crónica', onClick: openLog }, icon('scroll')),
         h('button', { class: 'rune-btn', title: 'Menú', onClick: openMenu }, icon('gear')),
@@ -1833,6 +1842,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     close = sheet(h('div', {},
       h('h3', {}, 'Ajustes de la mesa'),
       voice && voice.visible ? h('button', { class: 'act voice-act', onClick: () => { close(); voice.open(); } }, voice.label || '🎙️ Sala de voz en Discord') : null,
+      split ? h('button', { class: 'act primary', onClick: () => { close(); split.openPanel(); } }, '📷 Pantalla y cámaras') : null,
       h('button', { class: 'act primary', onClick: () => { close(); calibrateTable(); } }, 'Ajustar áreas de la mesa (con la cámara)'),
       h('button', { class: 'act primary', onClick: () => { close(); autoPerspective(); } }, '✨ Adaptar el tablero a la mesa (automático)'),
       slider('Inclinación', 'tilt', 0, 45, 1),
@@ -1856,12 +1866,43 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   }
 
   function exit() {
+    split?.destroy();
     window.removeEventListener('devicemotion', onMotion);
     unsub();
     watcher.stop();
     stopCamera();
     session.close();
     onExit && onExit();
+  }
+
+  /** Dónde está mi zona de cartas en mi vídeo (esquinas 0..1), para dibujarla en la pantalla de los demás. */
+  function myQuad() {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh || screen.classList.contains('no-cam')) return null;
+    let x = 0;
+    let y = 0;
+    let el = meRow;
+    while (el && el !== plane) { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
+    if (el !== plane) return null;
+    const w = meRow.offsetWidth;
+    const hh = meRow.offsetHeight;
+    const H = planeH();
+    const fit = fitBox(video.offsetWidth, video.offsetHeight, vw, vh, video.dataset.fit === 'cover' ? 'cover' : 'contain');
+    const ox = mid.offsetLeft - video.offsetLeft;
+    const oy = mid.offsetTop - video.offsetTop;
+    return [[x, y], [x + w, y], [x + w, y + hh], [x, y + hh]].map(([px, py]) => {
+      const [sx, sy] = H ? applyH(H, px, py) : [px, py];
+      return [(ox + sx - fit.x) / fit.w, (oy + sy - fit.y) / fit.h];
+    });
+  }
+  if (media) {
+    split = mountSplit({
+      screen, mid, video, oppRow, oppAvatar, mat, divider, media, session, ui, myQuad,
+      rerender: () => render(S()),
+      onLayout: () => { applyLayout(mid, layout()); applyPerspective(); },
+    });
+    ui.hooks.add(() => split && split.refresh());
   }
 
   const unsub = session.subscribe(render);

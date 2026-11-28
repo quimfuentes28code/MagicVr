@@ -12,7 +12,7 @@ import { locateCard } from './recognize.js';
 export const FIT_TILES = (() => {
   const t = [];
   for (const dy of [-0.45, 0, 0.45]) for (const dx of [-0.45, 0, 0.45]) t.push({ scale: 1.3, dx, dy });
-  for (const [dx, dy] of [[0, 0], [-0.35, 0], [0.35, 0], [0, -0.35], [0, 0.35]]) t.push({ scale: 2.4, dx, dy });
+  for (const dy of [-0.4, 0, 0.4]) for (const dx of [-0.4, 0, 0.4]) t.push({ scale: 2.2, dx, dy });
   t.push({ scale: 4, dx: 0, dy: 0 });
   return t;
 })();
@@ -23,7 +23,7 @@ export const FIT_TILES = (() => {
  * results: [{ res: {cx, cy, h, ang, score}, H }]
  */
 export function pickFit(results, minScore = -Infinity) {
-  const valid = results.filter((r) => r && r.res && r.res.score >= minScore && r.res.h / r.H > 0.3 && r.res.h / r.H < 0.92);
+  const valid = results.filter((r) => r && r.res && r.res.score >= minScore && r.res.h / r.H > 0.24 && r.res.h / r.H < 0.92);
   if (!valid.length) return null;
   const max = Math.max(...valid.map((r) => r.res.score));
   const good = valid.filter((r) => r.res.score >= max - Math.abs(max) * 0.25);
@@ -44,6 +44,7 @@ export async function locateAcross(sample, { tiles = FIT_TILES, minScore = -Infi
     if (s) results.push({ ...s, tile: t, res: locateCard(s.g, s.W, s.H) });
     await tick(); // deja respirar a la pantalla
   }
+  if (globalThis.__fitDebug) globalThis.__fitDebug(results.map((r) => ({ tile: r.tile, h: +(r.res.h / r.H).toFixed(2), score: Math.round(r.res.score) })));
   const best = pickFit(results, minScore);
   if (!best) return null;
   // afinar en el mismo recorte con más resolución

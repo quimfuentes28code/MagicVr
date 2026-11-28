@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { shouldSend, shouldCall, mergeMedia, pairQuality, scaleFor, wantOf } from '../src/media.js';
-import { clampRatio, fitRect, mapQuad, quadSize, quadUsable, loadSplit, SPLIT_DEFAULTS, SPLIT_LAYOUT, computeWants, rivalStatus } from '../src/ui/split.js';
+import { clampRatio, fitRect, mapQuad, quadSize, quadUsable, loadSplit, SPLIT_DEFAULTS, SPLIT_LAYOUT, computeWants, rivalStatus, usableView, viewLayout, viewMapper, mapPts, FULL_VIEW } from '../src/ui/split.js';
 
 test('sólo mando mi cámara si la enseño y el otro no la ha ocultado', () => {
   const map = { a: { sharing: true }, b: { sharing: false, wants: {} }, c: { wants: { a: false } } };
@@ -100,4 +100,36 @@ test('texto del recuadro del rival', () => {
   assert.match(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: true }, state: 'failed' } }), /no se pudo/);
   assert.match(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: true }, state: 'connecting' } }), /conectando la cámara/);
   assert.equal(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: true }, stream: {}, state: 'ok' } }), 'Ana');
+});
+
+test('encuadre del rival: se ve sólo la parte que ve él', () => {
+  // su encuadre es la mitad derecha de su imagen (vídeo 1000×500), mi panel 400×400
+  const view = { u0: 0.5, v0: 0, u1: 1, v1: 1 };
+  const L = viewLayout(400, 400, 1000, 500, view);
+  assert.deepEqual(L.box, { x: 0, y: 0, w: 400, h: 400 }); // su encuadre es cuadrado: llena el panel
+  assert.deepEqual(L.video, { left: -400, top: -0, width: 800, height: 400 }); // vídeo el doble de ancho, desplazado
+  // la cámara entera (FULL_VIEW) se ve completa y centrada
+  const F = viewLayout(400, 400, 1000, 500);
+  assert.deepEqual(F.box, { x: 0, y: 100, w: 400, h: 200 });
+  assert.deepEqual(F.video, { left: -0, top: -0, width: 400, height: 200 });
+});
+
+test('puntos de su imagen → mi panel (normal y girado)', () => {
+  const view = { u0: 0.5, v0: 0, u1: 1, v1: 1 };
+  const box = { x: 0, y: 0, w: 400, h: 400 };
+  const m = viewMapper(box, view);
+  assert.deepEqual(m([0.75, 0.5]), [200, 200]);
+  assert.deepEqual(m([0.5, 0]), [0, 0]);
+  const mf = viewMapper(box, view, true);
+  assert.deepEqual(mf([0.5, 0]), [400, 400]);
+  const q = [[0.6, 0.1], [0.9, 0.1], [0.9, 0.5], [0.6, 0.5]];
+  assert.deepEqual(mapPts(q, mf, true).map((p) => p.map(Math.round)), [[80, 200], [320, 200], [320, 360], [80, 360]]);
+});
+
+test('encuadres válidos', () => {
+  assert.ok(usableView(FULL_VIEW));
+  assert.ok(usableView({ u0: -0.2, v0: 0, u1: 1.2, v1: 1 })); // con bandas negras
+  assert.ok(!usableView(null));
+  assert.ok(!usableView({ u0: 0.5, v0: 0, u1: 0.51, v1: 1 }));
+  assert.ok(!usableView({ u0: 0, v0: 0, u1: NaN, v1: 1 }));
 });

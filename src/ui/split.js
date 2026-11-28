@@ -10,7 +10,7 @@ import { rectToQuad, cssMatrix } from '../homography.js';
 
 const KEY = 'mtgvr-split';
 export const SHARE_KEY = 'mtgvr-share-cam';
-export const SPLIT_DEFAULTS = { mode: 'split', ratio: 0.5, swap: false, flip: false, quality: 'normal', safe: 8, seeRival: true, thumbs: true, pip: null, tipShown: false };
+export const SPLIT_DEFAULTS = { rivalView: 'his', mode: 'split', ratio: 0.5, swap: false, flip: false, quality: 'normal', safe: 8, seeRival: true, thumbs: true, pip: null, tipShown: false };
 /** Distribución de tus zonas cuando tu mesa ocupa media pantalla. */
 export const SPLIT_LAYOUT = { bl: 0, br: 60, sx: 81, sy: 27, sh: 40, zx: 81, zy: 80, zh: 34 };
 export const MODES = { split: 'Pantalla partida', pip: 'Ventana pequeña', solo: 'Sólo mi mesa' };
@@ -62,6 +62,40 @@ export function mapQuad(quad, rect, flip = false) {
   const ordered = flip ? [pts[2], pts[3], pts[0], pts[1]] : pts;
   return ordered.map(([u, v]) => [rect.x + u * rect.w, rect.y + v * rect.h]);
 }
+
+/** ¿Es razonable el encuadre que manda el rival? { u0, v0, u1, v1 } en 0..1 de su imagen. */
+export function usableView(v) {
+  return !!v && [v.u0, v.v0, v.u1, v.v1].every(Number.isFinite) && v.u1 - v.u0 > 0.05 && v.v1 - v.v0 > 0.05
+    && v.u0 > -2 && v.v0 > -2 && v.u1 < 3 && v.v1 < 3;
+}
+export const FULL_VIEW = { u0: 0, v0: 0, u1: 1, v1: 1 };
+
+/**
+ * Cómo pintar su vídeo para ver exactamente su encuadre dentro de mi panel:
+ * box = rectángulo (en mi panel) con su encuadre; video = tamaño y posición del
+ * vídeo completo dentro de ese rectángulo (lo que sobra queda recortado).
+ */
+export function viewLayout(pw, ph, vw, vh, view = FULL_VIEW) {
+  const box = fitRect(pw, ph, (view.u1 - view.u0) * vw, (view.v1 - view.v0) * vh, 'contain');
+  const W = box.w / (view.u1 - view.u0);
+  const H = box.h / (view.v1 - view.v0);
+  return { box, video: { left: -view.u0 * W, top: -view.v0 * H, width: W, height: H } };
+}
+
+/** Punto (0..1 de su imagen) → píxeles de mi panel; flip: girado 180° sobre el centro del encuadre. */
+export function viewMapper(box, view = FULL_VIEW, flip = false) {
+  return ([u, v]) => {
+    let x = box.x + ((u - view.u0) / (view.u1 - view.u0)) * box.w;
+    let y = box.y + ((v - view.v0) / (view.v1 - view.v0)) * box.h;
+    if (flip) { x = 2 * box.x + box.w - x; y = 2 * box.y + box.h - y; }
+    return [x, y];
+  };
+}
+/** Esquinas con el mapeo; girado, se reordenan para que lo de dentro siga derecho. */
+export const mapPts = (quad, map, flip = false) => {
+  const pts = quad.map(map);
+  return flip ? [pts[2], pts[3], pts[0], pts[1]] : pts;
+};
 
 /** Tamaño (ancho, alto) de un cuadrilátero: media de sus lados opuestos. */
 export function quadSize(p) {
@@ -129,6 +163,9 @@ export function mountSplit(o) {
   try { shareChoice = localStorage.getItem(SHARE_KEY); } catch { /* */ }
 
   const rvideo = liveVideo('rcam');
+  const clip = h('div', { class: 'rview-clip' }, rvideo); // su encuadre (recorta lo que él no ve)
+  const rvZones = h('div', { class: 'rv-zones' }, h('span', {}, 'Mazo · cementerio · exilio'));
+  const rvSummon = h('div', { class: 'rv-summon' }, h('div', { class: 'rv-ring', html: o.ring || '' }), h('div', { class: 'rv-frame' }));
   const overlay = h('div', { class: 'rival-overlay' });
   const label = h('div', { class: 'rival-label' });
   const thumbs = h('div', { class: 'rival-thumbs' });
@@ -137,7 +174,7 @@ export function mountSplit(o) {
   const btnSwap = h('button', { class: 'pane-btn', title: 'Intercambiar lados', onClick: (e) => { e.stopPropagation(); st.swap = !st.swap; changed(); } }, '⇄');
   const btnCfg = h('button', { class: 'pane-btn', title: 'Pantalla y cámaras', onClick: (e) => { e.stopPropagation(); openPanel(); } }, '⚙');
   const tools = h('div', { class: 'pane-tools' }, btnEye, btnSwap, btnCfg);
-  const pane = h('div', { class: 'rival-pane' }, rvideo, overlay, thumbs, label, tools);
+  const pane = h('div', { class: 'rival-pane' }, clip, rvZones, overlay, rvSummon, thumbs, label, tools);
   const slot = h('div', { class: 'rival-slot' });
   const shade = screen.querySelector('.cam-shade');
   screen.append(slot, pane, handle);
@@ -240,6 +277,15 @@ export function mountSplit(o) {
   }
 
   // Vídeo, texto y zonas del rival
+  const placeQuad = (el, pts) => {
+    const { w, h: hh } = quadSize(pts);
+    el.style.left = '0px'; el.style.top = '0px';
+    el.style.width = w + 'px'; el.style.height = hh + 'px';
+    el.style.transform = cssMatrix(rectToQuad(w, hh, pts));
+  };
+  const clearQuad = (el) => { el.style.left = el.style.top = el.style.width = el.style.height = el.style.transform = ''; };
+
+  // Vídeo, texto y zonas del rival (como lo ve él, o su cámara entera)
   function layoutOverlay() {
     const rid = ui.viewOpp;
     const p = rivalPlayer();
@@ -247,25 +293,51 @@ export function mountSplit(o) {
     const show = !!(rp && st.seeRival && st.mode !== 'solo' && rp.sharing && rp.stream);
     setStream(rvideo, show ? rp.stream : null);
     pane.classList.toggle('has-video', show);
-    rvideo.classList.toggle('flip', !!st.flip);
     label.textContent = preview ? 'Vista previa · aquí se verá la cámara de tu rival' : rivalStatus({ player: p, seeRival: st.seeRival, remote: rp, mode: st.mode });
     pane.classList.toggle('preview', preview);
-    // zonas encima de su mesa
-    const q = rp && rp.info && rp.info.quad;
-    if (isSplit() && show && quadUsable(q) && rvideo.videoWidth) {
-      const rect = fitRect(pane.clientWidth, pane.clientHeight, rvideo.videoWidth, rvideo.videoHeight, 'contain');
-      const pts = mapQuad(q, rect, st.flip);
-      const { w, h: hh } = quadSize(pts);
+    const inf = (rp && rp.info) || {};
+    const vw = rvideo.videoWidth;
+    const vh = rvideo.videoHeight;
+    let map = null;
+    if (show && vw && vh) {
+      const his = st.rivalView !== 'full' && usableView(inf.view);
+      const view = his ? inf.view : FULL_VIEW;
+      const L = viewLayout(pane.clientWidth, pane.clientHeight, vw, vh, view);
+      Object.assign(clip.style, { left: L.box.x + 'px', top: L.box.y + 'px', width: L.box.w + 'px', height: L.box.h + 'px' });
+      Object.assign(rvideo.style, { left: L.video.left + 'px', top: L.video.top + 'px', width: L.video.width + 'px', height: L.video.height + 'px' });
+      clip.classList.toggle('flip', !!st.flip);
+      pane.classList.toggle('his-view', his);
+      map = viewMapper(L.box, view, st.flip);
+    } else {
+      clip.style.left = clip.style.top = clip.style.width = clip.style.height = '';
+      rvideo.style.left = rvideo.style.top = rvideo.style.width = rvideo.style.height = '';
+      pane.classList.remove('his-view');
+    }
+    // su zona de cartas
+    const onVid = isSplit() && map && quadUsable(inf.quad);
+    if (onVid) {
       overlay.classList.add('on-video');
       overlay.style.inset = 'auto';
-      overlay.style.left = '0px'; overlay.style.top = '0px';
-      overlay.style.width = w + 'px'; overlay.style.height = hh + 'px';
-      overlay.style.transform = cssMatrix(rectToQuad(w, hh, pts));
+      const rows = mapPts(inf.quad, map, st.flip);
+      placeQuad(overlay, rows);
+      // sus cartas, del tamaño de sus cartas reales (su círculo de invocación)
+      if (quadUsable(inf.sq)) {
+        const k = quadSize(mapPts(inf.sq, map, st.flip)).h / quadSize(rows).h;
+        overlay.style.setProperty('--card-cap', Math.max(14, k * parseFloat(overlay.style.height) * (63 / 88) * 0.93).toFixed(1) + 'px');
+      } else overlay.style.removeProperty('--card-cap');
     } else {
       overlay.classList.remove('on-video');
-      overlay.style.left = overlay.style.top = overlay.style.width = overlay.style.height = overlay.style.transform = '';
+      overlay.style.removeProperty('--card-cap');
+      clearQuad(overlay);
       overlay.style.inset = isSplit() ? `${(st.safe || 0) + 40}px ${st.safe || 0}px ${(st.safe || 0) + 22}px` : '';
     }
+    // su círculo de invocación y sus casillas, donde los tiene él
+    const showSq = !!(map && st.mode !== 'solo' && quadUsable(inf.sq));
+    rvSummon.hidden = !showSq;
+    if (showSq) placeQuad(rvSummon, mapPts(inf.sq, map, st.flip));
+    const showZq = !!(isSplit() && map && quadUsable(inf.zq));
+    rvZones.hidden = !showZq;
+    if (showZq) placeQuad(rvZones, mapPts(inf.zq, map, st.flip));
   }
   rvideo.addEventListener('loadedmetadata', () => layoutOverlay());
   rvideo.addEventListener('resize', () => layoutOverlay());
@@ -340,11 +412,14 @@ export function mountSplit(o) {
   // ------------------------------------------------------------ mi mesa → los demás
   let lastQuad = '';
   function reportQuad() {
-    const q = o.myQuad();
-    const key = q ? JSON.stringify(q.map((p) => p.map((v) => Math.round(v * 1000) / 1000))) : '';
+    const v = o.myView ? o.myView() : null;
+    const key = JSON.stringify(v);
     if (key === lastQuad) return;
     lastQuad = key;
-    media.set({ quad: key ? JSON.parse(key) : null, aspect: video.videoWidth ? Math.round((video.videoWidth / video.videoHeight) * 1000) / 1000 : null });
+    media.set({
+      quad: v ? v.quad : null, sq: v ? v.sq : null, zq: v ? v.zq : null, view: v ? v.view : null,
+      aspect: video.videoWidth ? Math.round((video.videoWidth / video.videoHeight) * 1000) / 1000 : null,
+    });
   }
   const quadTimer = preview ? null : setInterval(reportQuad, 2000);
 
@@ -446,6 +521,8 @@ export function mountSplit(o) {
           session.state.players.length > 2 ? toggle('Miniaturas de los otros rivales', st.thumbs, (v) => { st.thumbs = v; changed(); }) : null,
         ] : null,
         st.mode === 'pip' ? h('p', { class: 'muted small' }, 'Arrastra la ventana pequeña a donde no te moleste.') : null,
+        h('div', { class: 'field-label' }, 'Cámara del rival'),
+        seg({ his: 'Como la ve él', full: 'Su cámara entera' }, st.rivalView === 'full' ? 'full' : 'his', (v) => { st.rivalView = v; changed(); }),
         toggle('Girar el vídeo del rival (si se ve al revés)', st.flip, (v) => { st.flip = v; changed(); }),
         h('div', { class: 'field-label' }, 'Calidad del vídeo'),
         seg({ normal: 'Normal', low: 'Baja (ahorra datos)' }, st.quality, (v) => { st.quality = v; changed(); }),

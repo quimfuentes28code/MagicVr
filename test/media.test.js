@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shouldSend, shouldCall, mergeMedia, pairQuality, scaleFor } from '../src/media.js';
-import { clampRatio, fitRect, mapQuad, quadSize, quadUsable, loadSplit, SPLIT_DEFAULTS, SPLIT_LAYOUT } from '../src/ui/split.js';
+import { shouldSend, shouldCall, mergeMedia, pairQuality, scaleFor, wantOf } from '../src/media.js';
+import { clampRatio, fitRect, mapQuad, quadSize, quadUsable, loadSplit, SPLIT_DEFAULTS, SPLIT_LAYOUT, computeWants, rivalStatus } from '../src/ui/split.js';
 
 test('sólo mando mi cámara si la enseño y el otro no la ha ocultado', () => {
   const map = { a: { sharing: true }, b: { sharing: false, wants: {} }, c: { wants: { a: false } } };
@@ -29,6 +29,8 @@ test('el mapa junta lo nuevo con lo que había', () => {
 test('calidad y reducción de la imagen', () => {
   assert.equal(pairQuality('normal', 'normal'), 'normal');
   assert.equal(pairQuality('normal', 'low'), 'low');
+  assert.equal(pairQuality('normal', 'normal', 'thumb'), 'thumb');
+  assert.equal(scaleFor(1200, 'thumb'), 5);
   assert.equal(scaleFor(1280, 'normal'), 2);
   assert.equal(scaleFor(320, 'normal'), 1);
   assert.equal(scaleFor(1600, 'low'), 4);
@@ -68,4 +70,34 @@ test('preferencias por defecto y distribución para media pantalla', () => {
   assert.deepEqual(loadSplit(), SPLIT_DEFAULTS); // sin localStorage
   assert.equal(SPLIT_DEFAULTS.mode, 'split');
   for (const k of ['bl', 'br', 'sx', 'sy', 'sh', 'zx', 'zy', 'zh']) assert.ok(SPLIT_LAYOUT[k] >= 0 && SPLIT_LAYOUT[k] <= 100);
+});
+
+test('miniaturas: también se manda vídeo a quien sólo te ve en pequeño', () => {
+  const map = { a: { sharing: true }, b: { wants: { a: 'thumb' } } };
+  assert.ok(shouldSend(map, 'a', 'b'));
+  assert.equal(wantOf(map.b, 'a'), 'thumb');
+  assert.equal(wantOf({}, 'a'), true);
+});
+
+test('a quién pido vídeo', () => {
+  const base = { others: ['b', 'c', 'd'], viewOpp: 'b', seeRival: true };
+  assert.deepEqual(computeWants({ ...base, mode: 'split' }), { b: true, c: 'thumb', d: 'thumb' });
+  assert.deepEqual(computeWants({ ...base, mode: 'split', thumbs: false }), { b: true, c: false, d: false });
+  assert.deepEqual(computeWants({ ...base, mode: 'pip' }), { b: true, c: false, d: false });
+  assert.deepEqual(computeWants({ ...base, mode: 'solo' }), { b: false, c: false, d: false });
+  assert.deepEqual(computeWants({ ...base, mode: 'solo', overview: true }), { b: true, c: true, d: true });
+  assert.deepEqual(computeWants({ ...base, mode: 'split', seeRival: false, overview: true }), { b: false, c: false, d: false });
+});
+
+test('texto del recuadro del rival', () => {
+  const player = { name: 'Ana' };
+  assert.equal(rivalStatus({ player: null }), '');
+  assert.match(rivalStatus({ player: { name: 'G', isBot: true }, seeRival: true }), /golem/);
+  assert.match(rivalStatus({ player, seeRival: false }), /ocultas/);
+  assert.match(rivalStatus({ player, seeRival: true, remote: { online: false } }), /conectando/);
+  assert.match(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: false, share: true } } }), /apagada/);
+  assert.match(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: false } } }), /no enseña/);
+  assert.match(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: true }, state: 'failed' } }), /no se pudo/);
+  assert.match(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: true }, state: 'connecting' } }), /conectando la cámara/);
+  assert.equal(rivalStatus({ player, seeRival: true, remote: { online: true, info: { sharing: true }, stream: {}, state: 'ok' } }), 'Ana');
 });

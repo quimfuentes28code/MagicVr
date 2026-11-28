@@ -116,13 +116,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const myZones = h('div', { class: 'zones-free' });
   const oppAvatar = h('div', { class: 'avatar opp' });
   // «Plano» de la mesa: tablero, casillas y círculo. Si la cámara mira la mesa en
-  // ángulo, el plano se dibuja en perspectiva pegado a la mesa (ui.settings.persp).
+  // ángulo, el plano se dibuja en perspectiva pegado a la mesa (ui.settings.persp; en pantalla partida, ui.settings.perspSplit).
   const plane = h('div', { class: 'plane' }, board, myZones, summon);
   const mid = h('div', { class: 'table-mid' }, plane, oppAvatar);
   const screen = h('div', { class: 'table-screen' }, video, h('div', { class: 'cam-shade' }), topbar, mid, hud, stackPanel, banner, targetBar, arrows, fx);
   let split = null; // pantalla partida (partidas online)
   // En pantalla partida, tu mesa ocupa media pantalla: tiene su propia distribución.
   const layoutKey = () => (split && split.isSplit() ? 'layoutSplit' : 'layout');
+  const perspKey = () => (split && split.isSplit() ? 'perspSplit' : 'persp');
   const layout = () => ({ ...LAYOUT_DEFAULTS, ...(layoutKey() === 'layoutSplit' ? SPLIT_LAYOUT : {}), tilt: ui.settings.tilt, ...(ui.settings[layoutKey()] || {}) });
   applyLayout(mid, layout());
   clear(root).append(screen);
@@ -130,7 +131,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   // ------------------------------------------------- perspectiva de la mesa
   // persp: 4 esquinas (fracciones de la zona central) donde se ve la mesa: arriba-izq, arriba-der, abajo-der, abajo-izq.
   const planeH = () => {
-    const p = ui.settings.persp;
+    const p = ui.settings[perspKey()];
     const W = mid.clientWidth;
     const Hh = mid.clientHeight;
     if (!p || !W) return null;
@@ -189,6 +190,8 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
         tokenImage,
         seen: (c) => playRecognized(normalizeCard(c)),
         act: (a) => { session.state = applyAction(session.state, a); session.emit(); return session.state; },
+        get media() { return media; },
+        get split() { return split; },
       };
     }
   } catch { /* */ }
@@ -201,7 +204,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   };
   const watcher = new CardWatcher(video, {
     getRegion: regionOfSummon,
-    getQuad: (...a) => { watcher.perspSet = !!ui.settings.persp; return summonQuad(...a); },
+    getQuad: (...a) => { watcher.perspSet = !!ui.settings[perspKey()]; return summonQuad(...a); },
     onState: ({ phase, text }) => {
       summon.dataset.phase = phase;
       summonStatus.textContent = text;
@@ -339,7 +342,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     }
     const tilted = results.filter((r) => !r.topDown);
     if (tilted.length < Math.ceil(results.length / 2)) {
-      ui.settings.persp = null;
+      ui.settings[perspKey()] = null;
       applyPerspective();
       saveSettings(ui.settings);
       toast('La cámara mira la mesa desde arriba (o no se ven bordes claros): el tablero va recto, sin perspectiva.', 'info', 4500);
@@ -358,7 +361,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       const py = vr.top + sp.y * vr.height;
       P.push(Math.max(-0.4, Math.min(1.4, (px - mr.left) / mr.width)), Math.max(-0.4, Math.min(1.4, (py - mr.top) / mr.height)));
     }
-    ui.settings.persp = P;
+    ui.settings[perspKey()] = P;
     applyPerspective();
     saveSettings(ui.settings);
     const how = tilted[0].method === 'sensor' ? 'con la inclinación del móvil' : 'por las líneas de la mesa';
@@ -371,7 +374,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     document.querySelector('.persp-bar')?.remove();
     const W = () => mid.clientWidth;
     const Hh = () => mid.clientHeight;
-    const P = ui.settings.persp ? [...ui.settings.persp] : [0.06, 0.06, 0.94, 0.06, 0.94, 0.94, 0.06, 0.94];
+    const P = ui.settings[perspKey()] ? [...ui.settings[perspKey()]] : [0.06, 0.06, 0.94, 0.06, 0.94, 0.94, 0.06, 0.94];
     const layer = h('div', { class: 'persp-editor' });
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('class', 'persp-lines');
@@ -400,7 +403,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const paint = () => {
       handles.forEach((hd, i) => { hd.style.left = P[i * 2] * 100 + '%'; hd.style.top = P[i * 2 + 1] * 100 + '%'; });
       poly.setAttribute('points', [0, 1, 2, 3].map((i) => `${P[i * 2] * W()},${P[i * 2 + 1] * Hh()}`).join(' '));
-      ui.settings.persp = P;
+      ui.settings[perspKey()] = P;
       applyPerspective();
     };
     const close = () => { layer.remove(); bar.remove(); saveSettings(ui.settings); };
@@ -409,7 +412,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       h('span', {}, 'Arrastra las 4 esquinas (1-2-3-4) a las esquinas de tu zona de juego tal y como la ve la cámara. El tablero y el círculo se adaptan solos, y el reconocimiento endereza las cartas.'),
       h('div', { class: 'row-btns' },
         h('button', { class: 'act primary', onClick: () => { layer.remove(); bar.remove(); autoPerspective(); } }, '✨ Automática'),
-        h('button', { class: 'act', onClick: () => { ui.settings.persp = null; applyPerspective(); layer.remove(); bar.remove(); saveSettings(ui.settings); } }, 'Sin perspectiva (cámara cenital)'),
+        h('button', { class: 'act', onClick: () => { ui.settings[perspKey()] = null; applyPerspective(); layer.remove(); bar.remove(); saveSettings(ui.settings); } }, 'Sin perspectiva (cámara cenital)'),
         h('button', { class: 'act', onClick: close }, 'Hecho')));
     mid.append(layer);
     screen.append(bar);

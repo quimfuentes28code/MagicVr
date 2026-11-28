@@ -20,6 +20,17 @@ export function applyLayout(mid, L) {
   mid.style.setProperty('--zx', L.zx + '%');
   mid.style.setProperty('--zy', L.zy + '%');
   mid.style.setProperty('--zh', L.zh + '%');
+  updateCardCap(mid);
+}
+
+/**
+ * Las cartas del tablero no pasan del tamaño de tu carta real: el del círculo de
+ * invocación (que se ajusta a tu carta). Así no tapan la mesa.
+ */
+export function updateCardCap(mid) {
+  const sh = parseFloat(mid.style.getPropertyValue('--sh')) / 100;
+  if (!sh || !mid.clientHeight) return;
+  mid.style.setProperty('--card-cap', Math.max(18, sh * mid.clientHeight * (63 / 88) * 0.93).toFixed(1) + 'px');
 }
 
 /**

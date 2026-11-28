@@ -58,7 +58,7 @@ export function createMedia({ me, role, send }) {
   let localStream = null;
   let placeholder = null;
   let closed = false;
-  const local = { share: false, wants: {}, quality: 'normal', quad: null, aspect: null };
+  const local = { share: false, wants: {}, quality: 'normal', quad: null, sq: null, zq: null, view: null, aspect: null };
   const calls = new Map(); // pid -> { call, stream, state, applied }
   const listeners = new Set();
   const emit = () => { for (const fn of listeners) fn(); };
@@ -83,7 +83,7 @@ export function createMedia({ me, role, send }) {
   const info = () => ({
     sharing: local.share && !!localTrack(), // la enseña de verdad
     share: !!local.share, // quiere enseñarla (aunque su cámara esté apagada)
-    wants: local.wants, quality: local.quality, quad: local.quad, aspect: local.aspect,
+    wants: local.wants, quality: local.quality, quad: local.quad, sq: local.sq, zq: local.zq, view: local.view, aspect: local.aspect,
     peerId: peer ? peer.id : null,
   });
   const effective = () => mergeMedia(map, me, info());

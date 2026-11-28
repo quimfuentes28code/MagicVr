@@ -5,7 +5,7 @@ import { h, clear, append, sheet, toast, burst, floatText } from './dom.js';
 import { cardFace, cardInfo } from './cardview.js';
 import { icon } from './icons.js';
 import { openPicker } from './picker.js';
-import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
+import { openCalibrator, applyLayout, updateCardCap, LAYOUT_DEFAULTS } from './calibrate.js';
 import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, grabGray, setCameraZoom, videoToScreen } from '../camera.js';
 import { detectSurface } from '../surface.js';
 import { CardWatcher } from '../vision.js';
@@ -128,6 +128,10 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   const layout = () => ({ ...LAYOUT_DEFAULTS, ...(layoutKey() === 'layoutSplit' ? SPLIT_LAYOUT : {}), tilt: ui.settings.tilt, ...(ui.settings[layoutKey()] || {}) });
   applyLayout(mid, layout());
   clear(root).append(screen);
+  // el tope de tamaño de las cartas sigue al tamaño de la mesa en pantalla
+  const capObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => updateCardCap(mid)) : null;
+  capObserver?.observe(mid);
+  requestAnimationFrame(() => updateCardCap(mid));
 
   // ------------------------------------------------- perspectiva de la mesa
   // persp: 4 esquinas (fracciones de la zona central) donde se ve la mesa: arriba-izq, arriba-der, abajo-der, abajo-izq.
@@ -430,7 +434,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       else if (split.isSplit()) split.setOpts({ mode: 'solo' });
     } else if (on && !split) {
       split = mountSplit({
-        screen, mid, video, oppRow, oppAvatar, mat, divider, media: PREVIEW_MEDIA, session, ui, myQuad, preview: true,
+        screen, mid, video, oppRow, oppAvatar, mat, divider, media: PREVIEW_MEDIA, session, ui, myView, ring: RUNE_RING, preview: true,
         rerender: () => render(S()),
         onLayout: () => { applyLayout(mid, layout()); applyPerspective(); },
       });
@@ -482,10 +486,25 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     svg.append(poly);
     screen.append(svg);
     setTimeout(() => svg.remove(), 2600);
+    // Con zoom digital la imagen se amplía hacia el centro del círculo: al mover el
+    // círculo, la imagen se recoloca. El sitio bueno es donde estaría la carta sin zoom
+    // (entonces, con el zoom centrado ahí, la carta queda justo debajo del círculo).
+    let px = cx;
+    let py = cy;
+    const zm = /scale\(([\d.]+)\)/.exec(video.style.transform || '');
+    const z = zm ? +zm[1] : 1;
+    if (z > 1) {
+      const [ox, oy] = (video.style.transformOrigin || '50% 50%').split(' ').map(parseFloat);
+      const Ox = sr.left + video.offsetLeft + (ox / 100) * video.offsetWidth;
+      const Oy = sr.top + video.offsetTop + (oy / 100) * video.offsetHeight;
+      px = Ox + (cx - Ox) / z;
+      py = Oy + (cy - Oy) / z;
+    }
+    const rotAt = (x, y) => [px + x * Math.cos(ang) - y * Math.sin(ang), py + x * Math.sin(ang) + y * Math.cos(ang)];
     // a coordenadas de la mesa (teniendo en cuenta la perspectiva)
-    const ctr = toLocal(cx, cy);
-    const top = toLocal(...rot(0, -hh / 2));
-    const bot = toLocal(...rot(0, hh / 2));
+    const ctr = toLocal(px, py);
+    const top = toLocal(...rotAt(0, -hh / 2));
+    const bot = toLocal(...rotAt(0, hh / 2));
     const plH = Math.hypot(top.x - bot.x, top.y - bot.y);
     return {
       sx: (ctr.x / mid.clientWidth) * 100,
@@ -540,14 +559,14 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
       }
       finish && finish.set(f);
       applyZoom();
-      toast(f.sh < 14 ? 'Círculo adaptado a tu carta. Se ve muy pequeña: si cuesta reconocerla, sube el «Zoom cámara».' : 'Círculo adaptado a tu carta.', 'info', 4500);
+      toast((f.sh < 14 ? 'Círculo adaptado a tu carta. Se ve muy pequeña: si cuesta reconocerla, sube el «Zoom cámara». ' : 'Círculo adaptado a tu carta. ') + 'Quita la carta de referencia antes de pulsar «Listo» (si no, se leerá como jugada).', 'info', 6500);
     } }, '🃏 Adaptar el círculo a mi carta');
     finish = openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
       firstTime,
       toLocal,
       defaults: multi ? { ...LAYOUT_DEFAULTS, ...SPLIT_LAYOUT } : LAYOUT_DEFAULTS,
       intro: multi ? 'Multijugador con cámara compartida: tu mesa ocupa tu mitad de la pantalla y la otra mitad es para la cámara de tu rival. Coloca tus zonas dentro de tu mitad. ' : '',
-      extra: h('div', { class: 'cal-extra' }, modeSeg, multiCtl, h('div', { class: 'card-fit' }, fitBtn, h('span', { class: 'muted small' }, 'Pon una carta en la mesa, dentro o cerca del círculo, y pulsa: el círculo toma su tamaño y su sitio.')), zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
+      extra: h('div', { class: 'cal-extra' }, modeSeg, multiCtl, h('div', { class: 'card-fit' }, fitBtn, h('span', { class: 'muted small' }, 'Pon una carta en la mesa, dentro o cerca del círculo, y pulsa: el círculo toma su tamaño y su sitio. Luego quita la carta.')), zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
       onChange: () => applyZoom(),
       onDone: (L) => {
         ui.settings[layoutKey()] = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };
@@ -1988,6 +2007,7 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
   }
 
   function exit() {
+    capObserver?.disconnect();
     split?.destroy();
     window.removeEventListener('devicemotion', onMotion);
     unsub();
@@ -1997,30 +2017,56 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     onExit && onExit();
   }
 
-  /** Dónde está mi zona de cartas en mi vídeo (esquinas 0..1), para dibujarla en la pantalla de los demás. */
-  function myQuad() {
+  /**
+   * Lo que veo yo, para enseñárselo igual a los demás (todo en coordenadas 0..1
+   * de la imagen de mi cámara): mi encuadre (la parte del vídeo que se ve en mi
+   * pantalla, con zoom y recorte), mi zona de cartas, mi círculo y mis casillas.
+   */
+  function myView() {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     if (!vw || !vh || screen.classList.contains('no-cam')) return null;
+    const S0 = screen.getBoundingClientRect();
+    const R = video.getBoundingClientRect(); // con el zoom digital incluido
+    const fr = fitBox(R.width, R.height, vw, vh, video.dataset.fit === 'cover' ? 'cover' : 'contain');
+    const C = { x: R.left - S0.left + fr.x, y: R.top - S0.top + fr.y, w: fr.w, h: fr.h };
+    if (!C.w || !C.h) return null;
+    const r3 = (v) => Math.round(v * 1000) / 1000;
+    const toUV = (sx, sy) => [r3((sx - C.x) / C.w), r3((sy - C.y) / C.h)];
+    const H = planeH();
+    const planePt = (px, py) => {
+      const [x, y] = H ? applyH(H, px, py) : [px, py];
+      return [mid.offsetLeft + x, mid.offsetTop + y];
+    };
+    const rectQ = (x, y, w, hh) => [[x, y], [x + w, y], [x + w, y + hh], [x, y + hh]].map(([a, b]) => toUV(...planePt(a, b)));
+    const pv = (k) => parseFloat(mid.style.getPropertyValue(k)) / 100;
+    const W = mid.clientWidth;
+    const Hm = mid.clientHeight;
+    // zona de cartas (mis filas)
+    let quad = null;
     let x = 0;
     let y = 0;
     let el = meRow;
     while (el && el !== plane) { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
-    if (el !== plane) return null;
-    const w = meRow.offsetWidth;
-    const hh = meRow.offsetHeight;
-    const H = planeH();
-    const fit = fitBox(video.offsetWidth, video.offsetHeight, vw, vh, video.dataset.fit === 'cover' ? 'cover' : 'contain');
-    const ox = mid.offsetLeft - video.offsetLeft;
-    const oy = mid.offsetTop - video.offsetTop;
-    return [[x, y], [x + w, y], [x + w, y + hh], [x, y + hh]].map(([px, py]) => {
-      const [sx, sy] = H ? applyH(H, px, py) : [px, py];
-      return [(ox + sx - fit.x) / fit.w, (oy + sy - fit.y) / fit.h];
-    });
+    if (el === plane) quad = rectQ(x, y, meRow.offsetWidth, meRow.offsetHeight);
+    // círculo de invocación
+    const sh = pv('--sh') * Hm;
+    const sw = sh * 63 / 88;
+    const sq = rectQ(pv('--sx') * W - sw / 2, pv('--sy') * Hm - sh / 2, sw, sh);
+    // casillas de mazo / cementerio / exilio
+    const zh = myZones.offsetHeight || pv('--zh') * Hm;
+    const zw = myZones.offsetWidth;
+    const zq = zw ? rectQ(pv('--zx') * W - zw / 2, pv('--zy') * Hm - zh / 2, zw, zh) : null;
+    // mi encuadre: la parte de la imagen que se ve en mi zona de la pantalla
+    const bx = video.offsetLeft;
+    const by = video.offsetTop;
+    const [u0, v0] = toUV(bx, by);
+    const [u1, v1] = toUV(bx + video.offsetWidth, by + video.offsetHeight);
+    return { quad, sq, zq, view: { u0, v0, u1, v1 } };
   }
   if (media) {
     split = mountSplit({
-      screen, mid, video, oppRow, oppAvatar, mat, divider, media, session, ui, myQuad,
+      screen, mid, video, oppRow, oppAvatar, mat, divider, media, session, ui, myView, ring: RUNE_RING,
       rerender: () => render(S()),
       onLayout: () => { applyLayout(mid, layout()); applyPerspective(); },
     });

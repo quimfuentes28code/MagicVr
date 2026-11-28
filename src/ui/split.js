@@ -107,12 +107,24 @@ const setStream = (v, s) => {
   if (s && v.paused) v.play().catch(() => {});
 };
 
+/** «Red» vacía para la vista previa (Ajustar mesa sin rival conectado). */
+export const PREVIEW_MEDIA = {
+  sharing: false,
+  set() {}, setLocalStream() {}, close() {},
+  remote() { return null; },
+  onChange() { return () => {}; },
+};
+
 /**
  * o: { screen, mid, video, oppRow, oppAvatar, mat, divider, media, session, ui, myQuad, rerender, onLayout }
  */
 export function mountSplit(o) {
   const { screen, mid, video, oppRow, oppAvatar, mat, divider, media, session, ui } = o;
   const st = loadSplit();
+  const preview = !!o.preview; // vista previa: sin rival, para dejarla ajustada antes de jugar
+  const savedMode = st.mode;
+  if (preview) st.mode = 'split';
+  const persist = () => saveSplit(preview ? { ...st, mode: savedMode } : st);
   let shareChoice = null;
   try { shareChoice = localStorage.getItem(SHARE_KEY); } catch { /* */ }
 
@@ -146,7 +158,7 @@ export function mountSplit(o) {
       quality: st.quality,
     });
   };
-  function changed() { saveSplit(st); syncMedia(); apply(); o.rerender(); }
+  function changed() { persist(); syncMedia(); apply(); o.rerender(); }
 
   // ------------------------------------------------------------ distribución
   function apply() {
@@ -181,7 +193,7 @@ export function mountSplit(o) {
     btnEye.classList.toggle('off', !st.seeRival);
     if (isSplit() && !st.tipShown) {
       st.tipShown = true;
-      saveSplit(st);
+      persist();
       setTimeout(() => toast('Pantalla partida: tus zonas van en tu mitad. Colócalas a tu gusto en ⚙ → «Ajustar áreas de la mesa».', 'info', 6000), 2500);
     }
     place();
@@ -236,7 +248,8 @@ export function mountSplit(o) {
     setStream(rvideo, show ? rp.stream : null);
     pane.classList.toggle('has-video', show);
     rvideo.classList.toggle('flip', !!st.flip);
-    label.textContent = rivalStatus({ player: p, seeRival: st.seeRival, remote: rp, mode: st.mode });
+    label.textContent = preview ? 'Vista previa · aquí se verá la cámara de tu rival' : rivalStatus({ player: p, seeRival: st.seeRival, remote: rp, mode: st.mode });
+    pane.classList.toggle('preview', preview);
     // zonas encima de su mesa
     const q = rp && rp.info && rp.info.quad;
     if (isSplit() && show && quadUsable(q) && rvideo.videoWidth) {
@@ -300,7 +313,7 @@ export function mountSplit(o) {
       st.ratio = clampRatio(rivalFirst ? f : 1 - f);
       apply();
     };
-    const up = () => { handle.removeEventListener('pointermove', move); saveSplit(st); };
+    const up = () => { handle.removeEventListener('pointermove', move); persist(); };
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', up, { once: true });
     handle.addEventListener('pointercancel', up, { once: true });
@@ -318,7 +331,7 @@ export function mountSplit(o) {
       st.pip = { x: (ev.clientX - sr.left - dx) / sr.width, y: (ev.clientY - sr.top - dy) / sr.height };
       place();
     };
-    const up = () => { pane.removeEventListener('pointermove', move); saveSplit(st); };
+    const up = () => { pane.removeEventListener('pointermove', move); persist(); };
     pane.addEventListener('pointermove', move);
     pane.addEventListener('pointerup', up, { once: true });
     pane.addEventListener('pointercancel', up, { once: true });
@@ -333,7 +346,7 @@ export function mountSplit(o) {
     lastQuad = key;
     media.set({ quad: key ? JSON.parse(key) : null, aspect: video.videoWidth ? Math.round((video.videoWidth / video.videoHeight) * 1000) / 1000 : null });
   }
-  const quadTimer = setInterval(reportQuad, 2000);
+  const quadTimer = preview ? null : setInterval(reportQuad, 2000);
 
   // ------------------------------------------------------------ preguntar si enseña la cámara
   function setShare(v) {
@@ -426,9 +439,9 @@ export function mountSplit(o) {
         seg(MODES, st.mode, (v) => { st.mode = v; changed(); }),
         st.mode === 'split' ? [
           h('label', { class: 'slider' }, h('span', {}, 'Tamaño del rival'),
-            h('input', { type: 'range', min: 0.25, max: 0.75, step: 0.05, value: clampRatio(st.ratio), onInput: (e) => { st.ratio = +e.target.value; saveSplit(st); apply(); } })),
+            h('input', { type: 'range', min: 0.25, max: 0.75, step: 0.05, value: clampRatio(st.ratio), onInput: (e) => { st.ratio = +e.target.value; persist(); apply(); } })),
           h('label', { class: 'slider' }, h('span', {}, 'Margen de seguridad'),
-            h('input', { type: 'range', min: 0, max: 40, step: 2, value: st.safe, onInput: (e) => { st.safe = +e.target.value; saveSplit(st); apply(); } })),
+            h('input', { type: 'range', min: 0, max: 40, step: 2, value: st.safe, onInput: (e) => { st.safe = +e.target.value; persist(); apply(); } })),
           toggle('Intercambiar lados (rival a la izquierda)', st.swap, (v) => { st.swap = v; changed(); }),
           session.state.players.length > 2 ? toggle('Miniaturas de los otros rivales', st.thumbs, (v) => { st.thumbs = v; changed(); }) : null,
         ] : null,
@@ -454,7 +467,17 @@ export function mountSplit(o) {
   if (video.srcObject) media.setLocalStream(video.srcObject);
   syncMedia();
   apply();
-  setTimeout(askShare, 1200);
+  if (!preview) setTimeout(askShare, 1200);
+  if (preview) tools.hidden = true;
+
+  /** Quita la pantalla partida y deja la mesa como estaba (vista previa). */
+  function teardown() {
+    st.mode = 'solo';
+    apply();
+    for (const el of [pane, slot, handle]) el.remove();
+    screen.classList.remove('split', 'split-pip', 'split-swap');
+    setBox(video, null); setBox(shade, null);
+  }
 
   return {
     openPanel,
@@ -462,6 +485,7 @@ export function mountSplit(o) {
     isSplit,
     /** Botones para la barra de arriba. */
     topButtons() {
+      if (preview) return [];
       const n = session.state.players.length;
       return [
         media.sharing ? h('button', { class: 'rune-btn rec-btn', title: 'Estás enseñando tu cámara (toca para cambiarlo)', onClick: openPanel }, h('span', { class: 'rec-dot' })) : null,
@@ -477,7 +501,12 @@ export function mountSplit(o) {
     },
     setStream(s) { media.setLocalStream(s); syncMedia(); lastQuad = ''; reportQuad(); o.rerender(); },
     relayout: () => apply(),
+    preview,
+    get opts() { return { mode: st.mode, ratio: st.ratio, safe: st.safe, swap: st.swap }; },
+    /** Cambia el diseño o los tamaños desde fuera (p. ej. desde «Ajustar mesa»). */
+    setOpts(patch) { Object.assign(st, patch); persist(); syncMedia(); apply(); },
     destroy() {
+      if (preview) teardown();
       clearInterval(quadTimer);
       offMedia();
       window.removeEventListener('resize', onResize);

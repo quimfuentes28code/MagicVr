@@ -1237,3 +1237,13 @@ h1, h2, h3, h4 { font-family: var(--title); font-weight: 700; letter-spacing: 0.
 .ov-hint { flex: 1; text-align: center; font-family: var(--body, serif); font-size: 12px; letter-spacing: 0; color: #b9b0d6; }
 .warn-text { color: #a33 !important; }
 .table-screen.split-swap .rival-label { left: auto; right: 8px; translate: 0 0; max-width: 70%; }
+/* vista previa de la pantalla partida (Ajustar mesa) */
+.rival-pane.preview { background: repeating-linear-gradient(135deg, rgba(247, 220, 143, .06) 0 14px, transparent 14px 28px), radial-gradient(130% 120% at 50% 50%, #18203d, #06070e 80%); }
+.rival-pane.preview::before { content: '📷'; position: absolute; left: 50%; top: 42%; translate: -50% -50%; font-size: 40px; opacity: .35; }
+.cal-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.cal-mode-label { font-family: var(--title); font-size: 12px; letter-spacing: .08em; color: #5a3a12; }
+.cal-mode .seg { flex: 1; }
+.cal-multi { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; width: 100%; }
+.cal-multi .slider { flex: 1; min-width: 150px; }
+.pane-tools[hidden] { display: none; }
+.rival-pane.preview .rival-overlay, .rival-pane.preview .avatar.opp { opacity: .45; pointer-events: none; }

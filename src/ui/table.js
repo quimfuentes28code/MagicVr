@@ -16,7 +16,7 @@ import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
 import { rectToQuad, applyH, invertH, cssMatrix } from '../homography.js';
 import { hologram } from './hologram.js';
-import { mountSplit, fitRect as fitBox, SPLIT_LAYOUT } from './split.js';
+import { mountSplit, fitRect as fitBox, SPLIT_LAYOUT, PREVIEW_MEDIA } from './split.js';
 import { tokenImage } from './tokens.js';
 import { apply as applyAction } from '../engine/game.js';
 import { normalize as normalizeCard } from '../engine/cards.js';
@@ -419,23 +419,77 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     paint();
   }
 
+  /**
+   * Vista previa de la pantalla partida (para ajustarla antes de jugar online).
+   * En una partida online cambia el diseño de verdad; si no, monta una vista previa.
+   */
+  function setSplitPreview(on) {
+    if (split && !split.preview) {
+      if (on) split.setOpts({ mode: 'split' });
+      else if (split.isSplit()) split.setOpts({ mode: 'solo' });
+    } else if (on && !split) {
+      split = mountSplit({
+        screen, mid, video, oppRow, oppAvatar, mat, divider, media: PREVIEW_MEDIA, session, ui, myQuad, preview: true,
+        rerender: () => render(S()),
+        onLayout: () => { applyLayout(mid, layout()); applyPerspective(); },
+      });
+    } else if (!on && split) {
+      const sp = split;
+      split = null;
+      sp.destroy();
+    }
+    applyLayout(mid, layout());
+    applyPerspective();
+    render(S());
+  }
+
   function calibrateTable(firstTime = false) {
     watcher.pause(true);
     session.pauseBots(true);
+    const multi = !!(split && split.isSplit());
+    let switching = false;
+    let finish = null;
+    // ¿Qué distribución se ajusta? Pantalla completa o multijugador con cámara compartida.
+    const switchTo = (wantMulti) => {
+      if (wantMulti === multi) return;
+      switching = true;
+      finish && finish(); // guarda lo ajustado en la distribución actual
+      setSplitPreview(wantMulti);
+      setTimeout(() => calibrateTable(firstTime), 80);
+    };
+    const modeSeg = h('div', { class: 'cal-mode' },
+      h('span', { class: 'cal-mode-label' }, 'Ajustar para:'),
+      h('div', { class: 'seg' },
+        h('button', { class: 'sigil-opt' + (!multi ? ' on' : ''), onClick: () => switchTo(false) }, '🖥 Pantalla completa'),
+        h('button', { class: 'sigil-opt' + (multi ? ' on' : ''), onClick: () => switchTo(true) }, '👥 Multijugador (cámara compartida)')));
+    let multiCtl = null;
+    if (multi) {
+      const o = split.opts;
+      multiCtl = h('div', { class: 'cal-multi' },
+        h('label', { class: 'slider' }, h('span', {}, 'Tamaño del rival'),
+          h('input', { type: 'range', min: 0.25, max: 0.75, step: 0.05, value: o.ratio, onInput: (e) => split.setOpts({ ratio: +e.target.value }) })),
+        h('label', { class: 'slider' }, h('span', {}, 'Margen central'),
+          h('input', { type: 'range', min: 0, max: 40, step: 2, value: o.safe, onInput: (e) => split.setOpts({ safe: +e.target.value }) })),
+        h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: !!o.swap, onChange: (e) => split.setOpts({ swap: e.target.checked }) }), 'Rival a la izquierda'));
+    }
     const zoomSlider = h('label', { class: 'slider' }, h('span', {}, 'Zoom cámara ', zoomLabel),
       h('input', { type: 'range', min: 1, max: 4, step: 0.25, value: ui.settings.camZoom || 1, onInput: (e) => { ui.settings.camZoom = +e.target.value; saveSettings(ui.settings); applyZoom(); } }));
     const perspBtn = h('div', { class: 'row-btns' },
       h('button', { class: 'act primary', onClick: () => autoPerspective() }, '✨ Adaptar a la mesa automáticamente'),
       h('button', { class: 'act', onClick: () => perspectiveEditor() }, '⬚ Perspectiva a mano'));
-    openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
+    finish = openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
       firstTime,
       toLocal,
-      extra: h('div', { class: 'cal-extra' }, zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
+      defaults: multi ? { ...LAYOUT_DEFAULTS, ...SPLIT_LAYOUT } : LAYOUT_DEFAULTS,
+      intro: multi ? 'Multijugador con cámara compartida: tu mesa ocupa tu mitad de la pantalla y la otra mitad es para la cámara de tu rival. Coloca tus zonas dentro de tu mitad. ' : '',
+      extra: h('div', { class: 'cal-extra' }, modeSeg, multiCtl, zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
       onChange: () => applyZoom(),
       onDone: (L) => {
         ui.settings[layoutKey()] = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };
         ui.settings.tilt = L.tilt;
         saveSettings(ui.settings);
+        if (switching) return;
+        if (split && split.preview) setSplitPreview(false); // la vista previa se quita al terminar
         watcher.pause(!!ui.holdVision);
         if (!screen.querySelector('.intro')) session.pauseBots(false);
         onCalibrated && onCalibrated();

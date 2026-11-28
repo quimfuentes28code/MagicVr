@@ -26,7 +26,7 @@ export function applyLayout(mid, L) {
  * Abre el editor sobre la mesa. elements: { screen, mid, board, summon, mat }.
  * onChange(layout) en cada cambio; onDone(layout) al pulsar «Listo».
  */
-export function openCalibrator({ screen, mid, board, summon, mat, zones }, layout, { onChange, onDone, firstTime = false, extra = null, toLocal = null }) {
+export function openCalibrator({ screen, mid, board, summon, mat, zones }, layout, { onChange, onDone, firstTime = false, extra = null, toLocal = null, defaults = LAYOUT_DEFAULTS, intro = '' }) {
   const L = { ...LAYOUT_DEFAULTS, ...layout };
   const update = () => {
     applyLayout(mid, L);
@@ -111,14 +111,14 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
   const panel = h('div', { class: 'cal-panel parchment' },
     h('div', { class: 'cal-text' },
       h('h3', {}, firstTime ? 'Antes de empezar: ajusta tu mesa' : 'Ajustar la mesa', fold),
-      h('p', {}, 'Arrastra el ', h('b', {}, 'círculo'), ' y las casillas de ', h('b', {}, 'mazo, cementerio y exilio'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. ',
+      h('p', {}, intro, 'Arrastra el ', h('b', {}, 'círculo'), ' y las casillas de ', h('b', {}, 'mazo, cementerio y exilio'), ' (tamaño con ⤡) y los ', h('b', {}, 'bordes ⇔'), ' del tablero. ',
         '¿La cámara mira la mesa en ángulo? Pulsa ', h('b', {}, 'Adaptar a la mesa automáticamente'), '. Pliega este panel para mover las áreas cómodamente.'),
     ),
     h('div', { class: 'cal-controls' },
       extra,
       h('label', { class: 'slider' }, h('span', {}, 'Inclinación'), tilt),
       h('div', { class: 'cal-btns' },
-        h('button', { class: 'act', onClick: () => { Object.assign(L, LAYOUT_DEFAULTS); tilt.value = L.tilt; update(); } }, 'Restablecer'),
+        h('button', { class: 'act', onClick: () => { Object.assign(L, defaults); tilt.value = L.tilt; update(); } }, 'Restablecer'),
         h('button', { class: 'act primary', onClick: done }, firstTime ? '¡A jugar!' : 'Listo'),
       ),
     ),

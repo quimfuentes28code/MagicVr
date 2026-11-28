@@ -191,7 +191,7 @@ export function mountSplit(o) {
     btnSwap.hidden = !isSplit();
     btnEye.textContent = st.seeRival ? '👁' : '🙈';
     btnEye.classList.toggle('off', !st.seeRival);
-    if (isSplit() && !st.tipShown) {
+    if (isSplit() && !st.tipShown && !preview) {
       st.tipShown = true;
       persist();
       setTimeout(() => toast('Pantalla partida: tus zonas van en tu mitad. Colócalas a tu gusto en ⚙ → «Ajustar áreas de la mesa».', 'info', 6000), 2500);

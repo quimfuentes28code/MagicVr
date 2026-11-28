@@ -28,8 +28,10 @@ export function applyLayout(mid, L) {
  */
 export function openCalibrator({ screen, mid, board, summon, mat, zones }, layout, { onChange, onDone, firstTime = false, extra = null, toLocal = null, defaults = LAYOUT_DEFAULTS, intro = '' }) {
   const L = { ...LAYOUT_DEFAULTS, ...layout };
+  const smallChecks = [];
   const update = () => {
     applyLayout(mid, L);
+    requestAnimationFrame(() => smallChecks.forEach((f) => f()));
     mat.style.setProperty('--tilt', L.tilt + 'deg');
     onChange && onChange(L);
   };
@@ -67,8 +69,10 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
   function movable(el, kx, ky, kh, label, minH = 25) {
     if (!el) return;
     const size = h('div', { class: 'cal-handle cal-size', title: 'Tamaño' }, '⤡');
-    const hint = h('div', { class: 'cal-move' }, icon('portal'), label);
+    const hint = h('div', { class: 'cal-move' }, icon('portal'), h('span', { class: 'cal-move-txt' }, label));
     el.append(size, hint);
+    // si queda muy pequeño, sólo el icono (para que el texto no se salga)
+    smallChecks.push(() => el.classList.toggle('cal-small', el.offsetHeight < 120));
     drag(size, (p, r) => {
       const cy = (L[ky] / 100) * r.h;
       L[kh] = clamp(((p.y - cy) * 2 / r.h) * 100, minH, 100);
@@ -100,10 +104,12 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
       size.remove(); hint.remove(); el.classList.remove('cal-movable');
       el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+      el.classList.remove('cal-small');
     });
   }
-  movable(summon, 'sx', 'sy', 'sh', 'Círculo: arrastra para mover');
-  movable(zones, 'zx', 'zy', 'zh', 'Mazo · cementerio · exilio');
+  // Mínimos pequeños: con la cámara lejos de la mesa las cartas se ven pequeñas.
+  movable(summon, 'sx', 'sy', 'sh', 'Círculo: arrastra para mover', 8);
+  movable(zones, 'zx', 'zy', 'zh', 'Mazo · cementerio · exilio', 10);
 
   const tilt = h('input', { type: 'range', min: 0, max: 45, step: 1, value: L.tilt, onInput: (e) => { L.tilt = +e.target.value; update(); } });
   // Panel compacto y plegable, para que no tape las áreas que estás moviendo.
@@ -135,5 +141,13 @@ export function openCalibrator({ screen, mid, board, summon, mat, zones }, layou
     screen.classList.remove('calibrating');
     onDone && onDone({ ...L });
   }
+  /** Cambia la distribución desde fuera (p. ej. «Adaptar el círculo a mi carta»). */
+  done.set = (patch) => {
+    Object.assign(L, patch);
+    L.sh = clamp(L.sh, 8, 100);
+    L.sx = clamp(L.sx, 5, 95);
+    L.sy = clamp(L.sy, 10, 90);
+    update();
+  };
   return done;
 }

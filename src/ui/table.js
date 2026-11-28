@@ -6,7 +6,7 @@ import { cardFace, cardInfo } from './cardview.js';
 import { icon } from './icons.js';
 import { openPicker } from './picker.js';
 import { openCalibrator, applyLayout, LAYOUT_DEFAULTS } from './calibrate.js';
-import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, setCameraZoom, videoToScreen } from '../camera.js';
+import { startCamera, stopCamera, cameraSupported, cameraErrorText, grabFrame, grabGray, setCameraZoom, videoToScreen } from '../camera.js';
 import { detectSurface } from '../surface.js';
 import { CardWatcher } from '../vision.js';
 import { targetsFor, describeEffect, describeAttach, kwEs, TYPE_ES, targetEs, needsTarget, costEs } from '../engine/effects.js';
@@ -15,6 +15,7 @@ import { buzz, keepAwake } from '../native.js';
 import { sfx, soundOn, setSound, magicSound } from './sfx.js';
 import { castMagic } from './magic.js';
 import { rectToQuad, applyH, invertH, cssMatrix } from '../homography.js';
+import { locateAcross } from '../cardfit.js';
 import { hologram } from './hologram.js';
 import { mountSplit, fitRect as fitBox, SPLIT_LAYOUT, PREVIEW_MEDIA } from './split.js';
 import { tokenImage } from './tokens.js';
@@ -443,6 +444,56 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     render(S());
   }
 
+  /**
+   * «Adaptar el círculo a mi carta»: busca una carta de referencia dentro o cerca
+   * del círculo y lo coloca encima, de su mismo tamaño. Devuelve { sx, sy, sh } o null.
+   */
+  async function fitSummonToCard() {
+    if (!video.videoWidth || screen.classList.contains('no-cam')) {
+      toast('La cámara no está encendida: actívala para que vea tu carta.', 'warn', 3500);
+      return null;
+    }
+    const v = video.getBoundingClientRect();
+    const r = summon.getBoundingClientRect();
+    const c = { x: r.left + r.width / 2, y: r.top + r.height / 2, h: Math.max(r.height, 60) };
+    const sample = ({ scale, dx, dy }, outH) => {
+      const ch = c.h * scale;
+      const left = c.x + dx * ch - ch / 2;
+      const top = c.y + dy * ch - ch / 2;
+      const s = grabGray(video, { x: (left - v.left) / v.width, y: (top - v.top) / v.height, w: ch / v.width, h: ch / v.height }, outH);
+      return s && { g: s.g, W: s.W, H: s.H, ch, left, top };
+    };
+    const best = await locateAcross(sample, { minScore: 40 });
+    if (!best) return null;
+    // de píxeles del recorte a la pantalla
+    const k = best.ch / best.H;
+    const cx = best.left + best.res.cx * k;
+    const cy = best.top + best.res.cy * k;
+    const hh = best.res.h * k;
+    const ang = best.res.ang;
+    const rot = (x, y) => [cx + x * Math.cos(ang) - y * Math.sin(ang), cy + x * Math.sin(ang) + y * Math.cos(ang)];
+    // marca en verde la carta encontrada
+    const w = hh * 63 / 88;
+    const sr = screen.getBoundingClientRect();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'card-fit-mark');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', [[-w / 2, -hh / 2], [w / 2, -hh / 2], [w / 2, hh / 2], [-w / 2, hh / 2]].map(([x, y]) => rot(x, y)).map(([x, y]) => `${x - sr.left},${y - sr.top}`).join(' '));
+    svg.append(poly);
+    screen.append(svg);
+    setTimeout(() => svg.remove(), 2600);
+    // a coordenadas de la mesa (teniendo en cuenta la perspectiva)
+    const ctr = toLocal(cx, cy);
+    const top = toLocal(...rot(0, -hh / 2));
+    const bot = toLocal(...rot(0, hh / 2));
+    const plH = Math.hypot(top.x - bot.x, top.y - bot.y);
+    return {
+      sx: (ctr.x / mid.clientWidth) * 100,
+      sy: (ctr.y / mid.clientHeight) * 100,
+      sh: ((plH * 1.08) / mid.clientHeight) * 100, // un poco más grande que la carta
+    };
+  }
+
   function calibrateTable(firstTime = false) {
     watcher.pause(true);
     session.pauseBots(true);
@@ -477,12 +528,26 @@ export function mountTable(root, session, { onExit, calibrate = false, onCalibra
     const perspBtn = h('div', { class: 'row-btns' },
       h('button', { class: 'act primary', onClick: () => autoPerspective() }, '✨ Adaptar a la mesa automáticamente'),
       h('button', { class: 'act', onClick: () => perspectiveEditor() }, '⬚ Perspectiva a mano'));
+    const fitBtn = h('button', { class: 'act primary card-fit-btn', onClick: async () => {
+      if (fitBtn.disabled) return;
+      fitBtn.disabled = true;
+      fitBtn.textContent = '🔎 Buscando tu carta…';
+      let f = null;
+      try { f = await fitSummonToCard(); } finally { fitBtn.disabled = false; fitBtn.textContent = '🃏 Adaptar el círculo a mi carta'; }
+      if (!f) {
+        toast('No encuentro ninguna carta cerca del círculo. Pon una carta de referencia (boca arriba o boca abajo) dentro o cerca del círculo, con buena luz, y vuelve a pulsar.', 'warn', 6000);
+        return;
+      }
+      finish && finish.set(f);
+      applyZoom();
+      toast(f.sh < 14 ? 'Círculo adaptado a tu carta. Se ve muy pequeña: si cuesta reconocerla, sube el «Zoom cámara».' : 'Círculo adaptado a tu carta.', 'info', 4500);
+    } }, '🃏 Adaptar el círculo a mi carta');
     finish = openCalibrator({ screen, mid, board, summon, mat, zones: myZones }, layout(), {
       firstTime,
       toLocal,
       defaults: multi ? { ...LAYOUT_DEFAULTS, ...SPLIT_LAYOUT } : LAYOUT_DEFAULTS,
       intro: multi ? 'Multijugador con cámara compartida: tu mesa ocupa tu mitad de la pantalla y la otra mitad es para la cámara de tu rival. Coloca tus zonas dentro de tu mitad. ' : '',
-      extra: h('div', { class: 'cal-extra' }, modeSeg, multiCtl, zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
+      extra: h('div', { class: 'cal-extra' }, modeSeg, multiCtl, h('div', { class: 'card-fit' }, fitBtn, h('span', { class: 'muted small' }, 'Pon una carta en la mesa, dentro o cerca del círculo, y pulsa: el círculo toma su tamaño y su sitio.')), zoomSlider, h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: ui.settings.camFit !== 'cover', onChange: (e) => { ui.settings.camFit = e.target.checked ? 'contain' : 'cover'; saveSettings(ui.settings); applyFit(); } }), 'Imagen de la cámara completa (sin recortar)'), perspBtn),
       onChange: () => applyZoom(),
       onDone: (L) => {
         ui.settings[layoutKey()] = { bl: L.bl, br: L.br, sx: L.sx, sy: L.sy, sh: L.sh, zx: L.zx, zy: L.zy, zh: L.zh };
